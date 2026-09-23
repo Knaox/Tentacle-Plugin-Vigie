@@ -62,3 +62,16 @@ export const TrashIcon = (p: IconProps) => <Svg {...p}><path d="M4.5 7h15M9.5 7V
 export const EyeIcon = (p: IconProps) => <Svg {...p}><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="2.8" /></Svg>;
 export const EyeOffIcon = (p: IconProps) => <Svg {...p}><path d="M3.5 3.5l17 17M10.2 5.7A9.6 9.6 0 0112 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 01-2.6 3.4M6.6 6.9C4 8.6 2.5 12 2.5 12S6 18.5 12 18.5a9 9 0 004.4-1.1M9.9 10a2.8 2.8 0 004 4" /></Svg>;
 export const InboxIcon = (p: IconProps) => <Svg {...p}><path d="M3.5 13.5l2.8-8h11.4l2.8 8v5a1.5 1.5 0 01-1.5 1.5h-14a1.5 1.5 0 01-1.5-1.5z" /><path d="M3.5 13.5H8l1.5 2.5h5l1.5-2.5h4.5" /></Svg>;
+/* États et canaux de sortie : une forme par sens, la couleur ne dit que l'état. */
+export const ArrowDownIcon = (p: IconProps) => <Svg {...p}><path d="M12 4.5v12M6.5 11.5l5.5 5.5 5.5-5.5M5 20h14" /></Svg>;
+export const HalfCircleIcon = (p: IconProps) => (
+  <Svg {...p}><circle cx="12" cy="12" r="8" /><path d="M12 4a8 8 0 010 16z" fill="currentColor" stroke="none" /></Svg>
+);
+export const TicketIcon = (p: IconProps) => (
+  <Svg {...p}><path d="M4 7.5A1.5 1.5 0 015.5 6h13A1.5 1.5 0 0120 7.5v2a2.5 2.5 0 000 5v2a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 16.5v-2a2.5 2.5 0 000-5z" /><path d="M14 6v12" strokeDasharray="1.5 2" /></Svg>
+);
+export const PlayCircleIcon = (p: IconProps) => <Svg {...p}><circle cx="12" cy="12" r="8.5" /><path d="M10.2 8.8v6.4l5-3.2z" fill="currentColor" /></Svg>;
+export const DiscIcon = (p: IconProps) => <Svg {...p}><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="2.2" /></Svg>;
+export const DashedCircleIcon = (p: IconProps) => <Svg {...p}><circle cx="12" cy="12" r="8" strokeDasharray="3 2.6" /><path d="M12 9v3.5l2 1.5" /></Svg>;
+export const LayersIcon = (p: IconProps) => <Svg {...p}><path d="M12 4l8.5 4.5L12 13 3.5 8.5z" /><path d="M3.5 12.5L12 17l8.5-4.5M3.5 16.5L12 21l8.5-4.5" /></Svg>;
+export const SortIcon = (p: IconProps) => <Svg {...p}><path d="M7 5v14M4 16l3 3 3-3M17 19V5M14 8l3-3 3 3" /></Svg>;

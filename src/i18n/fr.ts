@@ -14,6 +14,7 @@ import requests from "./fr/requests";
 import releases from "./fr/releases";
 import admin from "./fr/admin";
 import hub from "./fr/hub";
+import states from "./fr/states";
 
 export default {
   ...common,
@@ -22,4 +23,5 @@ export default {
   ...releases,
   ...admin,
   ...hub,
+  ...states,
 } as const;

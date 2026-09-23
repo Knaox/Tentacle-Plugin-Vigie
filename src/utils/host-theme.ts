@@ -18,6 +18,7 @@
 import { detectHostScheme, watchHostScheme } from "./host-scheme";
 import type { HostScheme } from "./host-scheme";
 import { buildFallbackTokensCss, buildSeerStatusCss, SEER_CONST_CSS } from "./host-theme-fallback";
+import { buildStateCss } from "./state-tokens";
 
 /* Même mapping sémantique que buildPluginTheme.ts (host web ≥ 1.7.1). */
 const TENTACLE_COLORS: Record<string, string> = {
@@ -83,9 +84,9 @@ function ensureOnMediaTokens(): void {
   upsertStyle("seer-onmedia-fallback", SEER_CONST_CSS, "prepend");
 }
 
-/** Statuts Seer — toujours injectés (vocabulaire propre au plugin). */
+/** Statuts Seer et états d'un titre — toujours injectés (vocabulaire propre au plugin). */
 function ensureStatusTokens(scheme: HostScheme): void {
-  upsertStyle("seer-status-tokens", buildSeerStatusCss(scheme), "append");
+  upsertStyle("seer-status-tokens", buildSeerStatusCss(scheme) + buildStateCss(scheme), "append");
 }
 
 /** Complète la config Tailwind runtime (Play CDN) SANS écraser les clés du host. */
