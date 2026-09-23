@@ -52,7 +52,7 @@ export interface HubApi {
   browse: (preset: BrowsePreset, withFilters?: boolean) => void;
   /** Remplit la recherche du hub (une pastille, une correction proposée). */
   setQuery: (query: string) => void;
-  /** Demande un film d'un geste — les séries passent par la fiche (choix des saisons). */
+  /** Demande un film d'un geste ; pour une série, ouvre ses saisons libres à cocher. */
   quickRequest: (item: SeerrSearchResult) => void;
 }
 

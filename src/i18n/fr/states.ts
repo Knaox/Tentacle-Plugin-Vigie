@@ -84,4 +84,10 @@ export default {
   scopeMineShort: "Les miennes",
   scopeEveryoneShort: "Le serveur",
   scopeAllShort: "Toutes",
+  // Demande rapide de saisons (le « + » d'une affiche de série)
+  quickSeasonsHint: "Cochez les saisons à demander. Celles qui sont déjà là ou déjà demandées sont verrouillées.",
+  quickSeasonsAll: "Toutes les saisons libres ({{count}})",
+  quickSeasonsDone_one: "« {{title}} » : {{count}} saison demandée",
+  quickSeasonsDone_other: "« {{title}} » : {{count}} saisons demandées",
+  quickRequestSeasons: "Demander des saisons de {{title}}",
 } as const;

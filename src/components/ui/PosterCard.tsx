@@ -12,8 +12,9 @@
  *   - par où est-il sorti ? — sous le titre, sur la page : au cinéma, en
  *     streaming, potentiellement disponible…
  *
- * Un clic ouvre la fiche ; sur ordinateur, un film se demande aussi d'un
- * geste depuis la carte. Légère à dessein : rendue par centaines dans une
+ * Un clic ouvre la fiche ; sur ordinateur, le « + » du survol demande un film
+ * d'un geste, et ouvre les saisons libres d'une série pour les ajouter d'un
+ * autre. Légère à dessein : rendue par centaines dans une
  * grille virtualisée, sans flou ni ombre animée — seule l'affiche s'agrandit
  * au survol (une transformation, cf. la règle GPU du projet).
  */
@@ -36,7 +37,7 @@ const FINE_POINTER = typeof window !== "undefined" && window.matchMedia?.("(hove
 export interface PosterCardProps {
   item: SeerrSearchResult;
   onOpen: (item: SeerrSearchResult) => void;
-  /** Demande rapide (films pas encore demandés) — absente, pas de bouton. */
+  /** Demande rapide (un film, ou les saisons libres d'une série) — absente, pas de bouton. */
   onQuickRequest?: (item: SeerrSearchResult) => void;
   /** Remplace la ligne du canal (« jeu. 25 · S4E18 » dans les sorties de la semaine). */
   caption?: string | null;
@@ -60,7 +61,10 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
   // « Potentiellement disponible » sous une affiche qui dit « Disponible » : non.
   if (channel?.kind === "uncharted" && (status?.state === "available" || status?.state === "partial")) channel = null;
   const poster = posterUrl(item.posterPath);
-  const canQuickRequest = FINE_POINTER && onQuickRequest && item.mediaType === "movie" && status === null;
+  // Un film pas encore demandé ; une série tant qu'elle n'est pas entièrement là
+  // (le « + » ouvre alors ses saisons libres).
+  const canQuickRequest = FINE_POINTER && !!onQuickRequest
+    && (item.mediaType === "movie" ? status === null : item.mediaType === "tv" && status?.state !== "available");
   const rating = item.voteAverage ?? 0;
   // Une affiche déjà en cache a fini de charger avant que React n'écoute `load`.
   const imgRef = useCallback((node: HTMLImageElement | null) => {
@@ -126,9 +130,10 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
           <button
             type="button"
             onClick={() => onQuickRequest?.(item)}
-            aria-label={t("seer:requestTitle", { title })}
-            title={t("seer:request")}
-            className="pointer-events-auto absolute bottom-2 right-2 flex h-9 w-9 items-center justify-center rounded-full bg-tentacle-cta-primary text-tentacle-cta-primary-fg shadow-tentacle-elev-2 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.7)]"
+            aria-label={item.mediaType === "tv" ? t("seer:quickRequestSeasons", { title }) : t("seer:requestTitle", { title })}
+            title={item.mediaType === "tv" ? t("seer:chooseSeasons") : t("seer:request")}
+            // Au-dessus du bandeau d'état quand il y en a un (série en partie là).
+            className={`pointer-events-auto absolute right-2 flex h-9 w-9 items-center justify-center rounded-full bg-tentacle-cta-primary text-tentacle-cta-primary-fg shadow-tentacle-elev-2 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.7)] ${status ? "bottom-8" : "bottom-2"}`}
             style={{ animation: "fadeIn 150ms ease both" }}
           >
             <PlusIcon className="h-4 w-4" />

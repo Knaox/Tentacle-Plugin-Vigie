@@ -32,6 +32,7 @@ import { catalogPreset } from "../browse/presets";
 import { RequestsView } from "../requests/RequestsView";
 import { CalendarView } from "../calendar/CalendarView";
 import { PersonSheet } from "../person/PersonSheet";
+import { QuickSeasonsSheet } from "../components/QuickSeasonsSheet";
 import { HubContext, type BrowsePreset, type HubApi, type HubTab, type OpenMediaOptions } from "./HubContext";
 import { HubHeader } from "./HubHeader";
 import { hostQuery, readHubEntry } from "./deepLink";
@@ -70,6 +71,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
     entry.media ? { item: { id: entry.media.id, mediaType: entry.media.mediaType } } : null,
   );
   const [personId, setPersonId] = useState<number | null>(entry.person);
+  const [quickSeasons, setQuickSeasons] = useState<SeerrSearchResult | null>(null);
 
   const data = useHubData();
   const search = useVigieSearch(query, { showBlocked, exact });
@@ -121,6 +123,8 @@ export function VigieHub({ routePath }: { routePath: string }) {
   }, []);
 
   const quickRequest = useCallback((item: SeerrSearchResult) => {
+    // Une série : ses saisons libres, cochées d'un geste — sans ouvrir la fiche.
+    if (item.mediaType === "tv") { setQuickSeasons(item); return; }
     if (item.mediaType !== "movie") { openMedia(item); return; }
     const title = mediaTitle(item) || t("seer:untitled");
     requestMedia.mutate(
@@ -194,6 +198,13 @@ export function VigieHub({ routePath }: { routePath: string }) {
           />
         )}
         {personId !== null && <PersonSheet personId={personId} onClose={() => setPersonId(null)} />}
+        {quickSeasons && (
+          <QuickSeasonsSheet
+            item={quickSeasons}
+            onClose={() => setQuickSeasons(null)}
+            onOpenDetail={(item) => { setQuickSeasons(null); openMedia(item); }}
+          />
+        )}
       </TitleStatesProvider>
     </HubContext.Provider>
   );

@@ -79,4 +79,9 @@ export default {
   scopeMineShort: "Mine",
   scopeEveryoneShort: "Server",
   scopeAllShort: "All",
+  quickSeasonsHint: "Tick the seasons to request. Those already here or requested are locked.",
+  quickSeasonsAll: "Every free season ({{count}})",
+  quickSeasonsDone_one: "“{{title}}”: {{count}} season requested",
+  quickSeasonsDone_other: "“{{title}}”: {{count}} seasons requested",
+  quickRequestSeasons: "Request seasons of {{title}}",
 } as const;
