@@ -44,6 +44,8 @@ export interface SeerrSearchResult {
   mediaInfo?: {
     status: number;
     requests?: SeerrMediaRequest[];
+    /** Ce qui descend en ce moment, relayé de la file *arr par Jellyseerr. */
+    downloadStatus?: Array<{ status?: string; size?: number; sizeLeft?: number }>;
   };
 }
 

@@ -3,10 +3,11 @@
 /* ------------------------------------------------------------------ */
 
 /*
- * L'affiche, le titre, et une PHRASE qui dit où en est la demande — avec la
- * barre d'avancement quand quelque chose arrive, et le prochain épisode quand
- * la série en attend un (le calendrier, là où on le cherche). Une seule
- * action à portée de main ; le reste est derrière « ⋯ ».
+ * L'affiche, le titre, l'ÉTAT (le badge commun à tout Vigie : demandé, en
+ * route, bloqué, disponible, en partie) et sa nuance — avec la barre
+ * d'avancement quand quelque chose arrive, et le prochain épisode quand la
+ * série en attend un (le calendrier, là où on le cherche). Une seule action à
+ * portée de main ; le reste est derrière « ⋯ ».
  */
 
 import { memo } from "react";
@@ -17,7 +18,8 @@ import { posterUrl } from "../utils/media-helpers";
 import { CTA_PRIMARY, CTA_SECONDARY } from "../styles/cta";
 import { CalendarIcon, CheckIcon, DotsIcon, PlayIcon, RetryIcon } from "../components/ui/icons";
 import { RequestProgressBar } from "../components/RequestProgressBar";
-import { PHRASE_TONE, requestPhrase } from "./requestPhrase";
+import { StateBadge } from "../components/ui/StateBadge";
+import { PHRASE_TONE, requestView } from "./requestPhrase";
 import type { RequestAction } from "./RequestActionsSheet";
 
 interface Props {
@@ -38,8 +40,7 @@ interface Props {
 export const RequestRow = memo(function RequestRow(props: Props) {
   const { request, progress, receivedAt, nextRelease, onAction, onMenu, onNextRelease, selectable, selected, onToggleSelect } = props;
   const { t } = useTranslation("seer");
-  const phrase = requestPhrase(request, progress);
-  const tone = PHRASE_TONE[phrase.tone];
+  const { status, detail } = requestView(request, progress);
   const poster = posterUrl(request.posterPath, "w185");
   const date = new Date(request.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short" });
   const canSelect = !["deleting", "processing"].includes(request.status);
@@ -75,9 +76,11 @@ export const RequestRow = memo(function RequestRow(props: Props) {
           <span className="mt-0.5 block truncate text-xs text-tentacle-text-tertiary">
             {[request.mediaType === "tv" ? t("seer:typeSeries") : t("seer:typeMovie"), request.year, seasons].filter(Boolean).join(" · ")}
           </span>
-          <span className={`mt-1.5 flex items-center gap-1.5 text-[13px] font-semibold ${tone.text}`}>
-            <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${tone.dot}`} />
-            <span className="truncate">{t(phrase.key, phrase.params)}</span>
+          <span className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            {status && <StateBadge status={status} variant="chip" />}
+            {detail && (
+              <span className={`min-w-0 truncate text-xs font-medium ${PHRASE_TONE[detail.tone].text}`}>{t(detail.key, detail.params)}</span>
+            )}
           </span>
           {/* L'avancement réel : taille, temps restant, détail par saison. */}
           {progress?.download && (

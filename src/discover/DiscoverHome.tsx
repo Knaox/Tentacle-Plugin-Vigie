@@ -11,24 +11,21 @@
 
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
-import type { SeerrSearchResult } from "../api/types";
 import { useHub, type BrowsePreset } from "../hub/HubContext";
 import type { HubData } from "../hub/useHubData";
 import { Rail } from "../components/ui/Rail";
 import { PosterCard, PosterCardSkeleton } from "../components/ui/PosterCard";
 import { CTA_SECONDARY, CTA_SIZE_LG } from "../styles/cta";
-import { getCurrentLanguage } from "../utils/media-helpers";
 import { catalogPreset, popularPreset, topRatedPreset, trendingPreset, upcomingPreset } from "../browse/presets";
 import { HeroSpotlight } from "./HeroSpotlight";
 import { MyRequestsStrip, ThisWeekStrip } from "./HomeStrips";
 import { GenreShortcuts, PlatformShortcuts } from "./BrowseShortcuts";
 import { useRail, type RailId } from "./useRails";
 
-function CatalogRail({ id, title, preset, ribbon }: {
+function CatalogRail({ id, title, preset }: {
   id: RailId;
   title: string;
   preset: BrowsePreset;
-  ribbon?: (item: SeerrSearchResult) => string | null;
 }) {
   const { t } = useTranslation("seer");
   const hub = useHub();
@@ -45,22 +42,11 @@ function CatalogRail({ id, title, preset, ribbon }: {
             item={item}
             onOpen={hub.openMedia}
             onQuickRequest={hub.quickRequest}
-            ribbon={ribbon?.(item) ?? null}
             eager={i < 6}
           />
         ))}
     </Rail>
   );
-}
-
-function releaseRibbon(t: (k: string, o?: Record<string, unknown>) => string) {
-  return (item: SeerrSearchResult): string | null => {
-    const date = item.releaseDate ?? item.firstAirDate;
-    if (!date) return null;
-    const [y, m, d] = date.split("-").map(Number);
-    const label = new Intl.DateTimeFormat(getCurrentLanguage(), { day: "numeric", month: "short" }).format(new Date(y, m - 1, d));
-    return t("seer:releaseOn", { date: label });
-  };
 }
 
 export const DiscoverHome = memo(function DiscoverHome({ data }: { data: HubData }) {
@@ -77,7 +63,7 @@ export const DiscoverHome = memo(function DiscoverHome({ data }: { data: HubData
       <CatalogRail id="movies" title={t("seer:railPopularMovies")} preset={popularPreset(t, "movies")} />
       <CatalogRail id="series" title={t("seer:railPopularSeries")} preset={popularPreset(t, "tv")} />
       <PlatformShortcuts />
-      <CatalogRail id="upcoming" title={t("seer:railUpcomingMovies")} preset={upcomingPreset(t, "movies")} ribbon={releaseRibbon(t)} />
+      <CatalogRail id="upcoming" title={t("seer:railUpcomingMovies")} preset={upcomingPreset(t, "movies")} />
       <CatalogRail id="anime" title={t("seer:railPopularAnime")} preset={popularPreset(t, "anime")} />
       <CatalogRail id="top" title={t("seer:railTopMovies")} preset={topRatedPreset(t, "movies")} />
       <GenreShortcuts />

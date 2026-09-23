@@ -18,6 +18,7 @@ import { useGlobalCalendar } from "../hooks/useReleases";
 import { addDays, today } from "../utils/calendar-groups";
 import { applyLocalDays } from "../utils/calendar-localtime";
 import { calendarAsMedia, requestAsMedia } from "../utils/as-media";
+import { calendarStatus } from "../utils/title-state";
 import { episodeLabel, KIND_I18N } from "../utils/calendar-kind";
 import { shortDayLabel } from "../utils/day-label";
 import { groupOf, recentlyArrived } from "../requests/requestGroups";
@@ -140,7 +141,7 @@ export const ThisWeekStrip = memo(function ThisWeekStrip({ data }: { data: HubDa
       action={{ label: t("seer:openCalendar"), onClick: () => hub.setTab("calendar") }}
     >
       {items.map((item) => (
-        <PosterCard key={item.id} item={calendarAsMedia(item)} onOpen={hub.openMedia} ribbon={ribbonOf(item, t)} meta={item.networks ?? undefined} />
+        <PosterCard key={item.id} item={calendarAsMedia(item)} onOpen={hub.openMedia} caption={ribbonOf(item, t)} status={calendarStatus(item)} />
       ))}
     </Rail>
   );

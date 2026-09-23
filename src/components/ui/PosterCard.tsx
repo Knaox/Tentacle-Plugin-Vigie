@@ -4,13 +4,17 @@
 
 /*
  * UNE carte pour tout le plugin : rangées, grille du catalogue, recherche,
- * filmographies. Elle répond d'abord à la seule question qui compte ici —
- * « puis-je le regarder, l'ai-je déjà demandé ? » — par une pastille en clair
- * sur l'affiche. Un clic ouvre la fiche ; sur ordinateur, un film se demande
- * aussi d'un geste depuis la carte.
+ * filmographies. Elle répond aux deux questions qui comptent ici :
  *
- * Légère à dessein : elle est rendue par centaines dans une grille
- * virtualisée. Pas de flou, pas d'ombre animée — seule l'affiche s'agrandit
+ *   - où en est ce titre ? — le bandeau au pied de l'affiche : demandé, en
+ *     route (son filet avance), bloqué, disponible, en partie. Posé sur une
+ *     plaque presque opaque : aucune affiche ne peut en avaler la couleur ;
+ *   - par où est-il sorti ? — sous le titre, sur la page : au cinéma, en
+ *     streaming, potentiellement disponible…
+ *
+ * Un clic ouvre la fiche ; sur ordinateur, un film se demande aussi d'un
+ * geste depuis la carte. Légère à dessein : rendue par centaines dans une
+ * grille virtualisée, sans flou ni ombre animée — seule l'affiche s'agrandit
  * au survol (une transformation, cf. la règle GPU du projet).
  */
 
@@ -18,16 +22,13 @@ import { memo, useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SeerrSearchResult } from "../../api/types";
 import { mediaTitle, mediaYear, posterUrl } from "../../utils/media-helpers";
-import { mediaStateOf, type MediaState } from "../../utils/media-status";
-import { STATUS_STYLE } from "../../styles/status";
-import { CheckIcon, PlusIcon, StarIcon } from "./icons";
-
-const STATE: Record<MediaState, { cls: string; key: string }> = {
-  available: { cls: STATUS_STYLE.available.solid, key: "seer:stateAvailable" },
-  partial: { cls: STATUS_STYLE.partially_available.solid, key: "seer:statePartial" },
-  processing: { cls: STATUS_STYLE.processing.solid, key: "seer:stateProcessing" },
-  requested: { cls: STATUS_STYLE.approved.solid, key: "seer:stateRequested" },
-};
+import { statusText } from "../../utils/state-labels";
+import type { TitleStatus } from "../../utils/title-state";
+import { useTitleStatus } from "../../hub/TitleStates";
+import { useVerdict } from "../../hooks/useVerdict";
+import { ChannelLine, channelOf } from "./ChannelLine";
+import { StateBadge } from "./StateBadge";
+import { PlusIcon, StarIcon } from "./icons";
 
 /** Pointeur fin (souris) : la demande rapide au survol n'a de sens que là. */
 const FINE_POINTER = typeof window !== "undefined" && window.matchMedia?.("(hover: hover) and (pointer: fine)").matches;
@@ -37,30 +38,37 @@ export interface PosterCardProps {
   onOpen: (item: SeerrSearchResult) => void;
   /** Demande rapide (films pas encore demandés) — absente, pas de bouton. */
   onQuickRequest?: (item: SeerrSearchResult) => void;
-  /** Ligne sous le titre ; par défaut le type et l'année. */
-  meta?: string;
-  /** Mention posée en bas de l'affiche (« Sortie le 12 nov. »). */
-  ribbon?: string | null;
+  /** Remplace la ligne du canal (« jeu. 25 · S4E18 » dans les sorties de la semaine). */
+  caption?: string | null;
+  /** État imposé — celui d'un épisode du calendrier ; sinon, celui du titre. */
+  status?: TitleStatus | null;
   /** Première image d'une rangée : chargée sans attendre. */
   eager?: boolean;
 }
 
-export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickRequest, meta, ribbon, eager }: PosterCardProps) {
+export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickRequest, caption, status: forced, eager }: PosterCardProps) {
   const { t } = useTranslation("seer");
   const [hovered, setHovered] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const title = mediaTitle(item) || t("seer:untitled");
   const year = mediaYear(item);
-  const state = mediaStateOf(item.mediaInfo?.status);
-  const poster = posterUrl(item.posterPath);
+  const own = useTitleStatus(item);
+  const status = forced !== undefined ? forced : own;
+  const verdict = useVerdict(item.mediaType, item.id, caption == null);
   const typeLabel = item.mediaType === "tv" ? t("seer:typeSeries") : t("seer:typeMovie");
-  const line = meta ?? [typeLabel, year].filter(Boolean).join(" · ");
-  const canQuickRequest = FINE_POINTER && onQuickRequest && item.mediaType === "movie" && state === null;
+  let channel = verdict ? channelOf(verdict, t) : null;
+  // « Potentiellement disponible » sous une affiche qui dit « Disponible » : non.
+  if (channel?.kind === "uncharted" && (status?.state === "available" || status?.state === "partial")) channel = null;
+  const poster = posterUrl(item.posterPath);
+  const canQuickRequest = FINE_POINTER && onQuickRequest && item.mediaType === "movie" && status === null;
   const rating = item.voteAverage ?? 0;
   // Une affiche déjà en cache a fini de charger avant que React n'écoute `load`.
   const imgRef = useCallback((node: HTMLImageElement | null) => {
     if (node?.complete && node.naturalWidth > 0) setLoaded(true);
   }, []);
+
+  const label = [title, status ? statusText(status, t) : "", caption ?? channel?.label ?? [typeLabel, year].filter(Boolean).join(" · ")]
+    .filter(Boolean).join(" — ");
 
   return (
     <div
@@ -71,7 +79,7 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
       <button
         type="button"
         onClick={() => onOpen(item)}
-        aria-label={[title, line, state ? t(STATE[state].key) : ""].filter(Boolean).join(" — ")}
+        aria-label={label}
         className="block w-full text-left focus-visible:outline-none"
       >
         <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl bg-tentacle-surface-2 ring-1 ring-tentacle-border-subtle transition-shadow group-focus-visible:ring-2 group-focus-visible:ring-[rgba(var(--brand-rgb),0.8)]">
@@ -88,36 +96,27 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
               style={{ opacity: loaded ? 1 : 0 }}
             />
           ) : (
-            <div className="flex h-full w-full items-end p-3 text-sm font-semibold leading-snug text-tentacle-text-tertiary">
+            <div className="flex h-full w-full items-end p-3 pb-8 text-sm font-semibold leading-snug text-tentacle-text-tertiary">
               {title}
             </div>
           )}
-          {state && (
-            <span className={`absolute left-2 top-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold text-tentacle-on-media-primary ${STATE[state].cls}`}>
-              {state === "available" && <CheckIcon className="h-3 w-3" />}
-              {t(STATE[state].key)}
-            </span>
-          )}
           {rating > 0 && (
             <span
-              className="absolute right-2 top-2 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-tentacle-on-media-primary"
-              style={{ background: "rgba(var(--scrim-media-rgb), 0.62)" }}
+              className="absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-tentacle-on-media-primary"
+              style={{ background: "var(--vg-plate)" }}
             >
               <StarIcon className="h-2.5 w-2.5 text-[var(--seer-st-rating-solid)]" />
               {rating.toFixed(1)}
             </span>
           )}
-          {ribbon && (
-            <span
-              className="absolute inset-x-0 bottom-0 px-2 pb-1.5 pt-6 text-[11px] font-semibold text-tentacle-on-media-primary"
-              style={{ background: "linear-gradient(to top, rgba(var(--scrim-media-rgb),0.85), transparent)" }}
-            >
-              {ribbon}
-            </span>
-          )}
+          {status && <StateBadge status={status} variant="band" />}
         </div>
-        <p className="mt-2 truncate text-[13px] font-semibold text-tentacle-text-primary">{title}</p>
-        {line && <p className="truncate text-xs text-tentacle-text-tertiary">{line}</p>}
+        <p className="mt-2 truncate text-[13px] font-semibold leading-5 text-tentacle-text-primary">{title}</p>
+        {caption != null ? (
+          <p className="mt-0.5 truncate text-xs text-tentacle-text-tertiary">{caption}</p>
+        ) : (
+          <ChannelLine channel={channel} fallback={[typeLabel, year].filter(Boolean).join(" · ")} year={channel ? year : undefined} />
+        )}
       </button>
       {/* Monté au survol, jamais masqué : rien ne se compose hors écran. */}
       {canQuickRequest && hovered && (

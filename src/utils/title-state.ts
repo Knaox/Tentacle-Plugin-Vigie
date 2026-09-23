@@ -15,7 +15,7 @@
  */
 
 import type { LocalRequest, RequestStatus } from "../api/types";
-import type { DownloadProgress, ItemState, ProgressItem } from "../api/types-releases";
+import type { CalendarItem, DownloadProgress, ItemState, ProgressItem } from "../api/types-releases";
 
 export type TitleState = ItemState | "partial";
 
@@ -101,7 +101,26 @@ export function mergeStatus(media: TitleStatus | null, mine: TitleStatus | null 
   return RANK[mine.state] >= RANK[media.state] ? mine : media;
 }
 
+/**
+ * Deux demandes pour un même titre (deux saisons) : ce qui bouge d'abord —
+ * une saison qui arrive dit plus que celle qui est déjà là —, puis la plus
+ * avancée.
+ */
+export function strongest(a: TitleStatus | null, b: TitleStatus | null): TitleStatus | null {
+  if (!a) return b;
+  if (!b) return a;
+  const moving = (s: TitleStatus) => s.state === "downloading" || s.state === "stalled";
+  if (moving(a) !== moving(b)) return moving(a) ? a : b;
+  return RANK[b.state] > RANK[a.state] ? b : a;
+}
+
 /** L'état d'une sortie du calendrier (épisode, film), rendu par le serveur. */
 export function stateFromItem(state: ItemState | null | undefined, percent?: number | null): TitleStatus | null {
   return state ? { state, percent: state === "downloading" ? percent ?? null : null } : null;
+}
+
+/** L'état d'une sortie ; chez un serveur plus ancien (sans `state`), celui de la demande. */
+export function calendarStatus(item: Pick<CalendarItem, "state" | "percent" | "requestStatus">): TitleStatus | null {
+  if (item.state !== undefined) return stateFromItem(item.state, item.percent);
+  return item.requestStatus ? stateFromRequest({ status: item.requestStatus }) : null;
 }

@@ -4,6 +4,7 @@ import { getAvailability, currentRegion } from "../api/client-releases";
 import type { AvailabilityResponse, AvailabilityVerdict } from "../api/types-releases";
 import type { MediaType } from "../api/types";
 import { availabilityChunks, type AvailabilityRef } from "../utils/availability-chunks";
+import { useVerdict } from "./useVerdict";
 
 interface Item { mediaType?: string; id?: number }
 
@@ -94,12 +95,7 @@ export function useAvailability(items: readonly Item[]) {
   }, [stamp]);
 }
 
-/** Verdict d'un seul titre — pour la fiche détail. */
+/** Verdict d'un seul titre — pour la fiche détail. Même cache que les cartes. */
 export function useSingleAvailability(mediaType: MediaType | undefined, tmdbId: number | undefined) {
-  const items = useMemo(
-    () => (mediaType && tmdbId ? [{ mediaType, id: tmdbId }] : []),
-    [mediaType, tmdbId],
-  );
-  const map = useAvailability(items);
-  return mediaType && tmdbId ? map.get(`${mediaType}:${tmdbId}`) ?? null : null;
+  return useVerdict(mediaType, tmdbId);
 }

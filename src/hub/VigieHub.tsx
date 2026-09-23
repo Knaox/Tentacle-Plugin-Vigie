@@ -30,6 +30,7 @@ import { HubContext, type BrowsePreset, type HubApi, type HubTab, type OpenMedia
 import { HubHeader } from "./HubHeader";
 import { hostQuery, readHubEntry } from "./deepLink";
 import { useHubData } from "./useHubData";
+import { TitleStatesProvider } from "./TitleStates";
 
 const MIN_SEARCH = 2;
 
@@ -116,6 +117,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
 
   return (
     <HubContext.Provider value={api}>
+      <TitleStatesProvider data={data}>
       <div className="min-h-screen bg-tentacle-surface-0" style={{ paddingBottom: `calc(2.5rem + ${CHROME_BOTTOM})` }}>
         <HubHeader
           query={query}
@@ -162,6 +164,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
         />
       )}
       {personId !== null && <PersonSheet personId={personId} onClose={() => setPersonId(null)} />}
+      </TitleStatesProvider>
     </HubContext.Provider>
   );
 }

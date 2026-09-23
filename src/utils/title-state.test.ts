@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mergeStatus, stateFromMedia, stateFromRequest } from "./title-state";
+import { mergeStatus, stateFromMedia, stateFromRequest, strongest } from "./title-state";
 import type { DownloadProgress, ProgressItem } from "../api/types-releases";
 
 const download = (over: Partial<DownloadProgress> = {}): DownloadProgress => ({
@@ -47,4 +47,11 @@ test("sur une affiche : Jellyseerr « disponible » l'emporte, sinon ce qu'on sa
   assert.deepEqual(mergeStatus({ state: "requested", percent: null }, arrivingMine), arrivingMine);
   assert.equal(mergeStatus({ state: "partial", percent: null }, { state: "requested", percent: null })?.state, "partial");
   assert.equal(mergeStatus(null, { state: "stalled", percent: 12 })?.state, "stalled");
+});
+
+test("deux saisons demandées : celle qui arrive se voit avant celle qui est là", () => {
+  const here = { state: "available" as const, percent: null };
+  const moving = { state: "downloading" as const, percent: 20 };
+  assert.deepEqual(strongest(here, moving), moving);
+  assert.deepEqual(strongest({ state: "requested", percent: null }, here), here);
 });

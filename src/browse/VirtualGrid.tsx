@@ -18,8 +18,8 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type R
 
 const GAP_X = 12;
 const GAP_Y = 20;
-/* Titre + ligne d'identité sous l'affiche (cf. PosterCard). */
-const CAPTION = 46;
+/* Titre + ligne du canal sous l'affiche, jusqu'à deux lignes (cf. PosterCard). */
+const CAPTION = 64;
 const OVERSCAN_ROWS = 3;
 
 export function columnsFor(width: number): number {
