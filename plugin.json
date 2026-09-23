@@ -44,6 +44,7 @@
   },
   "search": {
     "path": "/search/provider",
+    "person": "/search/person",
     "types": [
       "movie",
       "series"

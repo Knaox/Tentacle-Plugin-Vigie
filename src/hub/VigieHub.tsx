@@ -48,7 +48,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
   const [detail, setDetail] = useState<{ item: SeerrSearchResult; options?: OpenMediaOptions } | null>(
     entry.media ? { item: { id: entry.media.id, mediaType: entry.media.mediaType } } : null,
   );
-  const [personId, setPersonId] = useState<number | null>(null);
+  const [personId, setPersonId] = useState<number | null>(entry.person);
 
   const data = useHubData();
   const search = useVigieSearch(query, { showBlocked, exact });

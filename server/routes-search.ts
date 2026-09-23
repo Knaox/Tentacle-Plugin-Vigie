@@ -12,6 +12,9 @@
  *                           la réponse complète si elle est prête, sinon celle
  *                           de l'index avec `complete: false` — Tentacle
  *                           redemande un peu plus tard.
+ *   GET /search/person    — même contrat, pour une filmographie : ce qu'une
+ *                           personne a fait et que la bibliothèque n'a pas.
+ *                           Déclaré dans `plugin.json` → `search.person`.
  */
 
 import type { FastifyInstance } from "fastify";
@@ -22,12 +25,15 @@ import { presentHub, presentProvider } from "./search/respond";
 import { genreFacets, providerFacets } from "./search/facets";
 import { titleIndexBuilding } from "./search/title-crawl";
 import { ensureSearchTables } from "./search/title-store";
+import { personProvider } from "./search/person-credits";
 
 const MAX_QUERY = 120;
 const MAX_PAGE = 20;
 
 interface SearchQuery {
   q?: string;
+  name?: string;
+  tmdb?: string;
   mode?: string;
   exact?: string;
   page?: string;
@@ -93,5 +99,28 @@ export async function registerSearchRoutes(
     const opts: SearchOptions = { lang, page: 1, showBlocked: false };
     const ranked = fullIfReady(ctx, q, opts) ?? instantSearch(ctx, q, opts);
     return presentProvider(ranked, type, limit, lang, todayIso());
+  });
+
+  app.get("/search/person", async (request, reply) => {
+    const query = request.query as SearchQuery;
+    const name = (query.name ?? "").trim().slice(0, MAX_QUERY);
+    const tmdb = Number(query.tmdb);
+    const tmdbId = Number.isInteger(tmdb) && tmdb > 0 ? tmdb : null;
+    const ctx = await context();
+    if (!ctx) return reply.status(503).send({ message: "Vigie is not configured" });
+    const empty = { query: name, correction: null, complete: true, items: [], moreHref: null };
+    if (!name && tmdbId === null) return empty;
+    try {
+      return await personProvider(ctx.cfg, {
+        name,
+        tmdbId,
+        lang: readLang(query.lang),
+        limit: Math.min(Math.max(1, Number(query.limit) || 20), 40),
+        type: query.type === "movie" || query.type === "series" ? query.type : null,
+      });
+    } catch {
+      // Jellyseerr injoignable : la filmographie de Tentacle s'affiche sans nous.
+      return empty;
+    }
   });
 }
