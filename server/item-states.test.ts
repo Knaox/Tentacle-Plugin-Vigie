@@ -77,3 +77,10 @@ test("plusieurs entrées pour un même film : bloqué seulement si toutes le son
   assert.equal(indexQueue([movie(true), movie(false)]).movies.get(9)?.stalled, false);
   assert.equal(indexQueue([movie(true), movie(true)]).movies.get(9)?.stalled, true);
 });
+
+test("la fiche d'une série : l'état de chaque épisode, pas de sa saison", async () => {
+  // Pure : la même règle que le calendrier, appliquée aux faits d'une série.
+  assert.equal(episodeState({ hasFile: false, monitored: true }, { stalled: false, percent: 12 }, null), "downloading");
+  assert.equal(episodeState({ hasFile: false, monitored: true }, undefined, null), "requested");
+  assert.equal(episodeState({ hasFile: true, monitored: true }, { stalled: true, percent: 99 }, null), "available");
+});

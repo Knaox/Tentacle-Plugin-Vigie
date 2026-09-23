@@ -24,7 +24,7 @@ import { todayString } from "./tmdb-fetch";
 import { rowsCacheKey } from "./routes-requests-read";
 import { DEFAULT_REGION } from "./tmdb-resolver";
 import { sonarrSeriesAirTimes } from "./sonarr-schedule";
-import { attachItemStates } from "./item-states";
+import { attachItemStates, seriesEpisodeStates } from "./item-states";
 
 /** Le personnel bouge avec les demandes ; le store maître vit sa propre vie. */
 const PERSONAL_TTL_MS = 15 * 60_000;
@@ -184,6 +184,24 @@ export function registerCalendarRoutes(
       // Sonarr muet : réponse vide NON cachée — la fiche affiche la date
       // seule, et le prochain passage retentera au lieu de resservir le vide.
       return { times: {} };
+    }
+  });
+
+  /* ── L'état de chaque épisode d'une série, pour sa fiche ──
+   *
+   * « La saison 4 est demandée » ne dit pas si l'épisode 18 est arrivé :
+   * Sonarr le sait, épisode par épisode. Réponse vide (`tracked: false`)
+   * quand il ne suit pas la série — la fiche s'en tient alors aux saisons. */
+  app.get("/episodes/states", async (request) => {
+    const tmdbId = Number((request.query as { tmdbId?: string }).tmdbId);
+    const empty = { tracked: false, states: {}, percents: {} };
+    if (!Number.isFinite(tmdbId) || tmdbId <= 0) return empty;
+    const config = await getWorkerConfig();
+    if (!config) return empty;
+    try {
+      return await seriesEpisodeStates(config, tmdbId);
+    } catch {
+      return empty;
     }
   });
 

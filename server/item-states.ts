@@ -20,7 +20,9 @@ import type { WorkerCfg } from "./seerr-unified";
 import type { RequestStatus } from "./types";
 import { addDays, type CalendarItem, type CalendarResponse, type ItemState } from "./calendar-types";
 import { queueSnapshot, type QueueEntry } from "./arr-queue";
-import { episodeKey, sonarrWindowFacts, type EpisodeFact, type WindowFacts } from "./sonarr-episodes";
+import {
+  episodeKey, sonarrSeriesFacts, sonarrWindowFacts, type EpisodeFact, type WindowFacts,
+} from "./sonarr-episodes";
 import { statusOf } from "./search/status-map";
 
 export interface Queued {
@@ -161,4 +163,30 @@ export async function attachItemStates(
     ...res,
     items: res.items.map((item) => ({ ...item, ...stateOfItem(item, facts, queue, today) })),
   };
+}
+
+export interface SeriesEpisodeStates {
+  /** Sonarr suit la série : l'état se lit épisode par épisode. */
+  tracked: boolean;
+  /** « S4E18 » → état ; un épisode absent n'est pas demandé. */
+  states: Record<string, ItemState>;
+  /** « S4E18 » → avancement, pour ceux qui sont en route. */
+  percents: Record<string, number>;
+}
+
+/** Tous les épisodes d'une série, pour sa fiche : l'état de chacun. */
+export async function seriesEpisodeStates(cfg: WorkerCfg, tmdbId: number): Promise<SeriesEpisodeStates> {
+  const [facts, queue] = await Promise.all([
+    sonarrSeriesFacts(cfg, tmdbId),
+    queueSnapshot(cfg).then((s) => indexQueue(s.items)).catch(() => NO_QUEUE),
+  ]);
+  const states: Record<string, ItemState> = {};
+  const percents: Record<string, number> = {};
+  for (const [key, fact] of facts) {
+    const queued = queue.episodes.get(`${tmdbId}:${key}`);
+    const state = episodeState(fact, queued, null);
+    if (state) states[key] = state;
+    if (state === "downloading" && queued?.percent != null) percents[key] = Math.round(queued.percent);
+  }
+  return { tracked: facts.size > 0, states, percents };
 }
