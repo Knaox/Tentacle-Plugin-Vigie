@@ -133,6 +133,12 @@ export interface RequestsProgressResponse {
 
 /* ── Calendrier des sorties ───────────────────────────────────────── */
 
+/**
+ * L'état d'UNE sortie — l'épisode lui-même, pas sa saison. Jamais « échec » :
+ * un téléchargement qui coince est bloqué. `null` : personne ne l'a demandée.
+ */
+export type ItemState = "requested" | "downloading" | "stalled" | "available";
+
 export type CalendarKind =
   | "digital"
   | "theatrical"
@@ -169,6 +175,10 @@ export interface CalendarItem {
   isAnime?: boolean;
   requestId: string | null;
   requestStatus: RequestStatus | null;
+  /** Absent chez un serveur plus ancien : on retombe sur `requestStatus`. */
+  state?: ItemState | null;
+  /** Avancement quand la sortie est en route. */
+  percent?: number | null;
 }
 
 export interface CalendarResponse {

@@ -1,0 +1,164 @@
+/* ------------------------------------------------------------------ */
+/*  Vigie — Où en est chaque sortie : demandée, en route, là, bloquée   */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Quatre états — ceux qu'on se demande devant un calendrier :
+ *   - disponible : le fichier est là (Sonarr `hasFile`, Jellyseerr 5) ;
+ *   - en route   : dans la file de téléchargement ;
+ *   - bloqué     : dans la file, mais rien n'avance — JAMAIS « échec » ;
+ *   - demandé    : suivi, il arrivera dès sa sortie.
+ * Rien : personne ne l'a demandé.
+ *
+ * L'épisode LUI-MÊME, pas la saison : « la saison 4 est demandée » ne disait
+ * pas si l'épisode 18, sorti hier, était arrivé. Calculé à CHAQUE réponse, sur
+ * des copies — les calendriers se gardent un quart d'heure en cache, l'état
+ * d'un épisode doit se voir à la minute.
+ */
+
+import type { WorkerCfg } from "./seerr-unified";
+import type { RequestStatus } from "./types";
+import { addDays, type CalendarItem, type CalendarResponse, type ItemState } from "./calendar-types";
+import { queueSnapshot, type QueueEntry } from "./arr-queue";
+import { episodeKey, sonarrWindowFacts, type EpisodeFact, type WindowFacts } from "./sonarr-episodes";
+import { statusOf } from "./search/status-map";
+
+export interface Queued {
+  stalled: boolean;
+  percent: number | null;
+}
+
+export interface QueueIndex {
+  /** « tmdbId:S4E18 » */
+  episodes: Map<string, Queued>;
+  movies: Map<number, Queued>;
+}
+
+const NO_FACTS: WindowFacts = { byEpisode: new Map(), byDay: new Map() };
+const NO_QUEUE: QueueIndex = { episodes: new Map(), movies: new Map() };
+
+/** Plusieurs entrées pour un même titre (un film réessayé) : bloqué seulement si toutes le sont. */
+function merge(prev: Queued | undefined, next: QueueEntry): Queued {
+  if (!prev) return { stalled: next.stalled, percent: next.percent };
+  return { stalled: prev.stalled && next.stalled, percent: prev.percent ?? next.percent };
+}
+
+export function indexQueue(entries: readonly QueueEntry[]): QueueIndex {
+  const index: QueueIndex = { episodes: new Map(), movies: new Map() };
+  for (const e of entries) {
+    if (e.tmdbId == null) continue;
+    if (e.source === "radarr") {
+      index.movies.set(e.tmdbId, merge(index.movies.get(e.tmdbId), e));
+    } else if (e.seasonNumber != null && e.episodeNumber != null) {
+      const key = episodeKey(e.tmdbId, e.seasonNumber, e.episodeNumber);
+      index.episodes.set(key, merge(index.episodes.get(key), e));
+    }
+  }
+  return index;
+}
+
+/* Une demande qui attend encore : le titre est demandé. */
+const WAITING: ReadonlySet<RequestStatus> = new Set([
+  "queued", "processing", "sent_to_seer", "approved", "unavailable", "retry_pending",
+  "downloading", "partially_available",
+]);
+
+function fromQueue(q: Queued | undefined): ItemState | null {
+  return q ? (q.stalled ? "stalled" : "downloading") : null;
+}
+
+function fromRequest(status: RequestStatus | null | undefined): ItemState | null {
+  return status && WAITING.has(status) ? "requested" : null;
+}
+
+/** L'épisode, d'après Sonarr : son fichier, la file, son suivi. */
+export function episodeState(
+  fact: EpisodeFact | undefined,
+  queued: Queued | undefined,
+  fallback: ItemState | null,
+): ItemState | null {
+  if (fact?.hasFile) return "available";
+  const inQueue = fromQueue(queued);
+  if (inQueue) return inQueue;
+  // Sonarr connaît l'épisode : son suivi fait foi — non suivi, non demandé.
+  if (fact) return fact.monitored ? "requested" : null;
+  return fallback;
+}
+
+/** Un film : Jellyseerr pour « là » et « demandé », la file pour ce qui arrive. */
+export function movieState(
+  mediaStatus: number | undefined,
+  queued: Queued | undefined,
+  fallback: ItemState | null,
+): ItemState | null {
+  if (mediaStatus === 5) return "available";
+  const inQueue = fromQueue(queued);
+  if (inQueue) return inQueue;
+  if (mediaStatus === 2 || mediaStatus === 3) return "requested";
+  return fallback;
+}
+
+/**
+ * L'état d'une sortie. Une série que Sonarr ne suit pas n'a que l'état de sa
+ * fiche Jellyseerr : « disponible » ne vaut alors que pour ce qui est déjà sorti.
+ */
+export function stateOfItem(
+  item: CalendarItem,
+  facts: WindowFacts,
+  queue: QueueIndex,
+  today: string,
+): { state: ItemState | null; percent: number | null } {
+  const request = fromRequest(item.requestStatus);
+  if (item.mediaType === "movie") {
+    const queued = queue.movies.get(item.tmdbId);
+    const state = movieState(statusOf("movie", item.tmdbId), queued, request);
+    return { state, percent: state === "downloading" ? queued?.percent ?? null : null };
+  }
+
+  // Sans Sonarr, une série « partielle » ne dit rien de CET épisode : seules
+  // la demande et les états sans ambiguïté parlent.
+  const media = statusOf("tv", item.tmdbId);
+  const fallback: ItemState | null = media === 5
+    ? (item.date <= today ? "available" : null)
+    : media === 2 || media === 3 ? "requested" : request;
+  if (item.kind !== "episode" || item.seasonNumber == null || item.episodeNumber == null) {
+    return { state: fallback, percent: null };
+  }
+
+  const key = episodeKey(item.tmdbId, item.seasonNumber, item.episodeNumber);
+  let fact = facts.byEpisode.get(key);
+  if (!fact) {
+    // Numérotations qui divergent (TMDB contre Sonarr, courant pour un animé) :
+    // un seul épisode de la série ce jour-là, c'est lui.
+    const sameDay = facts.byDay.get(`${item.tmdbId}:${item.date}`);
+    if (sameDay?.length === 1) fact = sameDay[0];
+  }
+  const queued = queue.episodes.get(key);
+  const state = episodeState(fact, queued, fallback);
+  return { state, percent: state === "downloading" ? queued?.percent ?? null : null };
+}
+
+/**
+ * Pose l'état de chaque sortie, sur des COPIES : la réponse reçue peut venir
+ * d'un cache partagé. Sonarr ou la file muets : l'état se rabat sur ce que
+ * Jellyseerr et les demandes en disent, jamais d'erreur pour autant.
+ */
+export async function attachItemStates(
+  cfg: WorkerCfg,
+  res: CalendarResponse,
+  today: string,
+): Promise<CalendarResponse> {
+  if (res.items.length === 0) return res;
+  const hasEpisodes = res.items.some((i) => i.kind === "episode");
+  const [facts, queue] = await Promise.all([
+    hasEpisodes
+      // Un jour de marge : l'instant réel peut faire basculer un épisode de jour.
+      ? sonarrWindowFacts(cfg, addDays(res.from, -1), addDays(res.to, 1)).catch(() => NO_FACTS)
+      : Promise.resolve(NO_FACTS),
+    queueSnapshot(cfg).then((s) => indexQueue(s.items)).catch(() => NO_QUEUE),
+  ]);
+  return {
+    ...res,
+    items: res.items.map((item) => ({ ...item, ...stateOfItem(item, facts, queue, today) })),
+  };
+}

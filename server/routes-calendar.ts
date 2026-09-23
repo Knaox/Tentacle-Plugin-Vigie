@@ -24,6 +24,7 @@ import { todayString } from "./tmdb-fetch";
 import { rowsCacheKey } from "./routes-requests-read";
 import { DEFAULT_REGION } from "./tmdb-resolver";
 import { sonarrSeriesAirTimes } from "./sonarr-schedule";
+import { attachItemStates } from "./item-states";
 
 /** Le personnel bouge avec les demandes ; le store maître vit sa propre vie. */
 const PERSONAL_TTL_MS = 15 * 60_000;
@@ -101,7 +102,7 @@ export function registerCalendarRoutes(
       ? `seer:cal:everyone:${region}:${from}:${to}:${includeSettled ? "all" : "up"}`
       : `seer-cache:${user.userId}:cal:${region}:${from}:${to}:${includeSettled ? "all" : "up"}`;
 
-    return cached(
+    const res = await cached(
       key,
       PERSONAL_TTL_MS,
       async () => {
@@ -127,9 +128,11 @@ export function registerCalendarRoutes(
       },
       {
         staleMs: PERSONAL_STALE_MS,
-        ttlFor: (res) => (res.partial ? PARTIAL_TTL_MS : PERSONAL_TTL_MS),
+        ttlFor: (value) => (value.partial ? PARTIAL_TTL_MS : PERSONAL_TTL_MS),
       },
     );
+    // L'état de chaque sortie se lit à la minute, hors du cache d'un quart d'heure.
+    return attachItemStates(config, res, todayString());
   });
 
   /* ── Tout ce qui sort — indépendant des demandes ──
@@ -155,9 +158,10 @@ export function registerCalendarRoutes(
       .slice(0, MAX_PROVIDERS);
     const mediaType = q.mediaType === "movie" || q.mediaType === "tv" ? q.mediaType : "both";
 
-    return buildGlobalFromStore(prisma, config, {
+    const res = await buildGlobalFromStore(prisma, config, {
       providerIds, mediaType, region: readRegion(q), from, to,
     }, warn);
+    return attachItemStates(config, res, todayString());
   });
 
   /* ── Heures de diffusion d'une série, pour la fiche détaillée ──

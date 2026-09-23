@@ -14,6 +14,13 @@
 
 import type { RequestStatus } from "./types";
 
+/**
+ * Où en est une sortie, en quatre mots — ceux qu'on se pose devant un
+ * calendrier. `null` : personne ne l'a demandée. Jamais « échec » : un
+ * téléchargement qui coince est BLOQUÉ.
+ */
+export type ItemState = "requested" | "downloading" | "stalled" | "available";
+
 export type CalendarKind =
   | "digital"
   | "theatrical"
@@ -53,6 +60,13 @@ export interface CalendarItem {
   /** Renseignés en mode personnel uniquement. */
   requestId: string | null;
   requestStatus: RequestStatus | null;
+  /**
+   * L'état de CETTE sortie — l'épisode lui-même, pas la saison. Calculé à
+   * chaque réponse (cf. item-states.ts), jamais figé dans un cache partagé.
+   */
+  state?: ItemState | null;
+  /** Avancement quand `state` vaut « downloading » (file *arr), sinon absent. */
+  percent?: number | null;
 }
 
 export interface CalendarResponse {

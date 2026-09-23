@@ -63,12 +63,12 @@ export function airTimeKey(season: number, episode: number): string {
   return `S${season}E${episode}`;
 }
 
-async function sonarr(cfg: WorkerCfg): Promise<ArrServerConfig | null> {
+export async function sonarr(cfg: WorkerCfg): Promise<ArrServerConfig | null> {
   return getArrServerConfig(cfg.seerrUrl, cfg.seerrApiKey, "sonarr");
 }
 
 /** GET JSON borné. `null` en cas d'échec — on ne devine jamais. */
-async function arrGet<T>(server: ArrServerConfig, path: string): Promise<T | null> {
+export async function arrGet<T>(server: ArrServerConfig, path: string): Promise<T | null> {
   try {
     const res = await fetch(`${buildArrUrl(server)}${path}`, {
       headers: { "X-Api-Key": server.apiKey },
