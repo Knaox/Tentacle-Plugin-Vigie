@@ -67,7 +67,15 @@ export const RequestRow = memo(function RequestRow(props: Props) {
           {selected && <CheckIcon className="h-4 w-4" />}
         </button>
       )}
-      <button type="button" onClick={() => onAction("open", request)} className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-none sm:gap-4">
+      {/* En mode sélection, toute la ligne sélectionne : ouvrir la fiche en
+          voulant cocher une demande était le piège. */}
+      <button
+        type="button"
+        onClick={() => (selectable ? canSelect && onToggleSelect?.(request.id) : onAction("open", request))}
+        aria-pressed={selectable ? selected : undefined}
+        disabled={selectable && !canSelect}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-none disabled:opacity-60 sm:gap-4"
+      >
         <span className="block h-[84px] w-14 shrink-0 overflow-hidden rounded-lg bg-tentacle-surface-2 ring-1 ring-tentacle-border-subtle sm:h-24 sm:w-16">
           {poster && <img src={poster} alt="" loading="lazy" className="h-full w-full object-cover" />}
         </span>

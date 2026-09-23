@@ -113,9 +113,10 @@ export const HubHeader = memo(function HubHeader(props: HubHeaderProps) {
                 }`}
               >
                 <span className={`hidden sm:inline ${selected ? "text-[var(--brand-light)]" : ""}`}>{item.icon}</span>
-                <span className="flex min-w-0 items-center sm:hidden">
+                {/* La pastille en exposant : posée à côté, elle tronquait « Demandes ». */}
+                <span className="relative flex min-w-0 sm:hidden">
                   <span className="truncate">{item.short}</span>
-                  {item.badge > 0 && <span aria-hidden className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--brand-light)]" />}
+                  {item.badge > 0 && <span aria-hidden className="absolute -right-2 top-0 h-1.5 w-1.5 rounded-full bg-[var(--brand-light)]" />}
                 </span>
                 <span className="hidden sm:inline">{item.label}</span>
                 {item.badge > 0 && (

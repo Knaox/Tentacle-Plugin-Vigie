@@ -5,7 +5,7 @@
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { pill } from "../styles/pills";
-import { segment, SEGMENT_GROUP } from "../styles/pills";
+import { Segmented } from "../components/ui/Segmented";
 import { CloseIcon, SearchIcon } from "../components/ui/icons";
 import type { RequestGroup } from "./requestGroups";
 
@@ -40,7 +40,9 @@ export const RequestsToolbar = memo(function RequestsToolbar(props: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:flex-wrap md:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist">
+      {/* `py-1` : une rangée qui défile rogne tout ce qui dépasse, anneaux des
+          puces compris — elles paraissaient coupées en haut et en bas. */}
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 py-1 md:mx-0 md:flex-wrap md:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist">
         {chips.map((chip) => (
           <button key={chip.id} type="button" role="tab" aria-selected={filter === chip.id} onClick={() => onFilter(chip.id)} className={`${pill(filter === chip.id)} min-h-[36px] shrink-0`}>
             {chip.label}
@@ -66,13 +68,17 @@ export const RequestsToolbar = memo(function RequestsToolbar(props: Props) {
               </button>
             )}
           </div>
-          <div className={SEGMENT_GROUP} role="tablist" aria-label={t("seer:mediaType")}>
-            {(["all", "movie", "tv"] as const).map((v) => (
-              <button key={v} type="button" role="tab" aria-selected={type === v} onClick={() => onType(v)} className={`${segment(type === v)} min-h-[32px]`}>
-                {v === "all" ? t("seer:filterAllType") : v === "movie" ? t("seer:filterMovies") : t("seer:filterSeries")}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            ariaLabel={t("seer:mediaType")}
+            value={type}
+            onChange={onType}
+            size="sm"
+            options={[
+              { value: "all", label: t("seer:filterAllType") },
+              { value: "movie", label: t("seer:filterMovies") },
+              { value: "tv", label: t("seer:filterSeries") },
+            ]}
+          />
           <button type="button" onClick={onToggleSelecting} className={`${pill(selecting)} ml-auto min-h-[36px]`}>
             {selecting ? t("seer:bulkCancel") : t("seer:bulkSelect")}
           </button>
