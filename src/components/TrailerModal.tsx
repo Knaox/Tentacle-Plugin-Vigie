@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { parseYouTubeId, type RichTrailer } from "../utils/trailers";
 import { youtubeEmbedSrc, externalLinkHandler } from "../utils/external";
+import { useOverlay } from "../hooks/useOverlay";
 
 interface TrailerModalProps {
   open: boolean;
@@ -25,14 +26,7 @@ export function TrailerModal({ open, onClose, trailers, initialIndex = 0 }: Trai
     if (open) setIndex(initialIndex);
   }, [open, initialIndex]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.stopPropagation(); onClose(); }
-    };
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, [open, onClose]);
+  useOverlay(open, onClose);
 
   if (!open) return null;
   const current = trailers[index] ?? trailers[0];

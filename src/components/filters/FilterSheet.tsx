@@ -1,8 +1,9 @@
-import { useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { CTA_PRIMARY } from "../../styles/cta";
 import { ICON_BUTTON } from "../../styles/pills";
 import { CHROME_BOTTOM } from "../../utils/host-chrome";
+import { useOverlay } from "../../hooks/useOverlay";
 
 /**
  * La coquille d'un panneau de filtres : voile, tiroir, en-tête, pied.
@@ -33,19 +34,7 @@ export function FilterSheet({
 }: Props) {
   const { t } = useTranslation("seer");
 
-  useEffect(() => {
-    if (!open) return;
-    const bridge = (window as unknown as Record<string, unknown>).__tentacle_bridge as
-      { setOverlay?: (open: boolean) => void } | undefined;
-    bridge?.setOverlay?.(true);
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      // Sans ce retour à false, la surcouche de l'hôte resterait verrouillée.
-      bridge?.setOverlay?.(false);
-    };
-  }, [open, onClose]);
+  useOverlay(open, onClose);
 
   return (
     <>

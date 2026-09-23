@@ -15,6 +15,7 @@ import { TrailerModal } from "./TrailerModal";
 import { mediaTitle, mediaYear } from "../utils/media-helpers";
 import { openTrailersViaHost } from "../utils/external";
 import { CHROME_BOTTOM } from "../utils/host-chrome";
+import { useOverlay } from "../hooks/useOverlay";
 import type { SeerrSearchResult, SeerrTvDetail, SeerrMovieDetail } from "../api/types";
 
 interface MediaDetailModalProps {
@@ -83,20 +84,10 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
-    const bridge = (window as unknown as Record<string, unknown>).__tentacle_bridge as
-      { setOverlay?: (open: boolean) => void } | undefined;
-    bridge?.setOverlay?.(true);
-    return () => {
-      document.body.style.overflow = "";
-      bridge?.setOverlay?.(false);
-    };
+    return () => { document.body.style.overflow = ""; };
   }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !trailerOpen) handleClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [handleClose, trailerOpen]);
+  // La bande-annonce, ouverte par-dessus, prend Échap tant qu'elle est là.
+  useOverlay(true, handleClose);
 
   const requestedSeasonMap = useMemo(() => {
     const map = new Map<number, number>();

@@ -1,8 +1,8 @@
-import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { LocalRequest } from "../api/types";
 import { STATUS_STYLE } from "../styles/status";
 import { CHROME_BOTTOM } from "../utils/host-chrome";
+import { useOverlay } from "../hooks/useOverlay";
 
 export type MarkTarget = "available" | "partial" | "processing" | "unknown";
 
@@ -56,11 +56,7 @@ const OPTIONS: MarkOption[] = [
 export function MarkMenuSheet({ request, onSelect, onClose }: MarkMenuSheetProps) {
   const { t } = useTranslation("seer");
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useOverlay(true, onClose);
 
   const options = OPTIONS.filter((o) => !o.tvOnly || request.mediaType === "tv");
 
