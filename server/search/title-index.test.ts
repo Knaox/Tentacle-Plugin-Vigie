@@ -59,3 +59,20 @@ test("un animé japonais est reconnu à son genre et à sa langue", () => {
   assert.equal(sample().get("movie:129")?.isAnime, true);
   assert.equal(sample().get("movie:27205")?.isAnime, false);
 });
+
+test("un mot connu par un seul titre obscur cède au voisin cent fois plus voté", () => {
+  const index = sample();
+  // Une recherche a fait entrer dans l'index un film de 2014 intitulé « Interstelar » (deux votes).
+  index.upsert(rec({ tmdbId: 1261360, title: "Interstelar", voteCount: 2, popularity: 0.6 }));
+  const { hits, corrected } = index.lookup(tokenize("interstelar"));
+  assert.equal(hits[0].entry.tmdbId, 157336);
+  assert.deepEqual(corrected, ["interstellar"]);
+});
+
+test("un mot connu et porteur ne se corrige jamais", () => {
+  const index = sample();
+  index.upsert(rec({ tmdbId: 11, title: "Inceptio", voteCount: 3, popularity: 0.5 }));
+  assert.equal(index.dominantNeighbor("inception"), null, "le plus voté des deux ne cède pas");
+  assert.equal(index.dominantNeighbor("inceptio"), "inception");
+  assert.equal(index.lookup(tokenize("inception")).corrected, null);
+});

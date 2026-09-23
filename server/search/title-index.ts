@@ -75,6 +75,9 @@ const MAX_ENTRIES = 60_000;
 /* Complétion du dernier mot : au-delà, la requête est trop vague pour aider. */
 const MAX_PREFIX_TOKENS = 300;
 const MIN_PREFIX = 2;
+/* Écart de poids au-delà duquel un voisin d'une lettre « écrase » un mot connu :
+ * trois points, c'est dix fois plus de votes ; six, cent fois plus. */
+const DOMINANCE = 6;
 
 export function entryWeight(e: Pick<TitleEntry, "voteCount" | "popularity">): number {
   return Math.log10(1 + e.voteCount) * 3 + Math.log10(1 + e.popularity);
@@ -220,6 +223,30 @@ export class TitleIndex {
     return null;
   }
 
+  /**
+   * Un mot CONNU, mais seulement par des titres obscurs, à une lettre d'un mot
+   * cent fois plus porteur : c'est presque toujours une faute. « interstelar »
+   * est le titre d'un film de 2014 à deux votes — celui qui le tape cherche
+   * « Interstellar ». Sans ce garde-fou, il suffisait qu'une recherche fasse
+   * entrer ce titre obscur dans l'index pour que la faute cesse d'être corrigée.
+   * Le titre tapé reste trouvable : la recherche complète interroge aussi la
+   * requête telle quelle, et « Rechercher quand même » la rétablit.
+   */
+  dominantNeighbor(token: string): string | null {
+    this.rebuild();
+    if (token.length < 5 || /\d/.test(token)) return null;
+    let best: string | null = null;
+    let bestWeight = (this.vocabWeight.get(token) ?? 0) + DOMINANCE;
+    for (const candidate of this.byInitial.get(token[0]) ?? []) {
+      if (candidate === token || Math.abs(candidate.length - token.length) > 1) continue;
+      const weight = this.vocabWeight.get(candidate) ?? 0;
+      if (weight < bestWeight || editDistance(token, candidate, 1) > 1) continue;
+      best = candidate;
+      bestWeight = weight;
+    }
+    return best;
+  }
+
   private postingsOf(token: string, isLast: boolean): Set<number> {
     const out = new Set<number>(this.postings.get(token) ?? []);
     if (isLast) {
@@ -238,15 +265,17 @@ export class TitleIndex {
     const words = significantTokens(tokens);
     if (words.length === 0) return { hits: [], corrected: null, replacements: [] };
     const direct = this.match(words, limit);
-    if (!allowFix || (direct.length > 0 && direct[0].matched === words.length)) {
-      return { hits: direct, corrected: null, replacements: [] };
-    }
+    if (!allowFix) return { hits: direct, corrected: null, replacements: [] };
+    const whole = direct.length > 0 && direct[0].matched === words.length;
 
-    // Rien de complet : on corrige les mots inconnus, puis on recommence.
+    // Un mot inconnu se corrige — sauf le dernier s'il commence un mot connu
+    // (frappe en cours), ou si tous les mots ont déjà trouvé. Un mot connu ne
+    // cède qu'à un voisin qui l'écrase.
     const replacements: Array<[string, string]> = [];
     const fixed = words.flatMap((word, i) => {
-      if (i === words.length - 1 && this.complete(word).length > 0) return [word];
-      const fix = this.correctToken(word);
+      let fix: string | null = null;
+      if (this.postings.has(word)) fix = this.dominantNeighbor(word);
+      else if (!whole && !(i === words.length - 1 && this.complete(word).length > 0)) fix = this.correctToken(word);
       if (fix === null) return [word];
       replacements.push([word, fix]);
       return fix.split(" ");
