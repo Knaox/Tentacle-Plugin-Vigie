@@ -1,7 +1,6 @@
 // Seer Plugin — Server module (auto-generated, do not edit)
 
 // server/index.ts
-import { Readable } from "stream";
 import { resolve, dirname } from "path";
 import { existsSync, readFileSync, writeFileSync, statSync } from "fs";
 import { fileURLToPath } from "url";
@@ -341,9 +340,9 @@ async function getUserRequests(prisma, jellyfinUserId, opts) {
   let where = `WHERE jellyfin_user_id = ? AND status != 'deleted'`;
   const params = [jellyfinUserId];
   if (opts.status) {
-    const statuses = opts.status.split(",").map((s) => s.trim());
-    where += ` AND status IN (${statuses.map(() => "?").join(",")})`;
-    params.push(...statuses);
+    const statuses2 = opts.status.split(",").map((s) => s.trim());
+    where += ` AND status IN (${statuses2.map(() => "?").join(",")})`;
+    params.push(...statuses2);
   }
   if (opts.mediaType) {
     where += ` AND media_type = ?`;
@@ -369,9 +368,9 @@ async function getAllRequests(prisma, opts) {
   let where = `WHERE status != 'deleted'`;
   const params = [];
   if (opts.status) {
-    const statuses = opts.status.split(",").map((s) => s.trim());
-    where += ` AND status IN (${statuses.map(() => "?").join(",")})`;
-    params.push(...statuses);
+    const statuses2 = opts.status.split(",").map((s) => s.trim());
+    where += ` AND status IN (${statuses2.map(() => "?").join(",")})`;
+    params.push(...statuses2);
   }
   if (opts.mediaType) {
     where += ` AND media_type = ?`;
@@ -1100,8 +1099,8 @@ async function cached(key, ttlMs, loader, opts) {
     }
     return hit.value;
   }
-  const pending = inflight.get(key);
-  if (pending) return pending;
+  const pending2 = inflight.get(key);
+  if (pending2) return pending2;
   return refresh(key, ttlMs, loader, opts);
 }
 function refresh(key, ttlMs, loader, opts) {
@@ -2057,8 +2056,8 @@ var DEFAULT_REGION = "FR";
 var inflightMeta = /* @__PURE__ */ new Map();
 function fetchOnce(cfg, ref, region) {
   const key = tmdbKey(ref);
-  const pending = inflightMeta.get(key);
-  if (pending) return pending;
+  const pending2 = inflightMeta.get(key);
+  if (pending2) return pending2;
   const p = fetchTmdbMeta(cfg, ref, region).finally(() => {
     inflightMeta.delete(key);
   });
@@ -2752,11 +2751,11 @@ async function buildMergedRows(prisma, cfg, user, log) {
   );
   const deletingIds = /* @__PURE__ */ new Set();
   try {
-    const pending = await prisma.$queryRawUnsafe(
+    const pending2 = await prisma.$queryRawUnsafe(
       `SELECT seerr_request_id FROM seer_cleanup_queue
        WHERE status = 'pending' AND action = 'delete' AND seerr_request_id IS NOT NULL`
     );
-    for (const r of pending) deletingIds.add(Number(r.seerr_request_id));
+    for (const r of pending2) deletingIds.add(Number(r.seerr_request_id));
   } catch {
   }
   return {
@@ -2886,10 +2885,10 @@ function registerRequestReadRoutes(app, prisma, getWorkerConfig2) {
     let items = hydrateRows(rows, meta, user);
     let result = filterAndPaginate(items, { page, limit, status: query.status, type: query.type, q: query.q });
     if (missing.length > 0) {
-      const visible = new Set(
+      const visible2 = new Set(
         result.results.map((r) => tmdbKey({ mediaType: r.mediaType, tmdbId: r.tmdbId }))
       );
-      const onPage = missing.filter((r) => visible.has(tmdbKey(r)));
+      const onPage = missing.filter((r) => visible2.has(tmdbKey(r)));
       if (onPage.length > 0) {
         const filled = await resolveTmdbMeta(prisma, config, onPage, { maxFetch: PAGE_META_BUDGET });
         for (const [k, v] of filled.meta) meta.set(k, v);
@@ -3183,6 +3182,31 @@ async function insertAvailablePin(prisma, config, seerrReq, owner) {
   );
 }
 
+// server/search/pending.ts
+var REFRESH_MS = 1e4;
+var keys = /* @__PURE__ */ new Set();
+var readAt = 0;
+var reading = false;
+function isLocallyPending(key) {
+  return keys.has(key);
+}
+function refreshLocalPending(prisma) {
+  if (reading || Date.now() - readAt < REFRESH_MS) return;
+  reading = true;
+  prisma.$queryRawUnsafe(
+    `SELECT DISTINCT media_type, tmdb_id FROM seer_requests
+     WHERE status IN ('queued', 'processing', 'retry_pending', 'sent_to_seer', 'approved')`
+  ).then((rows) => {
+    keys = new Set(rows.map((r) => `${r.media_type}:${Number(r.tmdb_id)}`));
+  }).catch(() => void 0).finally(() => {
+    readAt = Date.now();
+    reading = false;
+  });
+}
+function markLocallyPending(mediaType, tmdbId) {
+  keys.add(`${mediaType}:${tmdbId}`);
+}
+
 // server/routes-requests.ts
 function registerRequestRoutes(app, prisma, getWorkerConfig2) {
   registerRequestReadRoutes(app, prisma, getWorkerConfig2);
@@ -3248,6 +3272,7 @@ function registerRequestRoutes(app, prisma, getWorkerConfig2) {
         });
         const updated = await getRequestById(prisma, existing.id);
         invalidateRequestCaches(user.userId);
+        markLocallyPending(body.mediaType, body.tmdbId);
         kickWorkerNow();
         return reply.status(201).send(updated);
       }
@@ -3271,6 +3296,7 @@ function registerRequestRoutes(app, prisma, getWorkerConfig2) {
       isAnime
     });
     invalidateRequestCaches(user.userId);
+    markLocallyPending(body.mediaType, body.tmdbId);
     kickWorkerNow();
     return reply.status(201).send(req);
   });
@@ -4096,8 +4122,8 @@ async function fetchQueue(server, path) {
   }
 }
 function isValidating2(r) {
-  const state = r.trackedDownloadState ?? "";
-  if (state === "importPending" || state === "importing") return true;
+  const state2 = r.trackedDownloadState ?? "";
+  if (state2 === "importPending" || state2 === "importing") return true;
   if (r.status === "completed") return true;
   return r.sizeleft === 0 && typeof r.size === "number" && r.size > 0;
 }
@@ -4993,17 +5019,17 @@ function initCalendarStoreMaintenance(prisma, getCfg, warn) {
       });
     }
   };
-  const boot = setTimeout(() => {
+  const boot2 = setTimeout(() => {
     void warm();
   }, 15e3);
   const tick = setInterval(() => {
     void warm();
   }, 30 * 6e4);
-  boot.unref?.();
+  boot2.unref?.();
   tick.unref?.();
   return () => {
     stopped = true;
-    clearTimeout(boot);
+    clearTimeout(boot2);
     clearInterval(tick);
   };
 }
@@ -5082,8 +5108,8 @@ async function buildPersonalFromStore(prisma, cfg, rows, opts, warn) {
       it.requestStatus = ctx.status;
     }
   }
-  const covered = new Set(slice.map((it) => `${it.mediaType}:${it.tmdbId}`));
-  const residual = new Set([...refs.keys()].filter((k) => !covered.has(k)));
+  const covered2 = new Set(slice.map((it) => `${it.mediaType}:${it.tmdbId}`));
+  const residual = new Set([...refs.keys()].filter((k) => !covered2.has(k)));
   let residualItems = [];
   let residualPartial = false;
   if (residual.size > 0) {
@@ -5255,16 +5281,16 @@ function registerMiscRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
     const toFetch = [];
     for (const item of body.items.slice(0, 200)) {
       const key = `${item.mediaType}-${item.tmdbId}`;
-      const cached3 = providerCache.get(key);
-      if (cached3 && Date.now() < cached3.expires) {
-        result[item.tmdbId] = cached3.providers;
+      const cached2 = providerCache.get(key);
+      if (cached2 && Date.now() < cached2.expires) {
+        result[item.tmdbId] = cached2.providers;
       } else {
         toFetch.push(item);
       }
     }
-    const BATCH = 5;
-    for (let i = 0; i < toFetch.length; i += BATCH) {
-      const batch = toFetch.slice(i, i + BATCH);
+    const BATCH2 = 5;
+    for (let i = 0; i < toFetch.length; i += BATCH2) {
+      const batch = toFetch.slice(i, i + BATCH2);
       const responses = await Promise.allSettled(
         batch.map(async (item) => {
           const res = await fetch(`${seerrUrl}/api/v1/${item.mediaType}/${item.tmdbId}`, {
@@ -5308,6 +5334,9 @@ function registerMiscRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
     return { workerRunning: isWorkerRunning(), processing: next.processing, queued: next.queued, triggered: true };
   });
 }
+
+// server/routes-proxy.ts
+import { Readable } from "stream";
 
 // server/blocklist.ts
 var MEDIA_STATUS_BLOCKLISTED3 = 6;
@@ -5369,68 +5398,13 @@ async function filterResultsByTags(seerrUrl, apiKey, results, blockedSet) {
   return { kept, blockedCount };
 }
 
-// server/index.ts
-var __pluginDir = dirname(dirname(fileURLToPath(import.meta.url)));
+// server/routes-proxy.ts
 var PROXY_TTL_MS = 5 * 6e4;
-var cfgCache = null;
-function getPluginConfig(ctx) {
-  try {
-    const installedPath = resolve(__pluginDir, "..", "installed.json");
-    if (!existsSync(installedPath)) return {};
-    const mtimeMs = statSync(installedPath).mtimeMs;
-    if (cfgCache && cfgCache.mtimeMs === mtimeMs) return cfgCache.value;
-    const installed = JSON.parse(readFileSync(installedPath, "utf-8"));
-    const plugin = installed.find(
-      (p) => p.pluginId === ctx.pluginId || p.id === ctx.pluginId
-    );
-    const value = plugin?.config || {};
-    cfgCache = { mtimeMs, value };
-    return value;
-  } catch {
-    return {};
-  }
-}
-async function getWorkerConfig(ctx) {
-  const config = getPluginConfig(ctx);
-  const url = config.url;
-  const apiKey = config.apiKey;
-  if (!url || !apiKey) return null;
-  const profiles = config.profiles ?? [];
-  return { seerrUrl: url.replace(/\/$/, ""), seerrApiKey: apiKey, interval: 6e4, syncEvery: 2, profiles };
-}
-async function seerBackend(app, ctx) {
-  const prisma = ctx.getPrisma();
-  await ensureTables(prisma);
-  console.log("[SeerBackend] Database tables ready");
-  startWorker(prisma, () => getWorkerConfig(ctx));
-  app.addHook("onClose", async () => {
-    stopWorker();
-  });
-  app.addHook("preHandler", ctx.requireAuth);
-  app.get("/config", async (request) => {
-    const config = getPluginConfig(ctx);
-    const user = request.user;
-    if (user?.isAdmin) {
-      return { ...config, isAdmin: true };
-    }
-    return { url: config.url || "", enabled: !!config.enabled, hasApiKey: !!config.apiKey, isAdmin: false };
-  });
-  app.put("/config", { preHandler: ctx.requireAdmin }, async (request) => {
-    const installedPath = resolve(__pluginDir, "..", "installed.json");
-    if (!existsSync(installedPath)) return { error: "installed.json not found" };
-    const installed = JSON.parse(readFileSync(installedPath, "utf-8"));
-    const plugin = installed.find(
-      (p) => p.pluginId === ctx.pluginId || p.id === ctx.pluginId
-    );
-    if (!plugin) return { error: "Plugin not found" };
-    plugin.config = request.body;
-    writeFileSync(installedPath, JSON.stringify(installed, null, 2));
-    return plugin.config;
-  });
+function registerProxyRoutes(app, getConfig) {
   app.post("/proxy", async (request, reply) => {
     const body = request.body;
     if (!body.url) return reply.status(400).send({ message: "url is required" });
-    const config = getPluginConfig(ctx);
+    const config = getConfig();
     const seerrUrl = config.url?.replace(/\/$/, "");
     if (!seerrUrl) return reply.status(503).send({ message: "Seerr not configured" });
     let parsed;
@@ -5466,7 +5440,7 @@ async function seerBackend(app, ctx) {
     if (!wildcard || !wildcard.startsWith("api/v1/")) {
       return reply.status(400).send({ message: "Only api/v1/* paths are allowed" });
     }
-    const config = getPluginConfig(ctx);
+    const config = getConfig();
     const seerrUrl = config.url?.replace(/\/$/, "");
     const apiKey = config.apiKey;
     if (!seerrUrl || !apiKey) return reply.status(503).send({ message: "Seerr not configured" });
@@ -5570,6 +5544,1445 @@ async function seerBackend(app, ctx) {
       return reply.status(502).send({ message: err instanceof Error ? err.message : "Proxy failed" });
     }
   });
+}
+
+// server/search/fold.ts
+var LIGATURES = {
+  "\u0153": "oe",
+  "\xE6": "ae",
+  "\xDF": "ss",
+  "\xF8": "o",
+  "\u0142": "l",
+  "\u0111": "d"
+};
+function foldText(input) {
+  return input.toLowerCase().replace(/[œæßøłđ]/g, (c) => LIGATURES[c] ?? c).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+function tokenize(input) {
+  const folded = foldText(input);
+  return folded === "" ? [] : folded.split(" ");
+}
+var STOPWORDS = /* @__PURE__ */ new Set([
+  "le",
+  "la",
+  "les",
+  "l",
+  "un",
+  "une",
+  "des",
+  "du",
+  "de",
+  "d",
+  "au",
+  "aux",
+  "et",
+  "the",
+  "a",
+  "an",
+  "of",
+  "and",
+  "in",
+  "on"
+]);
+function significantTokens(tokens) {
+  const kept = tokens.filter((t) => !STOPWORDS.has(t));
+  return kept.length > 0 ? kept : [...tokens];
+}
+var ELIDED = /* @__PURE__ */ new Set(["d", "l", "j", "m", "n", "s", "t", "c", "qu"]);
+function nameForms(folded) {
+  const space = folded.indexOf(" ");
+  if (space < 0 || !ELIDED.has(folded.slice(0, space))) return [folded];
+  return [folded, folded.slice(0, space) + folded.slice(space + 1)];
+}
+function onlyThroughElision(names, tokens) {
+  return names.some((name) => {
+    const words = name.split(" ");
+    for (let i = 1; i < words.length - 1; i++) {
+      if (ELIDED.has(words[i]) && tokens.includes(words[i] + words[i + 1])) return true;
+    }
+    return false;
+  });
+}
+function editDistance(a, b, max) {
+  if (a === b) return 0;
+  const la = a.length;
+  const lb = b.length;
+  if (Math.abs(la - lb) > max) return max + 1;
+  if (la === 0 || lb === 0) return Math.max(la, lb) > max ? max + 1 : Math.max(la, lb);
+  let before = new Array(lb + 1).fill(0);
+  let previous = Array.from({ length: lb + 1 }, (_, j) => j);
+  let current = new Array(lb + 1).fill(0);
+  for (let i = 1; i <= la; i++) {
+    current[0] = i;
+    let rowMin = i;
+    for (let j = 1; j <= lb; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let value = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        value = Math.min(value, before[j - 2] + 1);
+      }
+      current[j] = value;
+      if (value < rowMin) rowMin = value;
+    }
+    if (rowMin > max) return max + 1;
+    [before, previous, current] = [previous, current, before];
+  }
+  return previous[lb] > max ? max + 1 : previous[lb];
+}
+
+// server/search/query.ts
+var MOVIE_HINTS = /* @__PURE__ */ new Set(["film", "films", "movie", "movies"]);
+var TV_HINTS = /* @__PURE__ */ new Set(["serie", "series", "show", "shows", "tv", "feuilleton"]);
+var ANIME_HINTS = /* @__PURE__ */ new Set(["anime", "animes", "manga", "mangas"]);
+var SEASON_WORDS = /* @__PURE__ */ new Set(["saison", "season", "staffel", "temporada"]);
+var SEASON_CODE = /^s\d{1,2}(e\d{1,3})?$/;
+function yearOf(word, maxYear) {
+  const m = /^\(?((?:19|20)\d\d)\)?$/.exec(word);
+  if (!m) return null;
+  const year = Number(m[1]);
+  return year <= maxYear ? year : null;
+}
+function parseQuery(input, now = /* @__PURE__ */ new Date()) {
+  const raw = input.replace(/\s+/g, " ").trim();
+  const words = raw === "" ? [] : raw.split(" ");
+  const maxYear = now.getFullYear() + 3;
+  let year = null;
+  let type = null;
+  let anime = false;
+  const inParens = words.findIndex((w) => /^\(\d{4}\)$/.test(w) && yearOf(w, maxYear) !== null);
+  if (inParens >= 0 && words.length > 1) {
+    year = yearOf(words[inParens], maxYear);
+    words.splice(inParens, 1);
+  }
+  for (let changed = true; changed && words.length > 1; ) {
+    changed = false;
+    const first = foldText(words[0]);
+    const last = foldText(words[words.length - 1]);
+    const beforeLast = words.length > 2 ? foldText(words[words.length - 2]) : "";
+    if (type === null && (MOVIE_HINTS.has(last) || TV_HINTS.has(last))) {
+      type = MOVIE_HINTS.has(last) ? "movie" : "tv";
+      words.pop();
+    } else if (type === null && (MOVIE_HINTS.has(first) || TV_HINTS.has(first))) {
+      type = MOVIE_HINTS.has(first) ? "movie" : "tv";
+      words.shift();
+    } else if (!anime && (ANIME_HINTS.has(last) || ANIME_HINTS.has(first))) {
+      anime = true;
+      if (ANIME_HINTS.has(last)) words.pop();
+      else words.shift();
+    } else if (year === null && yearOf(words[words.length - 1], maxYear) !== null) {
+      year = yearOf(words.pop(), maxYear);
+    } else if (SEASON_CODE.test(last)) {
+      type = type ?? "tv";
+      words.pop();
+    } else if (words.length > 2 && SEASON_WORDS.has(beforeLast) && /^\d{1,2}$/.test(last)) {
+      type = type ?? "tv";
+      words.splice(words.length - 2, 2);
+    } else {
+      break;
+    }
+    changed = true;
+  }
+  const text = words.join(" ");
+  return { raw, text, tokens: tokenize(text), year, type, anime };
+}
+
+// server/search/title-index.ts
+var MAX_ENTRIES = 6e4;
+var MAX_PREFIX_TOKENS = 300;
+var MIN_PREFIX = 2;
+var DOMINANCE = 6;
+function entryWeight(e) {
+  return Math.log10(1 + e.voteCount) * 3 + Math.log10(1 + e.popularity);
+}
+function isAnimeOf(genreIds, originalLanguage) {
+  return genreIds.includes(16) && (originalLanguage === "ja" || originalLanguage === "ko" || originalLanguage === "zh");
+}
+var TitleIndex = class {
+  list = [];
+  byKey = /* @__PURE__ */ new Map();
+  postings = /* @__PURE__ */ new Map();
+  vocabWeight = /* @__PURE__ */ new Map();
+  sorted = [];
+  byInitial = /* @__PURE__ */ new Map();
+  dirty = false;
+  size() {
+    return this.list.length;
+  }
+  get(key) {
+    const i = this.byKey.get(key);
+    return i === void 0 ? void 0 : this.list[i];
+  }
+  /** Ajoute ou complète un titre. Les noms déjà connus restent : un titre ne s'oublie pas. */
+  upsert(r) {
+    if (!r.title && !r.originalTitle) return;
+    const key = `${r.mediaType}:${r.tmdbId}`;
+    let index = this.byKey.get(key);
+    let entry;
+    if (index === void 0) {
+      if (this.list.length >= MAX_ENTRIES) return;
+      entry = {
+        key,
+        mediaType: r.mediaType,
+        tmdbId: r.tmdbId,
+        titles: /* @__PURE__ */ new Map(),
+        originalTitle: null,
+        releaseDate: null,
+        year: null,
+        popularity: 0,
+        voteCount: 0,
+        voteAverage: 0,
+        posterPath: null,
+        backdropPath: null,
+        originalLanguage: null,
+        genreIds: [],
+        isAnime: false,
+        names: [],
+        tokens: /* @__PURE__ */ new Set()
+      };
+      index = this.list.length;
+      this.list.push(entry);
+      this.byKey.set(key, index);
+    } else {
+      entry = this.list[index];
+    }
+    if (r.title) entry.titles.set(r.lang, r.title);
+    entry.originalTitle = r.originalTitle ?? entry.originalTitle;
+    entry.releaseDate = r.releaseDate ?? entry.releaseDate;
+    entry.year = entry.releaseDate ? Number(entry.releaseDate.slice(0, 4)) || null : entry.year;
+    entry.popularity = r.popularity || entry.popularity;
+    entry.voteCount = r.voteCount || entry.voteCount;
+    entry.voteAverage = r.voteAverage || entry.voteAverage;
+    entry.posterPath = r.posterPath ?? entry.posterPath;
+    entry.backdropPath = r.backdropPath ?? entry.backdropPath;
+    entry.originalLanguage = r.originalLanguage ?? entry.originalLanguage;
+    if (r.genreIds.length > 0) entry.genreIds = r.genreIds;
+    entry.isAnime = isAnimeOf(entry.genreIds, entry.originalLanguage);
+    const weight = entryWeight(entry);
+    const forms = [r.title, r.originalTitle].flatMap((name) => name ? nameForms(foldText(name)) : []);
+    for (const folded of forms) {
+      if (folded === "" || entry.names.includes(folded)) continue;
+      entry.names.push(folded);
+      for (const token of folded.split(" ")) {
+        if ((this.vocabWeight.get(token) ?? -1) < weight) this.vocabWeight.set(token, weight);
+        if (entry.tokens.has(token)) continue;
+        entry.tokens.add(token);
+        const list = this.postings.get(token);
+        if (list === void 0) {
+          this.postings.set(token, [index]);
+          this.dirty = true;
+        } else {
+          list.push(index);
+        }
+      }
+    }
+  }
+  rebuild() {
+    if (!this.dirty) return;
+    this.sorted = [...this.postings.keys()].sort();
+    this.byInitial = /* @__PURE__ */ new Map();
+    for (const token of this.sorted) {
+      const initial = token[0];
+      const bucket = this.byInitial.get(initial);
+      if (bucket) bucket.push(token);
+      else this.byInitial.set(initial, [token]);
+    }
+    this.dirty = false;
+  }
+  /** Les mots du vocabulaire qui commencent par `prefix`, les plus porteurs d'abord. */
+  complete(prefix) {
+    this.rebuild();
+    if (prefix.length < MIN_PREFIX) return this.postings.has(prefix) ? [prefix] : [];
+    let lo = 0;
+    let hi = this.sorted.length;
+    while (lo < hi) {
+      const mid = lo + hi >> 1;
+      if (this.sorted[mid] < prefix) lo = mid + 1;
+      else hi = mid;
+    }
+    const out = [];
+    for (let i = lo; i < this.sorted.length && this.sorted[i].startsWith(prefix); i++) out.push(this.sorted[i]);
+    if (out.length <= MAX_PREFIX_TOKENS) return out;
+    return out.sort((a, b) => (this.vocabWeight.get(b) ?? 0) - (this.vocabWeight.get(a) ?? 0)).slice(0, MAX_PREFIX_TOKENS);
+  }
+  /**
+   * Le mot connu le plus proche d'un mot inconnu — mêmes garde-fous que le
+   * moteur de la bibliothèque, calibrés sur du bruit réel : cinq lettres au
+   * moins, première lettre juste, une faute jusqu'à sept lettres, deux au-delà.
+   * Un mot collé (« spiderman ») se décolle s'il se coupe en deux mots connus.
+   */
+  correctToken(token) {
+    this.rebuild();
+    if (this.postings.has(token) || token.length < 5 || /\d/.test(token)) return null;
+    const max = token.length >= 8 ? 2 : 1;
+    let best = null;
+    let bestDistance = max + 1;
+    let bestWeight = -1;
+    for (const candidate of this.byInitial.get(token[0]) ?? []) {
+      if (Math.abs(candidate.length - token.length) > max) continue;
+      const d = editDistance(token, candidate, max);
+      const w = this.vocabWeight.get(candidate) ?? 0;
+      if (d < bestDistance || d === bestDistance && d <= max && w > bestWeight) {
+        best = candidate;
+        bestDistance = d;
+        bestWeight = w;
+      }
+    }
+    if (best !== null && bestDistance <= max) return best;
+    for (let cut = 3; cut <= token.length - 3; cut++) {
+      const left = token.slice(0, cut);
+      const right = token.slice(cut);
+      if (this.postings.has(left) && this.postings.has(right)) return `${left} ${right}`;
+    }
+    return null;
+  }
+  /**
+   * Un mot CONNU, mais seulement par des titres obscurs, à une lettre d'un mot
+   * cent fois plus porteur : c'est presque toujours une faute. « interstelar »
+   * est le titre d'un film de 2014 à deux votes — celui qui le tape cherche
+   * « Interstellar ». Sans ce garde-fou, il suffisait qu'une recherche fasse
+   * entrer ce titre obscur dans l'index pour que la faute cesse d'être corrigée.
+   * Le titre tapé reste trouvable : la recherche complète interroge aussi la
+   * requête telle quelle, et « Rechercher quand même » la rétablit.
+   */
+  dominantNeighbor(token) {
+    this.rebuild();
+    if (token.length < 5 || /\d/.test(token)) return null;
+    let best = null;
+    let bestWeight = (this.vocabWeight.get(token) ?? 0) + DOMINANCE;
+    for (const candidate of this.byInitial.get(token[0]) ?? []) {
+      if (candidate === token || Math.abs(candidate.length - token.length) > 1) continue;
+      const weight = this.vocabWeight.get(candidate) ?? 0;
+      if (weight < bestWeight || editDistance(token, candidate, 1) > 1) continue;
+      best = candidate;
+      bestWeight = weight;
+    }
+    return best;
+  }
+  postingsOf(token, isLast) {
+    const out = new Set(this.postings.get(token) ?? []);
+    if (isLast) {
+      for (const word of this.complete(token)) {
+        for (const i of this.postings.get(word) ?? []) out.add(i);
+      }
+    }
+    return out;
+  }
+  /**
+   * Les titres dont les noms contiennent les mots de la requête — le dernier
+   * pouvant être un début de mot. `allowFix` à faux : pas de correction.
+   */
+  lookup(tokens, limit = 200, allowFix = true) {
+    const words = significantTokens(tokens);
+    if (words.length === 0) return { hits: [], corrected: null, replacements: [] };
+    const direct = this.match(words, limit);
+    if (!allowFix) return { hits: direct, corrected: null, replacements: [] };
+    const whole = direct.length > 0 && direct[0].matched === words.length;
+    const replacements = [];
+    const fixed = words.flatMap((word, i) => {
+      let fix = null;
+      if (this.postings.has(word)) fix = this.dominantNeighbor(word);
+      else if (!whole && !(i === words.length - 1 && this.complete(word).length > 0)) fix = this.correctToken(word);
+      if (fix === null) return [word];
+      replacements.push([word, fix]);
+      return fix.split(" ");
+    });
+    if (replacements.length === 0) return { hits: direct, corrected: null, replacements: [] };
+    const corrected = this.match(fixed, limit);
+    if (corrected.length === 0 || corrected[0].matched < (direct[0]?.matched ?? 0)) {
+      return { hits: direct, corrected: null, replacements: [] };
+    }
+    return { hits: corrected, corrected: fixed, replacements };
+  }
+  match(words, limit) {
+    const sets = words.map((w, i) => this.postingsOf(w, i === words.length - 1));
+    const counts = /* @__PURE__ */ new Map();
+    for (const set of sets) for (const i of set) counts.set(i, (counts.get(i) ?? 0) + 1);
+    const hits = [];
+    const need = words.length === 1 ? 1 : Math.max(1, words.length - 1);
+    for (const [i, matched] of counts) if (matched >= need) hits.push({ entry: this.list[i], matched });
+    hits.sort((a, b) => b.matched - a.matched || entryWeight(b.entry) - entryWeight(a.entry));
+    return hits.slice(0, limit);
+  }
+  /** Tout l'index — pour la persistance. */
+  entries() {
+    return this.list;
+  }
+  /** Repartir de zéro (la liste de blocage a changé). */
+  clear() {
+    this.list = [];
+    this.byKey = /* @__PURE__ */ new Map();
+    this.postings = /* @__PURE__ */ new Map();
+    this.vocabWeight = /* @__PURE__ */ new Map();
+    this.sorted = [];
+    this.byInitial = /* @__PURE__ */ new Map();
+    this.dirty = false;
+  }
+};
+
+// server/search/status-map.ts
+var MEDIA_STATUS = {
+  UNKNOWN: 1,
+  PENDING: 2,
+  PROCESSING: 3,
+  PARTIALLY_AVAILABLE: 4,
+  AVAILABLE: 5,
+  BLOCKLISTED: 6,
+  DELETED: 7
+};
+var PAGE_SIZE = 100;
+var INCREMENTAL_EVERY_MS = 6e4;
+var FULL_EVERY_MS = 6 * 36e5;
+var FULL_CONCURRENCY = 3;
+var statuses = /* @__PURE__ */ new Map();
+var lastFull = 0;
+var lastIncremental = 0;
+var newestSeen = "";
+var running = null;
+var retryAfter = 0;
+var RETRY_MS = 6e4;
+function statusOf(mediaType, tmdbId) {
+  return statuses.get(`${mediaType}:${tmdbId}`);
+}
+function noteStatus(mediaType, tmdbId, status) {
+  if (typeof status === "number" && status > 0) statuses.set(`${mediaType}:${tmdbId}`, status);
+}
+function statusMapReady() {
+  return lastFull > 0;
+}
+async function fetchPage(cfg, skip, take = PAGE_SIZE) {
+  const res = await fetch(
+    `${cfg.seerrUrl}/api/v1/media?take=${take}&skip=${skip}&filter=all&sort=modified`,
+    { headers: { "X-Api-Key": cfg.seerrApiKey }, signal: AbortSignal.timeout(1e4) }
+  );
+  if (!res.ok) throw new Error(`GET /media ${res.status}`);
+  return await res.json();
+}
+function absorb(rows, into) {
+  for (const row of rows ?? []) {
+    if (typeof row.tmdbId !== "number" || row.mediaType !== "movie" && row.mediaType !== "tv") continue;
+    if (typeof row.status === "number") into.set(`${row.mediaType}:${row.tmdbId}`, row.status);
+    if (row.updatedAt && row.updatedAt > newestSeen) newestSeen = row.updatedAt;
+  }
+}
+async function fullReload(cfg) {
+  const first = await fetchPage(cfg, 0);
+  const fresh = /* @__PURE__ */ new Map();
+  absorb(first.results, fresh);
+  const total = first.pageInfo?.results ?? 0;
+  const skips = [];
+  for (let skip = PAGE_SIZE; skip < total; skip += PAGE_SIZE) skips.push(skip);
+  const pages = await mapLimit(skips, FULL_CONCURRENCY, (skip) => fetchPage(cfg, skip));
+  for (const page of pages) absorb(page?.results, fresh);
+  statuses.clear();
+  for (const [k, v] of fresh) statuses.set(k, v);
+  lastFull = Date.now();
+  lastIncremental = lastFull;
+}
+async function incremental(cfg) {
+  const since = newestSeen;
+  const page = await fetchPage(cfg, 0, 50);
+  absorb(page.results, statuses);
+  lastIncremental = Date.now();
+  const rows = page.results ?? [];
+  if (rows.length === 50 && rows.every((r) => (r.updatedAt ?? "") > since)) lastFull = 0;
+}
+function refreshStatusMap(cfg) {
+  if (running) return;
+  const now = Date.now();
+  if (now < retryAfter) return;
+  const needFull = now - lastFull > FULL_EVERY_MS;
+  if (!needFull && now - lastIncremental < INCREMENTAL_EVERY_MS) return;
+  running = (needFull ? fullReload(cfg) : incremental(cfg)).catch((err) => {
+    console.warn(`[Vigie] Statuts des m\xE9dias indisponibles : ${err instanceof Error ? err.message : err}`);
+    retryAfter = Date.now() + RETRY_MS;
+  }).finally(() => {
+    running = null;
+  });
+}
+
+// server/search/remote.ts
+var TTL_MS = 10 * 6e4;
+var STALE_MS = 60 * 6e4;
+var str = (v) => typeof v === "string" && v !== "" ? v : null;
+var num = (v) => typeof v === "number" && Number.isFinite(v) ? v : 0;
+function toRemoteMedia(r, rank = 0) {
+  const mediaType = r.mediaType === "movie" || r.mediaType === "tv" ? r.mediaType : null;
+  const id = num(r.id);
+  if (!mediaType || id <= 0) return null;
+  const info = r.mediaInfo;
+  return {
+    mediaType,
+    id,
+    title: str(r.title) ?? str(r.name) ?? "",
+    originalTitle: str(r.originalTitle) ?? str(r.originalName),
+    releaseDate: str(r.releaseDate) ?? str(r.firstAirDate),
+    posterPath: str(r.posterPath),
+    backdropPath: str(r.backdropPath),
+    overview: str(r.overview),
+    voteAverage: num(r.voteAverage),
+    voteCount: num(r.voteCount),
+    popularity: num(r.popularity),
+    genreIds: Array.isArray(r.genreIds) ? r.genreIds.filter((g) => typeof g === "number") : [],
+    originalLanguage: str(r.originalLanguage),
+    status: typeof info?.status === "number" ? info.status : void 0,
+    rank
+  };
+}
+function toRemotePerson(r, rank) {
+  const id = num(r.id);
+  const name = str(r.name);
+  if (id <= 0 || !name) return null;
+  const knownFor = Array.isArray(r.knownFor) ? r.knownFor.map((m) => toRemoteMedia(m)).filter((m) => m !== null) : [];
+  return {
+    id,
+    name,
+    profilePath: str(r.profilePath),
+    popularity: num(r.popularity),
+    department: str(r.knownForDepartment),
+    knownFor,
+    rank
+  };
+}
+async function fetchSearchPage(cfg, text, page, lang) {
+  const url = `${cfg.seerrUrl}/api/v1/search?query=${encodeURIComponent(text)}&page=${page}&language=${encodeURIComponent(lang)}`;
+  const res = await fetch(url, {
+    headers: { "X-Api-Key": cfg.seerrApiKey, "Accept-Language": lang },
+    signal: AbortSignal.timeout(8e3)
+  });
+  if (!res.ok) throw new Error(`Jellyseerr /search ${res.status}`);
+  return await res.json();
+}
+async function remoteSearch(cfg, text, page, lang, showBlocked, knownSafe = () => false) {
+  const key = `vigie:remote:${lang}:${showBlocked ? 1 : 0}:${page}:${foldText(text)}`;
+  const result = await cached(key, TTL_MS, async () => {
+    const raw = await fetchSearchPage(cfg, text, page, lang);
+    const results = (Array.isArray(raw.results) ? raw.results : []).map((r, rank) => ({ r, rank }));
+    const tags = await getBlocklistedTags(cfg.seerrUrl, cfg.seerrApiKey);
+    const blocked = parseTagSet(tags);
+    let kept = results;
+    let blockedCount = 0;
+    if (blocked.size > 0 && !showBlocked) {
+      const isSafe = ({ r }) => (r.mediaType === "movie" || r.mediaType === "tv") && typeof r.id === "number" && knownSafe(r.mediaType, r.id) && r.mediaInfo?.status !== 6;
+      const unknown = results.filter((x) => !isSafe(x));
+      const filtered = await filterResultsByTags(cfg.seerrUrl, cfg.seerrApiKey, unknown.map((x) => x.r), blocked);
+      const survivors = new Set(filtered.kept);
+      kept = results.filter((x) => isSafe(x) || survivors.has(x.r));
+      blockedCount = filtered.blockedCount;
+    }
+    const media = [];
+    const people = [];
+    for (const { r, rank } of kept) {
+      if (r.mediaType === "person") {
+        const person = toRemotePerson(r, rank);
+        if (person) people.push(person);
+      } else {
+        const m = toRemoteMedia(r, rank);
+        if (m) media.push(m);
+      }
+    }
+    for (const m of media) noteStatus(m.mediaType, m.id, m.status);
+    return { media, people, totalPages: num(raw.totalPages), blockedCount, blockedActive: blocked.size > 0 };
+  }, { staleMs: STALE_MS });
+  return result;
+}
+
+// server/search/title-store.ts
+var FLUSH_EVERY_MS = 3e4;
+var FLUSH_AT = 400;
+var BATCH = 200;
+var pending = [];
+var flushTimer = null;
+async function ensureSearchTables(prisma) {
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS seer_search_titles (
+      media_type        VARCHAR(5)    NOT NULL,
+      tmdb_id           INT           NOT NULL,
+      lang              VARCHAR(8)    NOT NULL,
+      title             VARCHAR(500)  NOT NULL DEFAULT '',
+      original_title    VARCHAR(500)  DEFAULT NULL,
+      release_date      CHAR(10)      DEFAULT NULL,
+      popularity        DECIMAL(10,3) DEFAULT NULL,
+      vote_count        INT           DEFAULT NULL,
+      vote_average      DECIMAL(3,1)  DEFAULT NULL,
+      poster_path       VARCHAR(255)  DEFAULT NULL,
+      backdrop_path     VARCHAR(255)  DEFAULT NULL,
+      original_language VARCHAR(10)   DEFAULT NULL,
+      genre_ids         VARCHAR(120)  DEFAULT NULL,
+      updated_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (media_type, tmdb_id, lang)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS seer_search_meta (
+      meta_key   VARCHAR(64)  NOT NULL PRIMARY KEY,
+      meta_value VARCHAR(500) NOT NULL DEFAULT '',
+      updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+function num2(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+function rowToRecord(row) {
+  return {
+    mediaType: row.media_type === "tv" ? "tv" : "movie",
+    tmdbId: num2(row.tmdb_id),
+    lang: String(row.lang ?? "en"),
+    title: String(row.title ?? ""),
+    originalTitle: row.original_title ?? null,
+    releaseDate: row.release_date ?? null,
+    popularity: num2(row.popularity),
+    voteCount: num2(row.vote_count),
+    voteAverage: num2(row.vote_average),
+    posterPath: row.poster_path ?? null,
+    backdropPath: row.backdrop_path ?? null,
+    originalLanguage: row.original_language ?? null,
+    genreIds: String(row.genre_ids ?? "").split(",").map(Number).filter((n) => Number.isFinite(n) && n > 0)
+  };
+}
+async function loadTitles(prisma, index) {
+  const rows = await prisma.$queryRawUnsafe(`SELECT * FROM seer_search_titles`);
+  for (const row of rows) index.upsert(rowToRecord(row));
+  return rows.length;
+}
+async function writeBatch(prisma, records) {
+  for (const part of chunk(records, BATCH)) {
+    const placeholders = part.map(() => "(?,?,?,?,?,?,?,?,?,?,?,?,?)").join(",");
+    const values = part.flatMap((r) => [
+      r.mediaType,
+      r.tmdbId,
+      r.lang.slice(0, 8),
+      r.title.slice(0, 500),
+      r.originalTitle?.slice(0, 500) ?? null,
+      r.releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(r.releaseDate) ? r.releaseDate : null,
+      Math.min(r.popularity, 9999999),
+      r.voteCount,
+      Math.min(r.voteAverage, 10),
+      r.posterPath,
+      r.backdropPath,
+      r.originalLanguage?.slice(0, 10) ?? null,
+      r.genreIds.join(",").slice(0, 120) || null
+    ]);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO seer_search_titles
+         (media_type, tmdb_id, lang, title, original_title, release_date, popularity, vote_count,
+          vote_average, poster_path, backdrop_path, original_language, genre_ids)
+       VALUES ${placeholders}
+       ON DUPLICATE KEY UPDATE title = VALUES(title), original_title = VALUES(original_title),
+         release_date = VALUES(release_date), popularity = VALUES(popularity), vote_count = VALUES(vote_count),
+         vote_average = VALUES(vote_average), poster_path = VALUES(poster_path), backdrop_path = VALUES(backdrop_path),
+         original_language = VALUES(original_language), genre_ids = VALUES(genre_ids)`,
+      ...values
+    );
+  }
+}
+async function flushTitles(prisma) {
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  if (pending.length === 0) return;
+  const batch = pending;
+  pending = [];
+  try {
+    await writeBatch(prisma, batch);
+  } catch (err) {
+    console.warn(`[Vigie] Index de recherche non enregistr\xE9 : ${err instanceof Error ? err.message : err}`);
+  }
+}
+function queueTitles(prisma, records) {
+  pending.push(...records);
+  if (pending.length >= FLUSH_AT) {
+    void flushTitles(prisma);
+    return;
+  }
+  if (!flushTimer) flushTimer = setTimeout(() => {
+    void flushTitles(prisma);
+  }, FLUSH_EVERY_MS);
+}
+async function readMeta(prisma, key) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT meta_value FROM seer_search_meta WHERE meta_key = ?`,
+    key
+  );
+  return rows[0]?.meta_value ?? null;
+}
+async function writeMeta(prisma, key, value) {
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO seer_search_meta (meta_key, meta_value) VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)`,
+    key,
+    value.slice(0, 500)
+  );
+}
+async function clearTitles(prisma) {
+  pending = [];
+  await prisma.$executeRawUnsafe(`DELETE FROM seer_search_titles`);
+}
+
+// server/search/title-crawl.ts
+var ANIME_KEYWORD = "210024";
+function sources(today) {
+  return [
+    { endpoint: "movies", query: "sortBy=popularity.desc", pages: 60, light: 10 },
+    { endpoint: "movies", query: "sortBy=vote_count.desc", pages: 100 },
+    { endpoint: "tv", query: "sortBy=popularity.desc", pages: 40, light: 10 },
+    { endpoint: "tv", query: "sortBy=vote_count.desc", pages: 60 },
+    { endpoint: "tv", query: `keywords=${ANIME_KEYWORD}&sortBy=vote_count.desc`, pages: 20, light: 3 },
+    { endpoint: "movies", query: `keywords=${ANIME_KEYWORD}&sortBy=vote_count.desc`, pages: 8 },
+    { endpoint: "movies", query: `primaryReleaseDateGte=${today}&sortBy=popularity.desc`, pages: 10, light: 10 },
+    { endpoint: "tv", query: `firstAirDateGte=${today}&sortBy=popularity.desc`, pages: 5, light: 5 }
+  ];
+}
+var CRAWL_LANGS = ["fr", "en"];
+var FULL_EVERY_MS2 = 3 * 864e5;
+var LIGHT_EVERY_MS = 864e5;
+var CHECK_EVERY_MS = 36e5;
+var CONCURRENCY = 2;
+var MIN_BUILT = 1e3;
+var state = "idle";
+var crawling = false;
+var nextCheck = 0;
+var fullAt = 0;
+var lightAt = 0;
+var crawlTags = null;
+function todayIso() {
+  const d = /* @__PURE__ */ new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function toRecord(raw, lang, fallbackType) {
+  const media = toRemoteMedia({ ...raw, mediaType: raw.mediaType ?? fallbackType });
+  if (!media || !media.title) return null;
+  return {
+    mediaType: media.mediaType,
+    tmdbId: media.id,
+    lang,
+    title: media.title,
+    originalTitle: media.originalTitle,
+    releaseDate: media.releaseDate,
+    popularity: media.popularity,
+    voteCount: media.voteCount,
+    voteAverage: media.voteAverage,
+    posterPath: media.posterPath,
+    backdropPath: media.backdropPath,
+    originalLanguage: media.originalLanguage,
+    genreIds: media.genreIds
+  };
+}
+async function fetchDiscover(cfg, source, page, lang, tags) {
+  const exclude = tags ? `&excludeKeywords=${encodeURIComponent(tags)}` : "";
+  const res = await fetch(
+    `${cfg.seerrUrl}/api/v1/discover/${source.endpoint}?page=${page}&${source.query}${exclude}`,
+    { headers: { "X-Api-Key": cfg.seerrApiKey, "Accept-Language": lang }, signal: AbortSignal.timeout(1e4) }
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  const type = source.endpoint === "movies" ? "movie" : "tv";
+  return (data.results ?? []).map((r) => toRecord(r, lang, type)).filter((r) => r !== null);
+}
+async function crawl(prisma, cfg, index, mode, tags) {
+  const jobs = [];
+  for (const lang of CRAWL_LANGS) {
+    for (const source of sources(todayIso())) {
+      const pages = mode === "full" ? source.pages : source.light ?? 0;
+      for (let page = 1; page <= pages; page++) jobs.push({ source, page, lang });
+    }
+  }
+  const started = Date.now();
+  let learned = 0;
+  await mapLimit(jobs, CONCURRENCY, async ({ source, page, lang }) => {
+    const records = await fetchDiscover(cfg, source, page, lang, tags);
+    for (const r of records) index.upsert(r);
+    queueTitles(prisma, records);
+    learned += records.length;
+  });
+  await flushTitles(prisma);
+  const now = Date.now();
+  if (mode === "full") {
+    fullAt = now;
+    await writeMeta(prisma, "crawl_full_at", String(now));
+  }
+  lightAt = now;
+  await writeMeta(prisma, "crawl_light_at", String(now));
+  await writeMeta(prisma, "crawl_tags", tags);
+  crawlTags = tags;
+  console.log(`[Vigie] Index de recherche : ${learned} fiches lues (${mode}) en ${Math.round((now - started) / 1e3)} s \u2014 ${index.size()} titres`);
+}
+function launch(prisma, cfg, index, mode, tags) {
+  if (crawling) return;
+  crawling = true;
+  void crawl(prisma, cfg, index, mode, tags).catch((err) => console.warn(`[Vigie] Construction de l'index interrompue : ${err instanceof Error ? err.message : err}`)).finally(() => {
+    crawling = false;
+  });
+}
+async function boot(prisma, cfg, index) {
+  const [count, full, light, tags] = await Promise.all([
+    loadTitles(prisma, index),
+    readMeta(prisma, "crawl_full_at"),
+    readMeta(prisma, "crawl_light_at"),
+    readMeta(prisma, "crawl_tags")
+  ]);
+  fullAt = Number(full) || 0;
+  lightAt = Number(light) || 0;
+  crawlTags = tags;
+  if (count < MIN_BUILT) fullAt = 0;
+}
+async function check(prisma, cfg, index) {
+  const tags = await getBlocklistedTags(cfg.seerrUrl, cfg.seerrApiKey);
+  if (crawlTags !== null && tags !== crawlTags) {
+    index.clear();
+    await clearTitles(prisma);
+    fullAt = 0;
+  }
+  const now = Date.now();
+  if (now - fullAt > FULL_EVERY_MS2) launch(prisma, cfg, index, "full", tags);
+  else if (now - lightAt > LIGHT_EVERY_MS) launch(prisma, cfg, index, "light", tags);
+}
+function ensureTitleIndex(prisma, cfg, index) {
+  if (state === "booting") return;
+  if (state === "idle") {
+    state = "booting";
+    void boot(prisma, cfg, index).catch((err) => console.warn(`[Vigie] Index de recherche illisible : ${err instanceof Error ? err.message : err}`)).finally(() => {
+      state = "ready";
+      nextCheck = 0;
+      ensureTitleIndex(prisma, cfg, index);
+    });
+    return;
+  }
+  const now = Date.now();
+  if (crawling || now < nextCheck) return;
+  nextCheck = now + CHECK_EVERY_MS;
+  void check(prisma, cfg, index).catch(() => {
+    nextCheck = now + 6e4;
+  });
+}
+function titleIndexBuilding() {
+  return state !== "ready" || crawling;
+}
+
+// server/search/rank.ts
+var TEXT_ALL_WORDS = 650;
+var TEXT_KEY_WORDS = 560;
+var FIX_PENALTY = 80;
+var TEXT_EXACT_TITLE = 1e3 - FIX_PENALTY;
+function covered(words, wanted, lastIsPrefix) {
+  let found = 0;
+  for (let i = 0; i < wanted.length; i++) {
+    const w = wanted[i];
+    const prefix = lastIsPrefix && i === wanted.length - 1;
+    if (words.some((x) => x === w || prefix && x.startsWith(w))) found++;
+  }
+  return found;
+}
+function textScore(names, tokens) {
+  if (tokens.length === 0) return 0;
+  const phrase = tokens.join(" ");
+  const key = significantTokens(tokens);
+  const lastIsKey = key[key.length - 1] === tokens[tokens.length - 1];
+  let best = 0;
+  for (const name of names) {
+    if (name === phrase) return 1e3;
+    if (name.startsWith(phrase)) {
+      best = Math.max(best, 880 - Math.min(80, name.length - phrase.length));
+      continue;
+    }
+    const words = name.split(" ");
+    const density = (n, span) => Math.round(span * n / Math.max(words.length, 1));
+    if (covered(words, tokens, true) === tokens.length) {
+      best = Math.max(best, TEXT_ALL_WORDS + density(tokens.length, 150));
+      continue;
+    }
+    const found = covered(words, key, lastIsKey);
+    if (found === key.length) best = Math.max(best, TEXT_KEY_WORDS + density(key.length, 80));
+    else if (found > 0) best = Math.max(best, Math.round(399 * found / key.length));
+  }
+  return best;
+}
+function popularityScore(voteCount, popularity) {
+  return Math.round(70 * Math.log10(1 + voteCount) + 25 * Math.log10(1 + popularity));
+}
+function remoteRankScore(rank) {
+  return rank === null || rank === void 0 ? 0 : Math.max(0, 80 - 4 * rank);
+}
+function scoreMediaWithText(item, text, query) {
+  let score2 = text === 0 && item.remoteRank !== null && item.remoteRank !== void 0 ? 150 : text;
+  score2 += popularityScore(item.voteCount, item.popularity) + remoteRankScore(item.remoteRank);
+  if (query.year !== null && item.year !== null) {
+    const gap = Math.abs(query.year - item.year);
+    score2 += gap === 0 ? 500 : gap === 1 ? 150 : -250;
+  }
+  if (query.type !== null) score2 += query.type === item.mediaType ? 300 : -400;
+  if (query.anime && item.isAnime) score2 += 300;
+  if (item.voteCount < 5 && text < 1e3) score2 -= 100;
+  return score2;
+}
+function scorePerson(name, popularity, tokens, remoteRank) {
+  const text = textScore([name], tokens);
+  const normalized = text >= TEXT_KEY_WORDS ? 800 : text;
+  return normalized + Math.round(150 * Math.log10(1 + popularity * 10)) + remoteRankScore(remoteRank) * 2;
+}
+
+// server/search/service.ts
+var titleIndex = new TitleIndex();
+var FULL_TTL_MS = 6e4;
+var PARTIAL_TTL_MS2 = 5e3;
+var LOCAL_LIMIT = 80;
+function fromEntry(e, lang) {
+  const title = e.titles.get(lang) ?? e.titles.get("en") ?? e.originalTitle ?? [...e.titles.values()][0] ?? "";
+  return {
+    key: e.key,
+    mediaType: e.mediaType,
+    tmdbId: e.tmdbId,
+    title,
+    originalTitle: e.originalTitle,
+    names: e.names,
+    releaseDate: e.releaseDate,
+    year: e.year,
+    posterPath: e.posterPath,
+    backdropPath: e.backdropPath,
+    overview: null,
+    voteAverage: e.voteAverage,
+    voteCount: e.voteCount,
+    popularity: e.popularity,
+    genreIds: e.genreIds,
+    originalLanguage: e.originalLanguage,
+    isAnime: e.isAnime,
+    remoteStatus: void 0,
+    remoteRank: null,
+    text: 0,
+    score: 0
+  };
+}
+function fromRemote(m) {
+  const names = [m.title, m.originalTitle].filter((n) => !!n).map(foldText).filter((n) => n !== "").flatMap(nameForms);
+  const year = m.releaseDate ? Number(m.releaseDate.slice(0, 4)) || null : null;
+  const isAnime = m.genreIds.includes(16) && ["ja", "ko", "zh"].includes(m.originalLanguage ?? "");
+  return {
+    key: `${m.mediaType}:${m.id}`,
+    mediaType: m.mediaType,
+    tmdbId: m.id,
+    title: m.title,
+    originalTitle: m.originalTitle,
+    names: [...new Set(names)],
+    releaseDate: m.releaseDate,
+    year,
+    posterPath: m.posterPath,
+    backdropPath: m.backdropPath,
+    overview: m.overview,
+    voteAverage: m.voteAverage,
+    voteCount: m.voteCount,
+    popularity: m.popularity,
+    genreIds: m.genreIds,
+    originalLanguage: m.originalLanguage,
+    isAnime,
+    remoteStatus: m.status,
+    remoteRank: m.rank,
+    text: 0,
+    score: 0
+  };
+}
+function merge(into, c) {
+  const known = into.get(c.key);
+  if (!known) {
+    into.set(c.key, c);
+    return;
+  }
+  const ranks = [known.remoteRank, c.remoteRank].filter((r) => r !== null);
+  into.set(c.key, {
+    ...known,
+    ...c,
+    names: [.../* @__PURE__ */ new Set([...known.names, ...c.names])],
+    remoteRank: ranks.length > 0 ? Math.min(...ranks) : null
+  });
+}
+function recordOf(m, lang) {
+  return {
+    mediaType: m.mediaType,
+    tmdbId: m.id,
+    lang,
+    title: m.title,
+    originalTitle: m.originalTitle,
+    releaseDate: m.releaseDate,
+    popularity: m.popularity,
+    voteCount: m.voteCount,
+    voteAverage: m.voteAverage,
+    posterPath: m.posterPath,
+    backdropPath: m.backdropPath,
+    originalLanguage: m.originalLanguage,
+    genreIds: m.genreIds
+  };
+}
+function rewrite(parsed, replacements) {
+  const map = new Map(replacements);
+  return parsed.tokens.map((t) => map.get(t) ?? t).join(" ");
+}
+function score(candidates, parsed, fixed) {
+  let fixWon = false;
+  const scored = [...candidates].map((c) => {
+    const typed = textScore(c.names, parsed.tokens);
+    const viaFix = fixed ? textScore(c.names, fixed) - FIX_PENALTY : -1;
+    const text = Math.max(typed, viaFix);
+    return { c: { ...c, text, score: scoreMediaWithText(c, text, parsed) }, viaFix: viaFix > typed };
+  });
+  scored.sort((a, b) => b.c.score - a.c.score);
+  if (scored.length > 0) fixWon = scored[0].viaFix;
+  const anyFull = scored.some((s) => s.c.text >= TEXT_KEY_WORDS);
+  const media = scored.map((s) => s.c).filter((c) => !(anyFull && c.text < TEXT_KEY_WORDS && c.remoteRank === null)).filter((c) => !(c.text === 0 && onlyThroughElision(c.names, parsed.tokens)));
+  return { media, fixWon };
+}
+function warmSearch(ctx) {
+  ensureTitleIndex(ctx.prisma, ctx.cfg, titleIndex);
+  refreshStatusMap(ctx.cfg);
+  refreshLocalPending(ctx.prisma);
+}
+var EMPTY2 = (parsed) => ({
+  parsed,
+  searched: parsed.text,
+  correction: null,
+  media: [],
+  people: [],
+  hasMore: false,
+  blockedCount: 0,
+  blockedActive: false,
+  complete: true
+});
+function instantSearch(ctx, q, opts) {
+  warmSearch(ctx);
+  const parsed = parseQuery(q);
+  if (parsed.tokens.length === 0) return EMPTY2(parsed);
+  const lookup = titleIndex.lookup(parsed.tokens, LOCAL_LIMIT, !opts.exact);
+  const fixedText = lookup.replacements.length > 0 ? rewrite(parsed, lookup.replacements) : null;
+  const { media, fixWon } = score(lookup.hits.map((h) => fromEntry(h.entry, opts.lang)), parsed, fixedText ? tokenize(fixedText) : null);
+  const correction = fixWon ? fixedText : null;
+  return { ...EMPTY2(parsed), searched: correction ?? parsed.text, correction, media, complete: false };
+}
+async function tryRemote(ctx, text, opts) {
+  if (text.trim() === "") return null;
+  try {
+    return await remoteSearch(
+      ctx.cfg,
+      text,
+      opts.page,
+      opts.lang,
+      opts.showBlocked,
+      (mediaType, id) => titleIndex.get(`${mediaType}:${id}`) !== void 0
+    );
+  } catch {
+    return null;
+  }
+}
+async function computeFull(ctx, q, opts) {
+  const parsed = parseQuery(q);
+  if (parsed.tokens.length === 0) return EMPTY2(parsed);
+  const lookup = titleIndex.lookup(parsed.tokens, LOCAL_LIMIT, !opts.exact);
+  const fixedText = lookup.replacements.length > 0 ? rewrite(parsed, lookup.replacements) : null;
+  const [typed, fixed] = await Promise.all([
+    tryRemote(ctx, parsed.text, opts),
+    fixedText ? tryRemote(ctx, fixedText, opts) : Promise.resolve(null)
+  ]);
+  const pages = [typed, fixed].filter((p) => p !== null);
+  const all = /* @__PURE__ */ new Map();
+  if (opts.page === 1) for (const h of lookup.hits) merge(all, fromEntry(h.entry, opts.lang));
+  for (const page of pages) for (const m of page.media) merge(all, fromRemote(m));
+  if (parsed.year !== null && parsed.text !== parsed.raw && opts.page === 1) {
+    const found = [...all.values()].some((c) => c.year === parsed.year && textScore(c.names, parsed.tokens) >= TEXT_KEY_WORDS);
+    if (!found) {
+      const raw = await tryRemote(ctx, parsed.raw, opts);
+      if (raw) {
+        pages.push(raw);
+        for (const m of raw.media) merge(all, fromRemote(m));
+      }
+    }
+  }
+  if (!opts.showBlocked) {
+    const learned = pages.flatMap((p) => p.media).filter((m) => m.title).map((m) => recordOf(m, opts.lang));
+    for (const r of learned) titleIndex.upsert(r);
+    if (learned.length > 0) queueTitles(ctx.prisma, learned);
+  }
+  const fixedTokens = fixedText ? tokenize(fixedText) : null;
+  const { media, fixWon } = score(all.values(), parsed, fixedTokens);
+  const correction = fixWon ? fixedText : null;
+  const tokens = correction ? fixedTokens : parsed.tokens;
+  const people = /* @__PURE__ */ new Map();
+  for (const page of pages) {
+    for (const p of page.people) {
+      if (people.has(p.id)) continue;
+      people.set(p.id, {
+        id: p.id,
+        name: p.name,
+        profilePath: p.profilePath,
+        popularity: p.popularity,
+        department: p.department,
+        knownFor: p.knownFor.map(fromRemote),
+        score: scorePerson(foldText(p.name), p.popularity, tokens, p.rank)
+      });
+    }
+  }
+  const main = (correction ? fixed : typed) ?? typed ?? fixed;
+  return {
+    parsed,
+    searched: correction ?? parsed.text,
+    correction,
+    media,
+    people: [...people.values()].sort((a, b) => b.score - a.score),
+    hasMore: (main?.totalPages ?? 0) > opts.page,
+    blockedCount: pages.reduce((n, p) => n + p.blockedCount, 0),
+    blockedActive: pages.some((p) => p.blockedActive),
+    complete: true
+  };
+}
+function fullKey(q, opts) {
+  return `vigie:full:${opts.lang}:${opts.showBlocked ? 1 : 0}:${opts.exact ? 1 : 0}:${opts.page}:${foldText(q)}`;
+}
+function fullSearch(ctx, q, opts) {
+  warmSearch(ctx);
+  const ttl = titleIndexBuilding() && titleIndex.size() === 0 ? PARTIAL_TTL_MS2 : FULL_TTL_MS;
+  return cached(fullKey(q, opts), ttl, () => computeFull(ctx, q, opts));
+}
+function fullIfReady(ctx, q, opts) {
+  const hit = peek(fullKey(q, opts));
+  if (hit) return hit;
+  void fullSearch(ctx, q, opts).catch(() => void 0);
+  return void 0;
+}
+
+// server/search/present.ts
+function toSearchItem(c, status) {
+  const movie = c.mediaType === "movie";
+  const opt = (v) => v === null ? void 0 : v;
+  return {
+    id: c.tmdbId,
+    mediaType: c.mediaType,
+    ...movie ? { title: c.title, originalTitle: opt(c.originalTitle), releaseDate: opt(c.releaseDate) } : { name: c.title, originalName: opt(c.originalTitle), firstAirDate: opt(c.releaseDate) },
+    posterPath: opt(c.posterPath),
+    backdropPath: opt(c.backdropPath),
+    overview: opt(c.overview),
+    voteAverage: c.voteAverage || void 0,
+    voteCount: c.voteCount || void 0,
+    popularity: c.popularity || void 0,
+    genreIds: c.genreIds,
+    originalLanguage: opt(c.originalLanguage),
+    ...status !== void 0 ? { mediaInfo: { status } } : {}
+  };
+}
+var LABELS = {
+  fr: { movie: "Film", series: "S\xE9rie", requested: "Demand\xE9", processing: "En cours", release: "sortie le" },
+  en: { movie: "Movie", series: "Series", requested: "Requested", processing: "In progress", release: "out" }
+};
+function inLibrary(status) {
+  return status === MEDIA_STATUS.PARTIALLY_AVAILABLE || status === MEDIA_STATUS.AVAILABLE;
+}
+function inLibraryOrBlocked(status) {
+  return status === MEDIA_STATUS.PARTIALLY_AVAILABLE || status === MEDIA_STATUS.AVAILABLE || status === MEDIA_STATUS.BLOCKLISTED;
+}
+function shortDate(iso, lang) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Intl.DateTimeFormat(lang, { day: "numeric", month: "short", year: "numeric" }).format(new Date(y, m - 1, d));
+}
+function toProviderItem(c, status, lang, today) {
+  const l = lang === "fr" ? LABELS.fr : LABELS.en;
+  const kind = c.mediaType === "movie" ? "movie" : "series";
+  const upcoming = c.releaseDate !== null && c.releaseDate > today;
+  const kindLabel = kind === "movie" ? l.movie : l.series;
+  const subtitle = upcoming && c.releaseDate ? `${kindLabel} \xB7 ${l.release} ${shortDate(c.releaseDate, lang)}` : c.year !== null ? `${kindLabel} \xB7 ${c.year}` : kindLabel;
+  const badge = status === MEDIA_STATUS.PENDING ? { label: l.requested, tone: "info" } : status === MEDIA_STATUS.PROCESSING ? { label: l.processing, tone: "warning" } : null;
+  return {
+    id: c.key,
+    kind,
+    title: c.title,
+    year: c.year,
+    subtitle,
+    imageUrl: c.posterPath ? `https://image.tmdb.org/t/p/w185${c.posterPath}` : null,
+    href: `/discover?media=${c.mediaType}:${c.tmdbId}`,
+    badge
+  };
+}
+
+// server/search/respond.ts
+var TOP_SINGLE_WORD = 800;
+var GROUP_LIMIT = 40;
+var TMDB_FIRST_CHOICES = 5;
+var PEOPLE_LIMIT = 10;
+var NOTABLE_VOTES = 30;
+var NOTABLE_POPULARITY = 3;
+function statusFor(c) {
+  const known = statusOf(c.mediaType, c.tmdbId) ?? c.remoteStatus;
+  const settled = known !== void 0 && known !== MEDIA_STATUS.UNKNOWN && known !== MEDIA_STATUS.DELETED;
+  if (!settled && isLocallyPending(c.key)) return MEDIA_STATUS.PENDING;
+  return known;
+}
+function visible(media) {
+  return media.filter((c) => statusFor(c) !== MEDIA_STATUS.BLOCKLISTED);
+}
+function toPerson(p) {
+  return {
+    id: p.id,
+    mediaType: "person",
+    name: p.name,
+    profilePath: p.profilePath ?? void 0,
+    knownForDepartment: p.department ?? void 0,
+    popularity: p.popularity,
+    knownFor: [...p.knownFor].sort((a, b) => b.voteCount - a.voteCount).filter((c) => statusFor(c) !== MEDIA_STATUS.BLOCKLISTED).map((c) => toSearchItem(c, statusFor(c)))
+  };
+}
+function facetNamed(facets, query) {
+  const q = foldText(query);
+  return facets.some((f) => foldText(f.label) === q);
+}
+function presentHub(ranked, page, facets, indexing, startedAt) {
+  const media = visible(ranked.media);
+  const tokens = tokenize(ranked.searched);
+  const facetQuery = facetNamed(facets, ranked.parsed.raw);
+  const bestMedia = media[0];
+  const bestPerson = ranked.people[0];
+  const personText = bestPerson ? textScore([foldText(bestPerson.name)], tokens) : 0;
+  const needed = significantTokens(tokens).length <= 1 ? TOP_SINGLE_WORD : TEXT_ALL_WORDS;
+  let top = null;
+  if (page !== 1 || facetQuery) {
+    top = null;
+  } else if (bestPerson && personText >= TEXT_KEY_WORDS && (!bestMedia || bestPerson.score > bestMedia.score)) {
+    top = { kind: "person", person: toPerson(bestPerson) };
+  } else if (bestMedia && bestMedia.text >= needed) {
+    top = { kind: "media", item: toSearchItem(bestMedia, statusFor(bestMedia)) };
+  } else if (!media.some((c) => c.text >= TEXT_KEY_WORDS)) {
+    const first = media.filter((c) => c.remoteRank !== null && c.remoteRank < TMDB_FIRST_CHOICES).sort((a, b) => b.voteCount - a.voteCount)[0];
+    if (first) top = { kind: "media", item: toSearchItem(first, statusFor(first)) };
+  }
+  const topKey = top?.kind === "media" ? `${top.item.mediaType}:${top.item.id}` : null;
+  const rest = media.filter((c) => c.key !== topKey);
+  return {
+    query: ranked.parsed.raw,
+    searched: ranked.searched,
+    correction: ranked.correction,
+    year: ranked.parsed.year,
+    type: ranked.parsed.type,
+    complete: ranked.complete,
+    top,
+    movies: rest.filter((c) => c.mediaType === "movie").slice(0, GROUP_LIMIT).map((c) => toSearchItem(c, statusFor(c))),
+    series: rest.filter((c) => c.mediaType === "tv").slice(0, GROUP_LIMIT).map((c) => toSearchItem(c, statusFor(c))),
+    people: ranked.people.filter((p) => top?.kind !== "person" || p.id !== top.person.id).slice(0, PEOPLE_LIMIT).map(toPerson),
+    facets,
+    page,
+    hasMore: ranked.hasMore,
+    blockedCount: ranked.blockedCount,
+    blockedActive: ranked.blockedActive,
+    indexing,
+    tookMs: Date.now() - startedAt
+  };
+}
+function presentProvider(ranked, type, limit, lang, today) {
+  const media = visible(ranked.media);
+  const best = media.reduce((m, c) => Math.max(m, c.text), 0);
+  const threshold = best >= 1e3 ? TOP_SINGLE_WORD : TEXT_ALL_WORDS;
+  const libraryHasIt = media.some((c) => c.text >= TEXT_EXACT_TITLE && inLibrary(statusFor(c)));
+  const statusesKnown = statusMapReady();
+  const items = media.filter((c) => statusesKnown || c.remoteRank !== null).filter((c) => c.text >= threshold).filter((c) => !libraryHasIt || c.voteCount >= NOTABLE_VOTES || c.popularity >= NOTABLE_POPULARITY).filter((c) => type === null || type === "movie" === (c.mediaType === "movie")).filter((c) => !inLibraryOrBlocked(statusFor(c))).slice(0, limit).map((c) => toProviderItem(c, statusFor(c), lang, today));
+  const q = ranked.parsed.raw;
+  return {
+    query: q,
+    correction: ranked.correction,
+    complete: ranked.complete && statusesKnown,
+    items,
+    moreHref: q ? `/discover?q=${encodeURIComponent(q)}` : null
+  };
+}
+
+// server/search/facets.ts
+var GENRES = [
+  { id: 28, movie: true, tv: false, fr: "Action", en: "Action" },
+  { id: 12, movie: true, tv: false, fr: "Aventure", en: "Adventure" },
+  { id: 10759, movie: false, tv: true, fr: "Action & Aventure", en: "Action & Adventure" },
+  { id: 16, movie: true, tv: true, fr: "Animation", en: "Animation", also: ["dessin anime", "dessins animes", "cartoon"] },
+  { id: 35, movie: true, tv: true, fr: "Com\xE9die", en: "Comedy", also: ["humour"] },
+  { id: 80, movie: true, tv: true, fr: "Crime", en: "Crime", also: ["policier", "polar"] },
+  { id: 99, movie: true, tv: true, fr: "Documentaire", en: "Documentary", also: ["docu"] },
+  { id: 18, movie: true, tv: true, fr: "Drame", en: "Drama" },
+  { id: 10751, movie: true, tv: true, fr: "Familial", en: "Family", also: ["famille"] },
+  { id: 14, movie: true, tv: false, fr: "Fantastique", en: "Fantasy", also: ["fantasy"] },
+  { id: 36, movie: true, tv: false, fr: "Histoire", en: "History", also: ["historique"] },
+  { id: 27, movie: true, tv: false, fr: "Horreur", en: "Horror", also: ["epouvante"] },
+  { id: 10762, movie: false, tv: true, fr: "Enfants", en: "Kids", also: ["jeunesse"] },
+  { id: 10402, movie: true, tv: false, fr: "Musique", en: "Music", also: ["musical"] },
+  { id: 9648, movie: true, tv: true, fr: "Myst\xE8re", en: "Mystery", also: ["enquete"] },
+  { id: 10749, movie: true, tv: false, fr: "Romance", en: "Romance", also: ["romantique"] },
+  { id: 878, movie: true, tv: false, fr: "Science-Fiction", en: "Science Fiction", also: ["sf", "scifi", "sci fi"] },
+  { id: 10765, movie: false, tv: true, fr: "Science-Fiction & Fantastique", en: "Sci-Fi & Fantasy" },
+  { id: 53, movie: true, tv: false, fr: "Thriller", en: "Thriller", also: ["suspense"] },
+  { id: 10752, movie: true, tv: false, fr: "Guerre", en: "War" },
+  { id: 10768, movie: false, tv: true, fr: "Guerre & Politique", en: "War & Politics" },
+  { id: 37, movie: true, tv: true, fr: "Western", en: "Western" },
+  { id: 10764, movie: false, tv: true, fr: "T\xE9l\xE9r\xE9alit\xE9", en: "Reality", also: ["tele realite", "realite"] },
+  { id: 10767, movie: false, tv: true, fr: "Talk-show", en: "Talk" }
+];
+var MIN_PREFIX2 = 3;
+var MAX_FACETS = 6;
+function matches(name, query) {
+  const folded = foldText(name);
+  return folded === query || query.length >= MIN_PREFIX2 && folded.startsWith(query);
+}
+function genreFacets(query, lang) {
+  const q = foldText(query);
+  if (q.length < 2) return [];
+  const out = [];
+  for (const g of GENRES) {
+    const names = [g.fr, g.en, ...g.also ?? []];
+    if (!names.some((n) => matches(n, q))) continue;
+    const label = lang === "fr" ? g.fr : g.en;
+    if (g.movie) out.push({ kind: "genre", id: g.id, mediaType: "movie", label });
+    if (g.tv) out.push({ kind: "genre", id: g.id, mediaType: "tv", label });
+  }
+  return out.slice(0, MAX_FACETS);
+}
+function regionOf(lang) {
+  const map = { fr: "FR", en: "US", de: "DE", es: "ES", it: "IT", pt: "BR", ja: "JP" };
+  return map[lang] ?? "US";
+}
+var providersKey = (region) => `vigie:providers:${region}`;
+async function providerList(cfg, region) {
+  return cached(providersKey(region), 864e5, async () => {
+    const all = /* @__PURE__ */ new Map();
+    for (const kind of ["movies", "tv"]) {
+      const res = await fetch(`${cfg.seerrUrl}/api/v1/watchproviders/${kind}?watchRegion=${region}`, {
+        headers: { "X-Api-Key": cfg.seerrApiKey },
+        signal: AbortSignal.timeout(8e3)
+      });
+      if (!res.ok) continue;
+      for (const p of await res.json()) {
+        if (typeof p.id === "number" && p.name && !all.has(p.id)) all.set(p.id, p);
+      }
+    }
+    return [...all.values()].sort((a, b) => (a.displayPriority ?? 999) - (b.displayPriority ?? 999));
+  }, { staleMs: 7 * 864e5 });
+}
+async function providerFacets(cfg, query, lang, wait) {
+  const q = foldText(query);
+  if (q.length < MIN_PREFIX2) return [];
+  try {
+    const region = regionOf(lang);
+    let list = peek(providersKey(region), true);
+    if (list === void 0) {
+      const loading = providerList(cfg, region);
+      if (!wait) {
+        void loading.catch(() => void 0);
+        return [];
+      }
+      list = await loading;
+    }
+    return list.filter((p) => matches(p.name ?? "", q) || foldText(p.name ?? "").split(" ").some((w) => w.length >= 3 && w === q)).slice(0, 3).map((p) => ({ kind: "provider", id: p.id, label: p.name, logoPath: p.logoPath ?? null }));
+  } catch {
+    return [];
+  }
+}
+
+// server/routes-search.ts
+var MAX_QUERY = 120;
+var MAX_PAGE = 20;
+function readLang(raw) {
+  return typeof raw === "string" && /^[a-z]{2}$/i.test(raw) ? raw.toLowerCase() : "en";
+}
+function todayIso2() {
+  const d = /* @__PURE__ */ new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+async function registerSearchRoutes(app, prisma, getWorkerConfig2) {
+  await ensureSearchTables(prisma);
+  async function context() {
+    const cfg = await getWorkerConfig2();
+    return cfg ? { prisma, cfg } : null;
+  }
+  void context().then((ctx) => {
+    if (ctx) warmSearch(ctx);
+  }).catch(() => void 0);
+  app.get("/search", async (request, reply) => {
+    const startedAt = Date.now();
+    const query = request.query;
+    const q = (query.q ?? "").slice(0, MAX_QUERY);
+    const ctx = await context();
+    if (!ctx) return reply.status(503).send({ message: "Vigie is not configured" });
+    const opts = {
+      lang: readLang(query.lang),
+      page: Math.min(Math.max(1, Number(query.page) || 1), MAX_PAGE),
+      showBlocked: query.showBlocked === "1",
+      exact: query.exact === "1"
+    };
+    const instant = query.mode === "instant";
+    const ranked = instant ? instantSearch(ctx, q, opts) : await fullSearch(ctx, q, opts);
+    const facets = opts.page === 1 && q.trim().length >= 2 ? [...genreFacets(q, opts.lang), ...await providerFacets(ctx.cfg, q, opts.lang, !instant)] : [];
+    return presentHub(ranked, opts.page, facets, titleIndexBuilding(), startedAt);
+  });
+  app.get("/search/provider", async (request, reply) => {
+    const query = request.query;
+    const q = (query.q ?? "").slice(0, MAX_QUERY);
+    const ctx = await context();
+    if (!ctx) return reply.status(503).send({ message: "Vigie is not configured" });
+    const lang = readLang(query.lang);
+    const type = query.type === "movie" || query.type === "series" ? query.type : null;
+    const limit = Math.min(Math.max(1, Number(query.limit) || 8), 20);
+    const opts = { lang, page: 1, showBlocked: false };
+    const ranked = fullIfReady(ctx, q, opts) ?? instantSearch(ctx, q, opts);
+    return presentProvider(ranked, type, limit, lang, todayIso2());
+  });
+}
+
+// server/index.ts
+var __pluginDir = dirname(dirname(fileURLToPath(import.meta.url)));
+var cfgCache = null;
+function getPluginConfig(ctx) {
+  try {
+    const installedPath = resolve(__pluginDir, "..", "installed.json");
+    if (!existsSync(installedPath)) return {};
+    const mtimeMs = statSync(installedPath).mtimeMs;
+    if (cfgCache && cfgCache.mtimeMs === mtimeMs) return cfgCache.value;
+    const installed = JSON.parse(readFileSync(installedPath, "utf-8"));
+    const plugin = installed.find(
+      (p) => p.pluginId === ctx.pluginId || p.id === ctx.pluginId
+    );
+    const value = plugin?.config || {};
+    cfgCache = { mtimeMs, value };
+    return value;
+  } catch {
+    return {};
+  }
+}
+async function getWorkerConfig(ctx) {
+  const config = getPluginConfig(ctx);
+  const url = config.url;
+  const apiKey = config.apiKey;
+  if (!url || !apiKey) return null;
+  const profiles = config.profiles ?? [];
+  return { seerrUrl: url.replace(/\/$/, ""), seerrApiKey: apiKey, interval: 6e4, syncEvery: 2, profiles };
+}
+async function seerBackend(app, ctx) {
+  const prisma = ctx.getPrisma();
+  await ensureTables(prisma);
+  console.log("[SeerBackend] Database tables ready");
+  startWorker(prisma, () => getWorkerConfig(ctx));
+  app.addHook("onClose", async () => {
+    stopWorker();
+  });
+  app.addHook("preHandler", ctx.requireAuth);
+  app.get("/config", async (request) => {
+    const config = getPluginConfig(ctx);
+    const user = request.user;
+    if (user?.isAdmin) {
+      return { ...config, isAdmin: true };
+    }
+    return { url: config.url || "", enabled: !!config.enabled, hasApiKey: !!config.apiKey, isAdmin: false };
+  });
+  app.put("/config", { preHandler: ctx.requireAdmin }, async (request) => {
+    const installedPath = resolve(__pluginDir, "..", "installed.json");
+    if (!existsSync(installedPath)) return { error: "installed.json not found" };
+    const installed = JSON.parse(readFileSync(installedPath, "utf-8"));
+    const plugin = installed.find(
+      (p) => p.pluginId === ctx.pluginId || p.id === ctx.pluginId
+    );
+    if (!plugin) return { error: "Plugin not found" };
+    plugin.config = request.body;
+    writeFileSync(installedPath, JSON.stringify(installed, null, 2));
+    return plugin.config;
+  });
+  registerProxyRoutes(app, () => getPluginConfig(ctx));
   const gwc = () => getWorkerConfig(ctx);
   registerRequestRoutes(app, prisma, gwc);
   registerBulkRoutes(app, prisma, gwc);
@@ -5585,6 +6998,7 @@ async function seerBackend(app, ctx) {
   registerProgressRoutes(app, prisma, gwc, ctx.requireAdmin);
   registerCalendarRoutes(app, prisma, gwc);
   registerMiscRoutes(app, prisma, gwc, ctx.requireAdmin);
+  await registerSearchRoutes(app, prisma, gwc);
   console.log("[SeerBackend] Routes registered");
 }
 export {
