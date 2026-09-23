@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scoreMedia, textScore, type RankInput } from "./rank";
+import { scoreMedia, scorePerson, textScore, type RankInput } from "./rank";
 import { parseQuery } from "./query";
 import { tokenize } from "./fold";
 
@@ -40,4 +40,18 @@ test("le type demandé passe devant le type voisin", () => {
   const movie = item({ names: ["the office"], mediaType: "movie", voteCount: 20000 });
   const series = item({ names: ["the office"], mediaType: "tv", voteCount: 3000 });
   assert.ok(scoreMedia(series, q, q.tokens) > scoreMedia(movie, q, q.tokens));
+});
+
+test("les articles comptent : « the bear » n'est pas « yogi bear »", () => {
+  const tokens = tokenize("the bear");
+  assert.ok(textScore(["the bear"], tokens) > textScore(["yogi bear"], tokens));
+  assert.ok(textScore(["yogi bear"], tokens) < 650, "sans l'article, la correspondance n'est pas complète");
+  assert.ok(textScore(["seigneur des anneaux"], tokenize("seigneur anneaux")) >= 650, "omettre un article reste une correspondance complète");
+});
+
+test("un nom de famille seul vaut un prénom : la notoriété départage", () => {
+  const tokens = tokenize("nolan");
+  const christopher = scorePerson("christopher nolan", 9.4, tokens, 0);
+  const north = scorePerson("nolan north", 4.1, tokens, 3);
+  assert.ok(christopher > north);
 });

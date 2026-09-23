@@ -36,6 +36,10 @@ export interface Candidate {
   isAnime: boolean;
   /** Statut lu dans la réponse TMDB, quand il y en a une. */
   remoteStatus: number | undefined;
+  /** Rang dans la réponse TMDB ; `null` pour un titre venu de l'index seul. */
+  remoteRank: number | null;
+  /** Correspondance du texte (0 à 1000) avec la requête — tapée ou corrigée. */
+  text: number;
   score: number;
 }
 

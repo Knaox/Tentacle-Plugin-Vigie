@@ -8,8 +8,8 @@
  * vient de faire doit se voir tout de suite.
  */
 
-import { foldText, tokenize } from "./fold";
-import { textScore } from "./rank";
+import { foldText, significantTokens, tokenize } from "./fold";
+import { TEXT_ALL_WORDS, TEXT_KEY_WORDS, textScore } from "./rank";
 import { MEDIA_STATUS, statusOf } from "./status-map";
 import { isLocallyPending } from "./pending";
 import type { Facet } from "./facets";
@@ -19,7 +19,10 @@ import {
   type Candidate, type HubSearchResponse, type ProviderResponse, type SearchPerson,
 } from "./present";
 
-const GOOD_TEXT = 650;
+/* Un seul mot (« dune », « comédie ») : le meilleur résultat n'est mis en avant
+ * que si son titre COMMENCE par ce mot — sinon n'importe quel titre qui le
+ * contient passerait en vedette. */
+const TOP_SINGLE_WORD = 800;
 const GROUP_LIMIT = 40;
 const PEOPLE_LIMIT = 10;
 
@@ -49,6 +52,13 @@ function toPerson(p: Ranked["people"][number]): SearchPerson {
   };
 }
 
+/* Un genre ou une plateforme tapés tels quels (« comédie », « netflix ») : c'est
+ * eux qu'on cherchait, pas un titre qui porte le même mot. */
+function facetNamed(facets: readonly Facet[], query: string): boolean {
+  const q = foldText(query);
+  return facets.some((f) => foldText(f.label) === q);
+}
+
 export function presentHub(
   ranked: Ranked,
   page: number,
@@ -58,15 +68,18 @@ export function presentHub(
 ): HubSearchResponse {
   const media = visible(ranked.media);
   const tokens = tokenize(ranked.searched);
+  const facetQuery = facetNamed(facets, ranked.parsed.raw);
   const bestMedia = media[0];
   const bestPerson = ranked.people[0];
-  const mediaText = bestMedia ? textScore(bestMedia.names, tokens) : 0;
   const personText = bestPerson ? textScore([foldText(bestPerson.name)], tokens) : 0;
+  const needed = significantTokens(tokens).length <= 1 ? TOP_SINGLE_WORD : TEXT_ALL_WORDS;
 
   let top: HubSearchResponse["top"] = null;
-  if (page === 1 && bestPerson && personText >= GOOD_TEXT && (!bestMedia || bestPerson.score > bestMedia.score)) {
+  if (page !== 1 || facetQuery) {
+    top = null;
+  } else if (bestPerson && personText >= TEXT_KEY_WORDS && (!bestMedia || bestPerson.score > bestMedia.score)) {
     top = { kind: "person", person: toPerson(bestPerson) };
-  } else if (page === 1 && bestMedia && mediaText >= GOOD_TEXT) {
+  } else if (bestMedia && bestMedia.text >= needed) {
     top = { kind: "media", item: toSearchItem(bestMedia, statusFor(bestMedia)) };
   }
   const topKey = top?.kind === "media" ? `${top.item.mediaType}:${top.item.id}` : null;
@@ -107,7 +120,15 @@ export function presentProvider(
   lang: string,
   today: string,
 ): ProviderResponse {
-  const items = visible(ranked.media)
+  // La barre de Tentacle veut des réponses NETTES : tous les mots, articles compris.
+  // Et si la requête nomme exactement un titre — même déjà dans la bibliothèque —,
+  // les autres doivent au moins COMMENCER pareil : « the bear » ne propose pas
+  // tous les ours du catalogue.
+  const media = visible(ranked.media);
+  const best = media.reduce((m, c) => Math.max(m, c.text), 0);
+  const threshold = best >= 1000 ? TOP_SINGLE_WORD : TEXT_ALL_WORDS;
+  const items = media
+    .filter((c) => c.text >= threshold)
     .filter((c) => type === null || (type === "movie") === (c.mediaType === "movie"))
     .filter((c) => !inLibraryOrBlocked(statusFor(c)))
     .slice(0, limit)
