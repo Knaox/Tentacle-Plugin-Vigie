@@ -24,7 +24,12 @@
  *      couvre l'appareil à encoche quand la WebView descend sous la zone sûre,
  *      et vaut 0 quand le viewport y est déjà contenu — les deux cas tombent
  *      juste ;
- *   3. ailleurs (cadre web, bureau), le chrome de l'hôte ne recouvre rien : 0.
+ *   3. dans le cadre web ÉTROIT (moins de 768 px, le seuil où Tentacle passe
+ *      à sa mise en page de téléphone), la barre d'onglets de l'hôte est fixée
+ *      au bas de l'écran et le cadre du plugin court dessous : même réserve
+ *      que la WebView. Le cadre fait la largeur de la fenêtre, sa requête
+ *      média tombe donc au même seuil que celle de l'hôte ;
+ *   4. ailleurs (cadre web large, bureau), le chrome de l'hôte ne recouvre rien : 0.
  *
  * Volontairement généreux : trop de marge se voit à peine (le fond du panneau
  * continue derrière le verre), trop peu rend un bouton inatteignable.
@@ -38,6 +43,9 @@ export const CHROME_BOTTOM = "var(--seer-chrome-bottom, 0px)";
 /** Réserve de repli quand l'hôte ne publie pas la hauteur de sa barre. */
 const MOBILE_FALLBACK = "calc(88px + env(safe-area-inset-bottom, 0px))";
 
+/** Sous cette largeur, Tentacle web affiche sa barre d'onglets en bas (`useIsMobile`, 768). */
+const WEB_PHONE_MAX = 767;
+
 const STYLE_ID = "seer-host-chrome";
 
 /**
@@ -45,8 +53,9 @@ const STYLE_ID = "seer-host-chrome";
  * seule chose qui décide, le reste n'est que du DOM.
  */
 export function chromeCss(mobileWebView: boolean): string {
-  const fallback = mobileWebView ? MOBILE_FALLBACK : "0px";
-  return `:root{--seer-chrome-bottom:var(--tentacle-chrome-bottom,${fallback});}`;
+  if (mobileWebView) return `:root{--seer-chrome-bottom:var(--tentacle-chrome-bottom,${MOBILE_FALLBACK});}`;
+  return `:root{--seer-chrome-bottom:var(--tentacle-chrome-bottom,0px);}`
+    + `@media (max-width:${WEB_PHONE_MAX}px){:root{--seer-chrome-bottom:var(--tentacle-chrome-bottom,${MOBILE_FALLBACK});}}`;
 }
 
 /** Idempotent, jamais bloquant — appelé une fois à l'initialisation. */

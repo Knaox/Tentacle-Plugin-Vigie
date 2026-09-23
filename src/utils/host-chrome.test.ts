@@ -11,10 +11,16 @@ test("la valeur de l'hôte passe AVANT le repli", () => {
   }
 });
 
-test("hors WebView mobile, rien n'est réservé", () => {
-  // Le cadre web et le bureau n'ont pas de barre flottante : réserver de la
-  // place y creuserait un vide sous chaque pied de panneau.
-  assert.match(chromeCss(false), /--tentacle-chrome-bottom,0px\)/);
+test("cadre web large et bureau : rien n'est réservé", () => {
+  // Pas de barre flottante : réserver de la place y creuserait un vide sous
+  // chaque pied de panneau.
+  assert.match(chromeCss(false), /^:root\{--seer-chrome-bottom:var\(--tentacle-chrome-bottom,0px\);\}/);
+});
+
+test("cadre web étroit : la barre d'onglets de l'hôte couvre le bas, on s'en écarte", () => {
+  // Tentacle passe à sa mise en page de téléphone sous 768 px : sa barre
+  // d'onglets se fixe au bas de l'écran, par-dessus le cadre du plugin.
+  assert.match(chromeCss(false), /@media \(max-width:767px\)\{:root\{--seer-chrome-bottom:var\(--tentacle-chrome-bottom,calc\(88px/);
 });
 
 test("en WebView mobile, la réserve couvre la barre ET l'encoche", () => {
