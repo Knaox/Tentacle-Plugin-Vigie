@@ -7,7 +7,7 @@ import { getCurrentLanguage } from "../utils/media-helpers";
 import type { MediaType } from "./types";
 import type {
   AvailabilityResponse, RequestsProgressResponse, QueueResponse,
-  CalendarResponse, CalendarProvider,
+  CalendarResponse, CalendarProvider, SeriesEpisodeStates,
 } from "./types-releases";
 
 /**
@@ -83,4 +83,12 @@ export async function getSeriesAirTimes(tmdbId: number): Promise<{ times: Record
  *  absente de la liste séries. */
 export async function getCalendarProviders(): Promise<{ results: CalendarProvider[] }> {
   return backendFetch(`/calendar/providers?region=${currentRegion()}`);
+}
+
+/**
+ * L'état de chaque épisode d'une série (« S4E18 » → demandé, en route, bloqué,
+ * disponible), d'après Sonarr. `tracked: false` : Sonarr ne suit pas la série.
+ */
+export async function getEpisodeStates(tmdbId: number): Promise<SeriesEpisodeStates> {
+  return backendFetch(`/episodes/states?tmdbId=${tmdbId}`);
 }

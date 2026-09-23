@@ -19,7 +19,8 @@
  *   - `--vg-<état>-{fg,bg,solid}` : sur les surfaces de la page, PAR SCHÉMA —
  *     la gamme claire (300) sur fond sombre, la gamme foncée (700-800) sur fond
  *     clair, pour tenir 4,5:1 dans les deux ;
- *   - `--vg-media-<état>` et `--vg-plate` : posés SUR une affiche. Constants :
+ *   - `--vg-media-<état>`, `--vg-plate`, `--vg-hero-*`, `--vg-glass*` : posés SUR
+ *     une image (affiche, en-tête de fiche, toujours sombre). Constants :
  *     une affiche est la même dans les deux thèmes. Le texte coloré s'y lit sur
  *     une plaque presque opaque — la couleur de l'affiche ne peut plus avaler
  *     celle de l'état (un badge vert sur une affiche verte disparaissait).
@@ -47,6 +48,8 @@ const LIGHT = `
 
 const ON_MEDIA = `
 --vg-plate:rgba(9,9,13,0.84);
+--vg-hero-bg:#0c0c12;--vg-hero-rgb:12,12,18;
+--vg-glass:rgba(255,255,255,0.13);--vg-glass-hover:rgba(255,255,255,0.2);--vg-glass-ring:rgba(255,255,255,0.16);
 --vg-media-requested:#C4B5FD;--vg-media-downloading:#7DD3FC;--vg-media-stalled:#FCD34D;
 --vg-media-available:#6EE7B7;--vg-media-partial:#A7F3D0;`;
 

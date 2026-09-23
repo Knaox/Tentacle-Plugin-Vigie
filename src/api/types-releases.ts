@@ -181,6 +181,20 @@ export interface CalendarItem {
   percent?: number | null;
 }
 
+/** L'état de chaque épisode d'une série, pour sa fiche. */
+export interface SeriesEpisodeStates {
+  /** Sonarr suit la série : l'état se lit épisode par épisode. */
+  tracked: boolean;
+  /** « S4E18 » → état ; un épisode absent n'est pas demandé. */
+  states: Record<string, ItemState>;
+  /** « S4E18 » → avancement, pour ceux qui sont en route. */
+  percents: Record<string, number>;
+  /** Jour de diffusion → « S4E18 », quand TMDB et Sonarr ne numérotent pas pareil. Absent chez un serveur plus ancien. */
+  dates?: Record<string, string>;
+  /** Les saisons de Sonarr, hors spéciaux. Absent chez un serveur plus ancien. */
+  seasons?: number[];
+}
+
 export interface CalendarResponse {
   from: string;
   to: string;

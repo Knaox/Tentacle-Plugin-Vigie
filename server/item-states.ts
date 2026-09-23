@@ -172,6 +172,14 @@ export interface SeriesEpisodeStates {
   states: Record<string, ItemState>;
   /** « S4E18 » → avancement, pour ceux qui sont en route. */
   percents: Record<string, number>;
+  /**
+   * Jour de diffusion → « S4E18 », pour les jours à un seul épisode. TMDB et
+   * Sonarr ne numérotent pas toujours pareil (un animé en une saison de 66
+   * épisodes chez l'un, quatre chez l'autre) : la date, elle, est commune.
+   */
+  dates: Record<string, string>;
+  /** Les saisons de Sonarr (hors épisodes spéciaux) — pour savoir si les numérotations concordent. */
+  seasons: number[];
 }
 
 /** Tous les épisodes d'une série, pour sa fiche : l'état de chacun. */
@@ -182,11 +190,18 @@ export async function seriesEpisodeStates(cfg: WorkerCfg, tmdbId: number): Promi
   ]);
   const states: Record<string, ItemState> = {};
   const percents: Record<string, number> = {};
+  const byDay = new Map<string, string[]>();
+  const seasons = new Set<number>();
   for (const [key, fact] of facts) {
     const queued = queue.episodes.get(`${tmdbId}:${key}`);
     const state = episodeState(fact, queued, null);
     if (state) states[key] = state;
     if (state === "downloading" && queued?.percent != null) percents[key] = Math.round(queued.percent);
+    if (fact.airDate) byDay.set(fact.airDate, [...(byDay.get(fact.airDate) ?? []), key]);
+    const season = Number(/^S(\d+)E/.exec(key)?.[1]);
+    if (season > 0) seasons.add(season);
   }
-  return { tracked: facts.size > 0, states, percents };
+  const dates: Record<string, string> = {};
+  for (const [day, keys] of byDay) if (keys.length === 1) dates[day] = keys[0];
+  return { tracked: facts.size > 0, states, percents, dates, seasons: [...seasons].sort((a, b) => a - b) };
 }

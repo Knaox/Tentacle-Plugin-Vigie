@@ -37,6 +37,8 @@ interface SonarrEpisodeRow {
 export interface EpisodeFact {
   hasFile: boolean;
   monitored: boolean;
+  /** Jour de diffusion (chaîne d'origine) — ce que TMDB et Sonarr partagent quand leurs numéros divergent. */
+  airDate?: string;
 }
 
 export interface WindowFacts {
@@ -51,7 +53,9 @@ export function episodeKey(tmdbId: number, season: number, episode: number): str
 }
 
 function factOf(row: SonarrEpisodeRow): EpisodeFact {
-  return { hasFile: row.hasFile === true, monitored: row.monitored === true };
+  const fact: EpisodeFact = { hasFile: row.hasFile === true, monitored: row.monitored === true };
+  if (row.airDate && /^\d{4}-\d{2}-\d{2}$/.test(row.airDate)) fact.airDate = row.airDate;
+  return fact;
 }
 
 /**

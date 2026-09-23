@@ -10,18 +10,23 @@ interface ProfileSelectorProps {
   onChange: (profileId: string | null) => void;
 }
 
-export function ProfileSelector({ mediaType, isAnime, showAll, selectedId, onChange }: ProfileSelectorProps) {
-  const { t } = useTranslation("seer");
-  const { data } = useProfiles();
-  const allProfiles = data?.profiles ?? [];
-
-  const profiles = showAll ? allProfiles : allProfiles.filter((p: SeerProfile) => {
+/** Les profils de qualité qui valent pour ce titre (film, série, animé). */
+export function profilesFor(all: readonly SeerProfile[], mediaType?: MediaType, isAnime?: boolean): SeerProfile[] {
+  return all.filter((p) => {
     const target = p.targetMediaType ?? "all";
     if (!mediaType) return true;
     if (mediaType === "movie") return target === "all" || target === "movie";
     if (isAnime) return target === "all" || target === "tv" || target === "anime";
     return target === "all" || target === "tv";
   });
+}
+
+export function ProfileSelector({ mediaType, isAnime, showAll, selectedId, onChange }: ProfileSelectorProps) {
+  const { t } = useTranslation("seer");
+  const { data } = useProfiles();
+  const allProfiles = data?.profiles ?? [];
+
+  const profiles = showAll ? allProfiles : profilesFor(allProfiles, mediaType, isAnime);
 
   if (profiles.length === 0) return null;
 

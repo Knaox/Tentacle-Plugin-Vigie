@@ -1,226 +1,137 @@
+/* ------------------------------------------------------------------ */
+/*  Vigie — Le corps d'une fiche                                       */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Sous l'en-tête : l'histoire, le prochain épisode, les saisons (leur état,
+ * celui de chaque épisode, et leur demande), les extras, la distribution —
+ * et, en colonne à droite sur grand écran, où le regarder, par où il est
+ * sorti, sa fiche. Les titres semblables ferment la page, sur toute la
+ * largeur.
+ */
+
+import { useContext } from "react";
 import { useTranslation } from "react-i18next";
-import { DetailActionBar } from "./DetailActionBar";
+import type {
+  SeerrCastMember, SeerrMovieDetail, SeerrSearchResult, SeerrSeason, SeerrTvDetail,
+} from "../api/types";
+import type { AvailabilityVerdict, SeriesEpisodeStates } from "../api/types-releases";
+import type { RichTrailer } from "../utils/trailers";
+import { airTimeKey } from "../hooks/useAirTimes";
+import { HubContext } from "../hub/HubContext";
 import { NextEpisodeBanner } from "./NextEpisodeBanner";
 import { ExtrasRow } from "./ExtrasRow";
-import { SeasonRow } from "./SeasonRow";
-import { SeriesSeasonPicker } from "./SeriesSeasonPicker";
-import { MovieRequestSection } from "./MovieRequestSection";
-import { AvailabilityPill } from "./AvailabilityPill";
-import { hasSignal } from "../utils/availability-labels";
-import { PlatformBadges } from "./PlatformBadges";
-import { useSingleAvailability } from "../hooks/useAvailability";
-import { airTimeKey, useSeriesAirTimes } from "../hooks/useAirTimes";
-import { WatchProviders } from "./WatchProviders";
 import { CastRow } from "./CastRow";
-import { DetailMetaGrid } from "./DetailMetaGrid";
-import { SimilarMedia } from "./SimilarMedia";
-import type {
-  SeerrSearchResult, SeerrTvDetail, SeerrMovieDetail, SeerrSeason, SeerrCastMember,
-} from "../api/types";
-import type { RichTrailer } from "../utils/trailers";
+import { SeasonsSection } from "./detail/SeasonsSection";
+import { DetailInfo, type WatchProviderEntry } from "./detail/DetailInfo";
+import { Rail, SectionHeader } from "./ui/Rail";
+import { PosterCard } from "./ui/PosterCard";
 
-/** Là où mène le bouton « Choisir les saisons » du haut de la fiche d'une série. */
-const REQUEST_ANCHOR = "vigie-request";
+/** Là où mène le bouton « Choisir les saisons » de l'en-tête. */
+export const SEASONS_ANCHOR = "vigie-seasons";
 
-interface WatchProviderEntry {
-  logo_path: string;
-  provider_id: number;
-  provider_name: string;
-}
-
-interface MediaDetailBodyProps {
+interface Props {
   currentItem: SeerrSearchResult;
   detail: SeerrMovieDetail | SeerrTvDetail | undefined;
   mediaType: "movie" | "tv";
-  mediaStatus: number;
-  trailers: RichTrailer[];
   isLoading: boolean;
-  isTv: boolean;
-  tvDetail: SeerrTvDetail | undefined;
-  tvFullyAvailable: boolean;
-  tvSeasons: SeerrSeason[];
-  requestedSeasonMap: Map<number, number>;
-  expandedSeason: number | null;
-  onExpandSeasonToggle: (seasonNumber: number) => void;
+  trailers: RichTrailer[];
   onOpenTrailer: (index: number) => void;
   overview: string | undefined;
   synopsisExpanded: boolean;
   onToggleSynopsis: () => void;
-  onSeasonRequest: (seasons: number[], profileId?: string | null) => void;
+  tvSeasons: SeerrSeason[];
+  seasonLocks: Map<number, number>;
+  episodeStates: SeriesEpisodeStates | undefined;
+  airTimes: Map<string, string>;
+  onSeasonRequest: (seasons: number[], profileId: string | null) => void;
   requestingSeasons: boolean;
   isAnime: boolean;
-  lockedSeasons?: number[];
   defaultProfileId?: string | null;
-  requestSuccess: boolean;
-  movieProfileId: string | null;
-  onMovieProfileChange: (id: string | null) => void;
-  onMovieRequest: () => void;
+  verdict: AvailabilityVerdict | null;
   providers: WatchProviderEntry[] | undefined;
+  inLibrary: boolean;
   cast: SeerrCastMember[] | undefined;
   similar: SeerrSearchResult[] | undefined;
   onSelectSimilar: (item: SeerrSearchResult) => void;
 }
 
-/**
- * Corps de la fiche détail (sous le header) : action bar, demande d'un film,
- * prochain épisode, synopsis, extras, saisons/épisodes ou picker de demande,
- * providers, casting, fiche technique, médias similaires. Extrait de
- * MediaDetailModal pour rester sous 300 lignes.
- */
-export function MediaDetailBody({
-  currentItem, detail, mediaType, mediaStatus, trailers, isLoading,
-  isTv, tvDetail, tvFullyAvailable, tvSeasons, requestedSeasonMap,
-  expandedSeason, onExpandSeasonToggle, onOpenTrailer,
-  overview, synopsisExpanded, onToggleSynopsis,
-  onSeasonRequest, requestingSeasons, isAnime, lockedSeasons, defaultProfileId,
-  requestSuccess, movieProfileId, onMovieProfileChange, onMovieRequest,
-  providers, cast, similar, onSelectSimilar,
-}: MediaDetailBodyProps) {
+export function MediaDetailBody(props: Props) {
+  const {
+    currentItem, detail, mediaType, isLoading, trailers, onOpenTrailer, overview, synopsisExpanded, onToggleSynopsis,
+    tvSeasons, seasonLocks, episodeStates, airTimes, onSeasonRequest, requestingSeasons, isAnime, defaultProfileId,
+    verdict, providers, inLibrary, cast, similar, onSelectSimilar,
+  } = props;
   const { t } = useTranslation("seer");
-  const availability = useSingleAvailability(currentItem.mediaType as "movie" | "tv", currentItem.id);
-  /* L'heure exacte des épisodes, quand Sonarr suit la série. Map vide sinon :
-   * on affiche alors la date seule, sans rien inventer. */
-  const airTimes = useSeriesAirTimes(currentItem.id, isTv);
-  /* Plateformes d'abonnement uniquement : « je peux le voir maintenant » n'a
-   * pas le même sens qu'« il est en vente ». */
-  const streamingIds = (providers ?? []).map((p) => p.provider_id).filter((id) => id > 0);
-  const isMovie = currentItem.mediaType === "movie";
-  /* Par où ce titre est sorti, et ce qu'une demande peut espérer. */
-  const availabilityPill = hasSignal(availability) ? (
-    <div className="flex justify-center">
-      <AvailabilityPill verdict={availability} variant="detail" inLibrary={mediaStatus >= 4} />
-    </div>
-  ) : null;
-
-  /* Film : la demande se fait sous l'en-tête — un seul bouton, visible sans
-   * défiler (plus bas, elle doublait le bouton qui y menait). Tant que le film
-   * n'est pas là, elle passe avant la bande-annonce : c'est l'action principale. */
-  const movieRequest = isMovie ? (
-    <div className="space-y-3">
-      {availabilityPill}
-      <MovieRequestSection
-        mediaStatus={mediaStatus}
-        isAnime={isAnime}
-        requesting={requestingSeasons}
-        requestSuccess={requestSuccess}
-        profileId={movieProfileId}
-        onProfileChange={onMovieProfileChange}
-        onRequest={onMovieRequest}
-        obtainable={availability?.obtainable ?? true}
-      />
-    </div>
-  ) : null;
-  const requestFirst = isMovie && mediaStatus < 4;
+  const hub = useContext(HubContext);
+  const tv = mediaType === "tv" ? (detail as SeerrTvDetail | undefined) : undefined;
+  const tagline = (detail as { tagline?: string } | undefined)?.tagline;
+  const next = tv?.nextEpisodeToAir;
 
   return (
-    <div className="space-y-6 px-4 pb-6 sm:px-6">
-      {requestFirst && movieRequest}
-      <DetailActionBar
-        mediaType={mediaType}
-        tmdbId={currentItem.id}
-        mediaStatus={mediaStatus}
-        trailers={trailers}
-        onOpenTrailer={() => onOpenTrailer(0)}
-        requestLabel={
-          isTv && !tvFullyAvailable && !isLoading && tvSeasons.length > 0
-            ? (mediaStatus === 4 ? t("seer:requestMoreSeasons") : t("seer:chooseSeasons"))
-            : null
-        }
-        onJumpToRequest={() => document.getElementById(REQUEST_ANCHOR)?.scrollIntoView({ behavior: "smooth", block: "center" })}
-      />
-
-      {!requestFirst && movieRequest}
-
-      {/* Prochain épisode (séries en cours) */}
-      {isTv && tvDetail?.nextEpisodeToAir?.airDate && (
-        <NextEpisodeBanner
-          episode={tvDetail.nextEpisodeToAir}
-          airDateUtc={airTimes.get(airTimeKey(
-            tvDetail.nextEpisodeToAir.seasonNumber ?? null,
-            tvDetail.nextEpisodeToAir.episodeNumber ?? null,
-          ))}
-        />
-      )}
-
-      {/* Synopsis */}
-      {overview && (
-        <div>
-          <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-tentacle-text-tertiary">{t("synopsisTitle")}</h4>
-          <p className={`text-sm leading-relaxed text-tentacle-text-secondary sm:text-base ${synopsisExpanded ? "" : "line-clamp-3"}`}>{overview}</p>
-          {overview.length > 200 && (
-            <button
-              onClick={onToggleSynopsis}
-              className="mt-1 min-h-[32px] rounded text-xs font-medium text-tentacle-brand-light focus:outline-none focus:ring-2 focus:ring-[rgba(var(--brand-rgb),0.5)]"
-            >
-              {synopsisExpanded ? t("showLess") : t("showMore")}
-            </button>
+    <div className="px-4 pb-10 pt-7 md:px-8">
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start lg:gap-10">
+        <div className="min-w-0 space-y-9">
+          {overview && (
+            <section>
+              <SectionHeader title={t("synopsisTitle")} />
+              {tagline && <p className="mb-2 text-sm italic text-tentacle-text-tertiary">« {tagline} »</p>}
+              <p className={`max-w-3xl text-[15px] leading-relaxed text-tentacle-text-secondary ${synopsisExpanded ? "" : "line-clamp-4"}`}>{overview}</p>
+              {overview.length > 260 && (
+                <button
+                  type="button"
+                  onClick={onToggleSynopsis}
+                  className="mt-1 min-h-[36px] rounded-full text-sm font-semibold text-[var(--brand-light)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)]"
+                >
+                  {synopsisExpanded ? t("showLess") : t("showMore")}
+                </button>
+              )}
+            </section>
           )}
+
+          {next?.airDate && (
+            <NextEpisodeBanner episode={next} airDateUtc={airTimes.get(airTimeKey(next.seasonNumber ?? null, next.episodeNumber ?? null))} />
+          )}
+
+          {mediaType === "tv" && tvSeasons.length > 0 && (
+            <section id={SEASONS_ANCHOR} className="scroll-mt-20">
+              <SectionHeader title={t("seer:seasonsTitle")} subtitle={episodeStates?.tracked ? t("seer:seasonsTrackedHint") : undefined} />
+              <SeasonsSection
+                tvId={currentItem.id}
+                seasons={tvSeasons}
+                locks={seasonLocks}
+                episodeStates={episodeStates}
+                airTimes={airTimes}
+                onRequest={onSeasonRequest}
+                requesting={requestingSeasons}
+                isAnime={isAnime}
+                defaultProfileId={defaultProfileId}
+              />
+            </section>
+          )}
+          {mediaType === "tv" && isLoading && (
+            <div className="space-y-2" aria-hidden>
+              {[0, 1, 2].map((i) => <div key={i} className="h-[60px] rounded-2xl bg-tentacle-fill-subtle" />)}
+            </div>
+          )}
+
+          {trailers.length > 0 && <ExtrasRow trailers={trailers} onSelect={onOpenTrailer} />}
+          {cast && cast.length > 0 && <CastRow cast={cast} />}
         </div>
-      )}
 
-      {/* Extras (trailers + teasers) AU-DESSUS des saisons, comme MediaDetail (core) */}
-      {trailers.length > 0 && (
-        <ExtrasRow
-          trailers={trailers}
-          onSelect={onOpenTrailer}
-        />
-      )}
+        <aside className="mt-9 lg:sticky lg:top-6 lg:mt-0">
+          <DetailInfo detail={detail} mediaType={mediaType} verdict={verdict} providers={providers} inLibrary={inLibrary} />
+        </aside>
+      </div>
 
-      {/* Série 100% dispo → consultation : saisons + épisodes + dates */}
-      {tvFullyAvailable && tvSeasons.length > 0 && (
-        <div className="space-y-2">
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-tentacle-text-tertiary">{t("seer:seasonsTitle")}</h4>
-          {tvSeasons.map((season) => (
-            <SeasonRow
-              key={season.seasonNumber}
-              tvId={currentItem.id}
-              season={season}
-              status={requestedSeasonMap.get(season.seasonNumber)}
-              expanded={expandedSeason === season.seasonNumber}
-              onExpandToggle={() => onExpandSeasonToggle(season.seasonNumber)}
-              airTimes={airTimes}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Série incomplète → sélection de saisons à demander */}
-      {isTv && !tvFullyAvailable && !isLoading && tvSeasons.length > 0 && (
-        <div id={REQUEST_ANCHOR} className="scroll-mt-24">
-        <SeriesSeasonPicker
-          tvId={currentItem.id}
-          seasons={tvSeasons}
-          requestedSeasons={requestedSeasonMap}
-          onRequest={onSeasonRequest}
-          requesting={requestingSeasons}
-          isAnime={isAnime}
-          lockedSeasons={lockedSeasons}
-          defaultProfileId={defaultProfileId}
-        />
-        </div>
-      )}
-
-      {isLoading && isTv && (
-        <div className="flex justify-center py-4">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-tentacle-brand border-t-transparent" />
-        </div>
-      )}
-
-      {!isMovie && availabilityPill}
-
-      {/* Où le regarder tout de suite, si c'est déjà quelque part. */}
-      {streamingIds.length > 0 && (
-        <div className="flex items-center justify-center gap-2">
-          <span className="text-xs text-tentacle-text-tertiary">{t("seer:streamingLabel")}</span>
-          <PlatformBadges providerIds={streamingIds} max={5} />
-        </div>
-      )}
-
-      {providers && providers.length > 0 && <WatchProviders providers={providers} />}
-      {cast && cast.length > 0 && <CastRow cast={cast} />}
-      <DetailMetaGrid detail={detail} mediaType={mediaType} />
       {similar && similar.length > 0 && (
-        <SimilarMedia items={similar} onSelect={onSelectSimilar} />
+        <div className="mt-10">
+          <Rail title={t("similarMedia")}>
+            {similar.map((item) => (
+              <PosterCard key={`${item.mediaType}:${item.id}`} item={item} onOpen={onSelectSimilar} onQuickRequest={hub?.quickRequest} />
+            ))}
+          </Rail>
+        </div>
       )}
     </div>
   );

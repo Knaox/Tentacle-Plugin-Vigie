@@ -194,7 +194,7 @@ export function registerCalendarRoutes(
    * quand il ne suit pas la série — la fiche s'en tient alors aux saisons. */
   app.get("/episodes/states", async (request) => {
     const tmdbId = Number((request.query as { tmdbId?: string }).tmdbId);
-    const empty = { tracked: false, states: {}, percents: {} };
+    const empty = { tracked: false, states: {}, percents: {}, dates: {}, seasons: [] };
     if (!Number.isFinite(tmdbId) || tmdbId <= 0) return empty;
     const config = await getWorkerConfig();
     if (!config) return empty;

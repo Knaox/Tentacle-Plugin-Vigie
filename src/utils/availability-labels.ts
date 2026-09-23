@@ -2,16 +2,12 @@ import type {
   AvailabilityChannel, AvailabilityOutlook, AvailabilityVerdict, ChannelId,
 } from "../api/types-releases";
 import { formatAirDateShort, parseAirDate } from "./episode-dates";
-import { KIND_STYLE } from "./calendar-kind";
 
 /**
  * Le vocabulaire des canaux de sortie, en un seul endroit.
  *
- * Les couleurs sont empruntées à l'agenda (`calendar-kind.ts`) : une sortie
- * numérique doit avoir la même teinte sur une carte du catalogue et dans le
- * calendrier, sinon les deux écrans parlent de la même chose sans en avoir
- * l'air. Les deux tables divergeaient — celle-ci fait désormais autorité pour
- * les deux, en réutilisant les mêmes jetons de statut.
+ * Aucune couleur ici : un canal se reconnaît à son icône (cf. ChannelLine),
+ * la couleur ne dit que l'état d'un titre.
  *
  * Le mot « Disponible » est proscrit : sur Mes demandes il signifie « dans ta
  * bibliothèque ». On nomme le canal, jamais l'état de possession.
@@ -26,16 +22,6 @@ export function shortDate(date: string): string {
     ? full.replace(/\s*\d{4}$/, "").replace(/,\s*$/, "")
     : full;
 }
-
-/** Le canal emprunte la teinte que l'agenda donne déjà au même événement. */
-export const CHANNEL_STYLE: Record<ChannelId, string> = {
-  physical: KIND_STYLE.physical.chip,
-  digital: KIND_STYLE.digital.chip,
-  // Même sens que « sorti en ligne », donc même teinte : c'est la même réponse
-  // à la même question, « puis-je le regarder maintenant ? ».
-  streaming: KIND_STYLE.digital.chip,
-  theatrical: KIND_STYLE.theatrical.chip,
-};
 
 type Translate = (key: string, opts?: Record<string, unknown>) => string;
 
@@ -83,22 +69,6 @@ export function outlookLabel(verdict: AvailabilityVerdict, t: Translate): string
   return t(OUTLOOK_I18N[verdict.outlook]);
 }
 
-/**
- * Y a-t-il quelque chose à afficher ?
- *
- * Garde UNIQUE, partagée par la pastille et par la fiche détaillée. Le piège
- * qu'elle évite : un film sorti en Blu-ray porte `kind: "released"` tout en
- * ayant des canaux à montrer — tester `kind !== "released"`, comme on le
- * faisait, le faisait disparaître précisément dans le cas qui nous intéresse.
- */
-export function hasSignal(verdict: AvailabilityVerdict | null | undefined): boolean {
-  if (!verdict) return false;
-  return (
-    (verdict.channels?.length ?? 0) > 0 ||
-    verdict.kind === "not_aired" ||
-    isUncharted(verdict)
-  );
-}
 
 /**
  * Ni en salle, ni en streaming, ni annoncé nulle part — et pourtant rien
@@ -113,19 +83,4 @@ export function isUncharted(verdict: AvailabilityVerdict | null | undefined): bo
   return (verdict.channels?.length ?? 0) === 0 && verdict.outlook === "likely";
 }
 
-/**
- * Les canaux qu'une carte de grille peut montrer sans casser la mise en page.
- * Deux lignes au maximum : au-delà, la colonne devient un pavé de texte et les
- * rangées de la grille se décalent les unes par rapport aux autres.
- */
-export function cardChannels(verdict: AvailabilityVerdict): AvailabilityChannel[] {
-  return (verdict.channels ?? []).slice(0, 2);
-}
 
-/** L'infobulle dit tout ce que la carte a dû laisser de côté. */
-export function verdictTooltip(verdict: AvailabilityVerdict, t: Translate): string {
-  const lines = verdict.channels.map((c) => channelLabel(c, t, true));
-  const outlook = outlookLabel(verdict, t);
-  if (outlook) lines.push(outlook);
-  return lines.join(" — ");
-}

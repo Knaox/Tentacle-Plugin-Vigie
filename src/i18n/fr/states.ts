@@ -97,4 +97,8 @@ export default {
   titlePopular_all: "Les plus populaires",
   titleTop_all: "Les mieux notés",
   titleUpcoming_all: "À venir",
+  detailReleases: "Sorties",
+  detailFacts: "Fiche",
+  backToTitle: "Retour à {{title}}",
+  seasonsTrackedHint: "L'état de chaque épisode, en direct du serveur",
 } as const;

@@ -55,13 +55,14 @@ interface RailProps {
   action?: { label: string; onClick: () => void };
   icon?: ReactNode;
   children: ReactNode;
-  /** Largeur d'une carte : étroite (affiches) ou large (vignettes 16:9). */
-  itemWidth?: "poster" | "wide";
+  /** Largeur d'une carte : affiches, vignettes 16:9, ou portraits (distribution). */
+  itemWidth?: "poster" | "wide" | "person";
 }
 
 const WIDTH = {
   poster: "w-[132px] sm:w-[152px] lg:w-[168px]",
   wide: "w-[260px] sm:w-[300px]",
+  person: "w-[84px] sm:w-[96px]",
 } as const;
 
 export const Rail = memo(function Rail({ title, subtitle, count, action, icon, children, itemWidth = "poster" }: RailProps) {
