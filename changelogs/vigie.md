@@ -19,6 +19,26 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.15.0]
+### FR
+- **Vigie tient en un seul onglet.** Découvrir, Mes demandes et Calendrier sont réunis sous la barre de recherche ; chaque vue garde sa position quand on passe de l'une à l'autre, et les anciens liens (/requests, /releases) ouvrent le bon onglet
+- **Une recherche instantanée.** Les résultats s'affichent pendant la frappe et se complètent sans rien bousculer ; les fautes sont corrigées (« interstelar » → Interstellar, avec « Rechercher quand même » pour garder la saisie), les titres en romaji trouvent leur œuvre (« shingeki no kyojin »), et genres, plateformes et personnes répondent aussi
+- **Chercher depuis Tentacle.** La barre de recherche globale et celle des bibliothèques proposent aussi ce qui n'est pas encore sur le serveur (« Pas encore sur le serveur · via Vigie »). Nécessite la prochaine version du serveur Tentacle ; sur un serveur plus ancien, rien ne change
+- **Découvrir** : une affiche à la une, vos demandes en cours (ou « Comment ça marche » pour commencer), les sorties de la semaine, des rangées, des raccourcis par plateforme et par genre. « Tout voir » ouvre une grille qui défile sans à-coups et où l'on peut sauter loin dans le catalogue sans tout charger
+- **Mes demandes** : une phrase dit où en est chaque demande, avec l'avancement réel et la prochaine sortie ; filtres, sélection multiple, actions regroupées derrière « ⋯ »
+- **Calendrier** : la semaine par défaut, la liste et le mois ; mes demandes, tout le serveur ou toutes les sorties
+- **La fiche** : « Demander » visible sans défiler, la filmographie d'un acteur depuis le casting, les fiches qui s'empilent (« retour » ramène à la précédente) ; Échap ferme un panneau à la fois
+- Au téléphone, les trois onglets tiennent sur la largeur de l'écran
+### EN
+- **Vigie fits in a single tab.** Discover, My requests and Calendar sit together under the search bar; each view keeps its position when you switch, and the old links (/requests, /releases) open the right tab
+- **Instant search.** Results show up while you type and complete without shuffling; typos are fixed ("interstelar" → Interstellar, with "Search for … instead" to keep what you typed), romaji titles find their show ("shingeki no kyojin"), and genres, platforms and people answer too
+- **Search from Tentacle.** The global search bar and the library search also offer what isn't on the server yet ("Not on the server yet · via Vigie"). Requires the next Tentacle server release; on an older server, nothing changes
+- **Discover**: a featured title, your requests in progress (or "How it works" to get started), this week's releases, rows, platform and genre shortcuts. "See all" opens a grid that scrolls smoothly and lets you jump far into the catalog without loading everything
+- **My requests**: one sentence tells where each request stands, with real progress and the next release; filters, multi-select, actions grouped behind "⋯"
+- **Calendar**: the week by default, list and month; my requests, the whole server or every release
+- **The detail sheet**: "Request" visible without scrolling, an actor's filmography from the cast, stacked sheets ("back" returns to the previous one); Escape closes one panel at a time
+- On phones, the three tabs fit the screen width
+
 ## [1.14.5]
 ### FR
 - **Une demande supprimée dans Jellyseerr reste supprimée.** Le plugin la classait « en échec » et l'auto-retry la recréait quelques minutes plus tard : la saison qu'on venait de libérer réapparaissait « Demandée ». Elle est désormais close côté plugin — ni nouvelle tentative, ni verrou de saison
