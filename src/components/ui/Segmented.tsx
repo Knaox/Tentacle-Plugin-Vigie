@@ -9,8 +9,9 @@
  * même sans couleur, et le violet reste aux actions.
  *
  * Cibles de 40 px (36 en compact), texte à 14 px : on vise au pouce comme à
- * la souris. `stretch` partage toute la largeur — au téléphone, trois
- * segments égaux plutôt qu'une pilule tassée à gauche.
+ * la souris. `stretch` partage toute la largeur en segments égaux — `mobile` :
+ * seulement au téléphone (trois segments plutôt qu'une pilule tassée à
+ * gauche), à sa taille naturelle au-delà, où rien ne doit se tronquer.
  */
 
 import type { ReactNode } from "react";
@@ -27,8 +28,8 @@ interface Props<T extends string> {
   onChange: (value: T) => void;
   ariaLabel: string;
   size?: "md" | "sm";
-  /** Occupe toute la largeur, segments égaux. */
-  stretch?: boolean;
+  /** Occupe toute la largeur, segments égaux — toujours, ou au téléphone seulement. */
+  stretch?: "always" | "mobile";
   className?: string;
 }
 
@@ -37,12 +38,21 @@ const SIZE = {
   sm: "h-9 px-3 text-[13px]",
 } as const;
 
-export function Segmented<T extends string>({ value, options, onChange, ariaLabel, size = "md", stretch = false, className = "" }: Props<T>) {
+const CONTAINER = {
+  always: "flex w-full",
+  mobile: "flex w-full sm:inline-flex sm:w-auto sm:max-w-full",
+  none: "inline-flex max-w-full",
+} as const;
+
+const SEGMENT = { always: "flex-1", mobile: "flex-1 sm:flex-none", none: "" } as const;
+
+export function Segmented<T extends string>({ value, options, onChange, ariaLabel, size = "md", stretch, className = "" }: Props<T>) {
+  const mode = stretch ?? "none";
   return (
     <div
       role="radiogroup"
       aria-label={ariaLabel}
-      className={`${stretch ? "flex w-full" : "inline-flex max-w-full"} items-center gap-1 overflow-x-auto rounded-full bg-tentacle-fill-subtle p-1 ring-1 ring-tentacle-border-subtle [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${className}`}
+      className={`${CONTAINER[mode]} items-center gap-1 overflow-x-auto rounded-full bg-tentacle-fill-subtle p-1 ring-1 ring-tentacle-border-subtle [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${className}`}
     >
       {options.map((option) => {
         const selected = option.value === value;
@@ -53,7 +63,7 @@ export function Segmented<T extends string>({ value, options, onChange, ariaLabe
             role="radio"
             aria-checked={selected}
             onClick={() => onChange(option.value)}
-            className={`inline-flex min-w-0 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)] ${SIZE[size]} ${stretch ? "flex-1" : ""} ${
+            className={`inline-flex min-w-0 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)] ${SIZE[size]} ${SEGMENT[mode]} ${
               selected
                 ? "bg-[var(--vg-raised)] text-tentacle-text-primary shadow-[var(--elev-1)] ring-1 ring-[var(--vg-raised-ring)]"
                 : "text-tentacle-text-tertiary hover:text-tentacle-text-primary"

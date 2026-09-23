@@ -11,6 +11,10 @@
  *   demandé  violet · en route  bleu ciel · bloqué  ambre
  *   disponible  émeraude · en partie  émeraude clair (et l'icône à moitié pleine)
  *
+ * `--vg-color-scheme` dit au navigateur de dessiner ses propres contrôles
+ * (liste d'un <select>, curseur) dans le schéma de l'hôte : sans lui, la liste
+ * du tri s'ouvrait en blanc, avec le texte blanc du thème sombre.
+ *
  * Deux familles de jetons :
  *   - `--vg-<état>-{fg,bg,solid}` : sur les surfaces de la page, PAR SCHÉMA —
  *     la gamme claire (300) sur fond sombre, la gamme foncée (700-800) sur fond
@@ -29,7 +33,8 @@ const DARK = `
 --vg-stalled-fg:#FCD34D;--vg-stalled-bg:rgba(245,158,11,0.18);--vg-stalled-solid:#F59E0B;
 --vg-available-fg:#6EE7B7;--vg-available-bg:rgba(16,185,129,0.18);--vg-available-solid:#10B981;
 --vg-partial-fg:#A7F3D0;--vg-partial-bg:rgba(52,211,153,0.14);--vg-partial-solid:#34D399;
---vg-raised:rgba(255,255,255,0.13);--vg-raised-ring:rgba(255,255,255,0.14);`;
+--vg-raised:rgba(255,255,255,0.13);--vg-raised-ring:rgba(255,255,255,0.14);
+--vg-color-scheme:dark;`;
 
 const LIGHT = `
 --vg-requested-fg:#6D28D9;--vg-requested-bg:rgba(124,58,237,0.11);--vg-requested-solid:#7C3AED;
@@ -37,7 +42,8 @@ const LIGHT = `
 --vg-stalled-fg:#92400E;--vg-stalled-bg:rgba(217,119,6,0.13);--vg-stalled-solid:#D97706;
 --vg-available-fg:#047857;--vg-available-bg:rgba(5,150,105,0.11);--vg-available-solid:#059669;
 --vg-partial-fg:#065F46;--vg-partial-bg:rgba(16,185,129,0.09);--vg-partial-solid:#10B981;
---vg-raised:#FFFFFF;--vg-raised-ring:rgba(0,0,0,0.10);`;
+--vg-raised:#FFFFFF;--vg-raised-ring:rgba(0,0,0,0.10);
+--vg-color-scheme:light;`;
 
 const ON_MEDIA = `
 --vg-plate:rgba(9,9,13,0.84);

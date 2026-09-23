@@ -63,7 +63,7 @@ export function PlatformFilter({ selected, onToggle }: PlatformFilterProps) {
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t("seer:filterPlatformSearch")}
           aria-label={t("seer:filterPlatformSearch")}
-          className="mb-2 w-full rounded-lg border border-tentacle-border-subtle bg-tentacle-fill-subtle px-3 py-1.5 text-xs text-tentacle-text-primary placeholder-tentacle-text-quaternary outline-none transition-colors focus:border-tentacle-border-focus focus:ring-2 focus:ring-[rgba(var(--brand-rgb),0.5)]"
+          className="mb-3 h-10 w-full rounded-full bg-tentacle-fill-subtle px-4 text-sm text-tentacle-text-primary outline-none ring-1 ring-tentacle-border-subtle transition-shadow placeholder:text-tentacle-text-quaternary focus:ring-2 focus:ring-[rgba(var(--brand-rgb),0.6)]"
         />
       )}
 
@@ -83,12 +83,12 @@ export function PlatformFilter({ selected, onToggle }: PlatformFilterProps) {
               {logo ? (
                 <img
                   src={logo} alt="" aria-hidden loading="lazy"
-                  className="h-4 w-4 shrink-0 rounded-[3px] object-cover ring-1 ring-tentacle-border-subtle"
+                  className="h-5 w-5 shrink-0 rounded-md object-cover ring-1 ring-tentacle-border-subtle"
                 />
               ) : (
                 <span
                   aria-hidden
-                  className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] bg-tentacle-fill-medium text-[7px] font-bold text-tentacle-text-secondary ring-1 ring-tentacle-border-subtle"
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-tentacle-fill-medium text-[8px] font-bold text-tentacle-text-secondary ring-1 ring-tentacle-border-subtle"
                 >
                   {providerInitials(p.name)}
                 </span>
@@ -102,7 +102,7 @@ export function PlatformFilter({ selected, onToggle }: PlatformFilterProps) {
           <button
             type="button"
             onClick={() => setShowAll(true)}
-            className="rounded-full px-3 py-1.5 text-xs font-medium text-[var(--brand-light)] transition-colors hover:bg-tentacle-fill-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)]"
+            className="min-h-[36px] rounded-full px-3.5 text-[13px] font-semibold text-[var(--brand-light)] transition-colors hover:bg-tentacle-fill-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)]"
           >
             {t("seer:filterPlatformMore", { count: hidden })}
           </button>

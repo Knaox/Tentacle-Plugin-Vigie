@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { pill } from "../styles/pills";
+import { CheckIcon } from "./ui/icons";
 import type { Genre } from "../constants/genres";
 
 interface GenreFilterProps {
@@ -19,10 +20,12 @@ export function GenreFilter({ genres, selected, onToggle }: GenreFilterProps) {
         return (
           <button
             key={g.id}
+            type="button"
             onClick={() => onToggle(g.id)}
             aria-pressed={active}
             className={pill(active)}
           >
+            {active && <CheckIcon className="h-3.5 w-3.5" />}
             {t(g.key)}
           </button>
         );

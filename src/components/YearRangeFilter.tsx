@@ -7,8 +7,15 @@ interface YearRangeFilterProps {
   onYearToChange: (v: number | null) => void;
 }
 
+const FIELD =
+  "h-11 w-full rounded-xl bg-tentacle-fill-subtle px-3 text-sm font-semibold tabular-nums text-tentacle-text-primary " +
+  "outline-none ring-1 ring-tentacle-border-subtle transition-shadow placeholder:font-normal placeholder:text-tentacle-text-quaternary " +
+  "focus:ring-2 focus:ring-[rgba(var(--brand-rgb),0.6)]";
+
+/** Une période, bornes facultatives. Clavier numérique au téléphone. */
 export function YearRangeFilter({ yearFrom, yearTo, onYearFromChange, onYearToChange }: YearRangeFilterProps) {
   const { t } = useTranslation("seer");
+  const max = new Date().getFullYear() + 5;
 
   const parseYear = (val: string): number | null => {
     if (!val) return null;
@@ -17,28 +24,33 @@ export function YearRangeFilter({ yearFrom, yearTo, onYearFromChange, onYearToCh
   };
 
   return (
-    <div>
-      <div className="flex items-center gap-3">
+    <div className="grid grid-cols-2 gap-3">
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-tentacle-text-tertiary">{t("filterYearFrom")}</span>
         <input
           type="number"
+          inputMode="numeric"
           min={1900}
-          max={2030}
-          placeholder={t("filterYearFrom")}
+          max={max}
+          placeholder="1990"
           value={yearFrom ?? ""}
           onChange={(e) => onYearFromChange(parseYear(e.target.value))}
-          className="w-24 rounded-lg border border-tentacle-border-subtle bg-tentacle-fill-subtle px-3 py-1.5 text-xs text-tentacle-text-primary placeholder-tentacle-text-quaternary outline-none focus:border-[rgba(var(--brand-rgb),0.4)]"
+          className={FIELD}
         />
-        <span className="text-xs text-tentacle-text-quaternary">&mdash;</span>
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-tentacle-text-tertiary">{t("filterYearTo")}</span>
         <input
           type="number"
+          inputMode="numeric"
           min={1900}
-          max={2030}
-          placeholder={t("filterYearTo")}
+          max={max}
+          placeholder={String(max - 5)}
           value={yearTo ?? ""}
           onChange={(e) => onYearToChange(parseYear(e.target.value))}
-          className="w-24 rounded-lg border border-tentacle-border-subtle bg-tentacle-fill-subtle px-3 py-1.5 text-xs text-tentacle-text-primary placeholder-tentacle-text-quaternary outline-none focus:border-[rgba(var(--brand-rgb),0.4)]"
+          className={FIELD}
         />
-      </div>
+      </label>
     </div>
   );
 }

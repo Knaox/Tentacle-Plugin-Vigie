@@ -18,19 +18,24 @@
 const BRAND_WASH =
   "bg-[linear-gradient(rgba(var(--brand-rgb),0.24),rgba(var(--brand-rgb),0.24))]";
 
+/*
+ * Une puce se vise au pouce : 36 px de haut, texte à 13 px. L'état actif se lit
+ * sans la couleur — anneau de marque, texte plus clair — et le survol ne touche
+ * qu'au fond (une transition de couleur, jamais d'ombre animée).
+ */
 const PILL_BASE =
-  "inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 " +
-  "text-xs font-medium transition-colors duration-150 " +
+  "inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-full px-3.5 " +
+  "text-[13px] font-semibold transition-colors duration-150 " +
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)] " +
   "disabled:cursor-not-allowed disabled:opacity-40";
 
 const PILL_IDLE =
-  "bg-[var(--surface-2)] text-tentacle-text-secondary ring-1 ring-tentacle-border-strong " +
-  "shadow-[var(--elev-1)] hover:bg-tentacle-fill-medium hover:text-tentacle-text-primary";
+  "bg-tentacle-fill-subtle text-tentacle-text-secondary ring-1 ring-tentacle-border-subtle " +
+  "hover:bg-tentacle-fill-soft hover:text-tentacle-text-primary";
 
 const PILL_ACTIVE =
   `bg-[var(--surface-2)] ${BRAND_WASH} text-[var(--brand-light)] ` +
-  "ring-1 ring-[rgba(var(--brand-rgb),0.6)] shadow-[var(--elev-1)]";
+  "ring-1 ring-[rgba(var(--brand-rgb),0.55)]";
 
 /** Pilule de filtre / onglet. `pill(true)` marque l'état sélectionné. */
 export function pill(active: boolean): string {
@@ -46,7 +51,7 @@ export function pill(active: boolean): string {
  * n'aurait donc rien changé.
  */
 export function pillSm(active: boolean): string {
-  const base = PILL_BASE.replace("px-3 py-1.5 ", "px-2 py-1 ").replace("text-xs", "text-[11px]");
+  const base = PILL_BASE.replace("min-h-[36px] ", "min-h-[28px] ").replace("px-3.5 ", "px-2.5 ").replace("text-[13px]", "text-[11px]");
   return `${base} ${active ? PILL_ACTIVE : PILL_IDLE}`;
 }
 

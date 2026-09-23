@@ -4,17 +4,22 @@ import { CTA_PRIMARY } from "../../styles/cta";
 import { ICON_BUTTON } from "../../styles/pills";
 import { CHROME_BOTTOM } from "../../utils/host-chrome";
 import { useOverlay } from "../../hooks/useOverlay";
+import { CloseIcon } from "../ui/icons";
 
 /**
- * La coquille d'un panneau de filtres : voile, tiroir, en-tête, pied.
+ * La coquille d'un panneau de filtres : voile, panneau, en-tête, pied.
  *
- * Extraite du panneau du catalogue pour que l'agenda des sorties hérite du même
- * comportement — verrouillage de la surcouche de l'hôte, fermeture à
- * l'échappement, bouton de sortie sous le pouce — plutôt que d'en réécrire une
- * variante qui divergerait au premier correctif.
+ * Au téléphone, une feuille qui MONTE du bas — le pouce l'atteint, et son pied
+ * se pose au-dessus de la barre d'onglets de l'application (la barre flotte
+ * sur le cadre du plugin : sans cette réserve, « Voir les résultats » passait
+ * dessous). Sur grand écran, un tiroir à droite : la grille reste visible à
+ * côté des filtres qu'on règle.
  *
- * Le contenu, lui, reste propre à chaque page : les familles de filtres du
- * catalogue n'ont rien à voir avec celles de l'agenda.
+ * Aucun flou : le panneau est opaque à 96 %, flouter ce qu'il couvre ne se
+ * verrait pas et coûterait une passe de composition (règle GPU du projet).
+ *
+ * Extraite pour que l'agenda des sorties hérite du même comportement —
+ * verrouillage de la surcouche de l'hôte, fermeture à l'échappement.
  */
 
 interface Props {
@@ -36,83 +41,64 @@ export function FilterSheet({
 
   useOverlay(open, onClose);
 
-  return (
-    <>
-      {open && (
-        <div
-          onClick={onClose}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 100,
-            background: "rgba(0,0,0,0.4)",
-            backdropFilter: "blur(4px)",
-            WebkitBackdropFilter: "blur(4px)",
-            animation: "fadeIn 300ms ease forwards",
-          }}
-        />
-      )}
+  if (!open) return null;
 
+  return (
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-stretch sm:justify-end" role="presentation">
+      {/* Voile SOMBRE dans les deux thèmes : `bg-black` est inversé en clair par l'hôte. */}
       <div
-        className={`fixed right-0 top-0 flex h-full w-full max-w-sm flex-col bg-tentacle-surface-modal transition-transform duration-300 ${
-          open ? "translate-x-0" : "translate-x-full"
-        }`}
-        style={{
-          zIndex: 101,
-          backdropFilter: "blur(24px)",
-          WebkitBackdropFilter: "blur(24px)",
-          boxShadow: "-8px 0 40px rgba(0,0,0,0.5), -2px 0 8px rgba(0,0,0,0.3)",
-          borderLeft: "1px solid var(--border-subtle)",
-        }}
+        aria-hidden
+        className="absolute inset-0"
+        style={{ background: "rgba(var(--scrim-media-rgb, 0, 0, 0), 0.6)", animation: "fadeIn 200ms ease both" }}
+        onClick={onClose}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="relative flex max-h-[88dvh] w-full flex-col rounded-t-3xl bg-tentacle-surface-modal shadow-tentacle-modal ring-1 ring-tentacle-border-subtle sm:h-full sm:max-h-none sm:max-w-md sm:rounded-none sm:rounded-l-3xl"
+        style={{ animation: "vigieSheetIn 280ms cubic-bezier(0.22,1,0.36,1) both" }}
       >
-        <div className="flex items-center justify-between border-b border-tentacle-border-subtle px-5 py-4">
-          <div className="flex items-center gap-2">
-            <h3 className="text-base font-semibold text-tentacle-text-primary">{title}</h3>
+        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-tentacle-fill-strong sm:hidden" aria-hidden />
+        <div className="flex shrink-0 items-center justify-between gap-3 px-5 pb-3 pt-3 sm:pt-5">
+          <div className="flex min-w-0 items-center gap-2">
+            <h3 className="truncate text-lg font-bold text-tentacle-text-primary">{title}</h3>
             {activeCount > 0 && (
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-tentacle-brand text-[10px] font-bold text-tentacle-cta-brand-fg">
+              <span className="flex h-6 min-w-[24px] items-center justify-center rounded-full bg-[var(--brand)] px-1.5 text-xs font-bold tabular-nums text-white">
                 {activeCount}
               </span>
             )}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-1">
             {activeCount > 0 && (
-              <button onClick={onReset} className="text-xs text-tentacle-brand hover:text-tentacle-brand-light">
+              <button
+                type="button"
+                onClick={onReset}
+                className="min-h-[36px] rounded-full px-3 text-[13px] font-semibold text-[var(--brand-light)] transition-colors hover:bg-tentacle-fill-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)]"
+              >
                 {t("resetFilters")}
               </button>
             )}
-            {/* ICON_BUTTON plutôt qu'un carré de 28 px : c'est la cible que le
-                plugin s'impose partout ailleurs, et elle se vise vraiment. */}
-            <button onClick={onClose} aria-label={t("seer:cancel")} className={ICON_BUTTON}>
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-              </svg>
+            <button type="button" onClick={onClose} aria-label={t("seer:close")} className={ICON_BUTTON}>
+              <CloseIcon className="h-4 w-4" />
             </button>
           </div>
         </div>
 
-        <div
-          className="flex-1 overflow-y-auto px-5 py-2"
-          style={{ scrollbarWidth: "thin", scrollbarColor: "var(--brand) transparent" }}
-        >
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-tentacle-border-subtle px-5">
           {children}
         </div>
 
-        {/* Pied collant — le bouton de sortie reste sous le pouce, quelle que
-            soit la longueur du panneau.
-
-            La réserve basse n'est pas cosmétique : sur l'application mobile, la
-            barre d'onglets flotte au-dessus du cadre du plugin et recouvrait
-            ce bouton entièrement. Le fond du panneau, lui, continue de courir
-            derrière le verre — seul le contenu remonte. */}
+        {/* Pied collant, au-dessus de la barre de l'application (CHROME_BOTTOM). */}
         <div
-          className="border-t border-tentacle-border-subtle px-5 pt-3"
-          style={{ paddingBottom: `calc(0.75rem + ${CHROME_BOTTOM})` }}
+          className="shrink-0 border-t border-tentacle-border-subtle px-5 pt-3"
+          style={{ paddingBottom: `calc(0.75rem + env(safe-area-inset-bottom, 0px) + ${CHROME_BOTTOM})` }}
         >
-          <button onClick={onClose} className={`${CTA_PRIMARY} h-11 w-full`}>
+          <button type="button" onClick={onClose} className={`${CTA_PRIMARY} h-12 w-full`}>
             {footerLabel ?? t("filterApply")}
           </button>
         </div>
       </div>
-    </>
+    </div>
   );
 }

@@ -50,8 +50,7 @@ export const BrowseToolbar = memo(function BrowseToolbar(props: Props) {
         ariaLabel={t("seer:mediaType")}
         value={mediaType}
         onChange={onType}
-        stretch
-        className="sm:w-auto sm:flex-none"
+        stretch="mobile"
         options={[
           { value: "movies", label: t("seer:filterMovies"), icon: <FilmIcon className="h-4 w-4" /> },
           { value: "tv", label: t("seer:filterSeries"), icon: <TvIcon className="h-4 w-4" /> },
@@ -67,9 +66,14 @@ export const BrowseToolbar = memo(function BrowseToolbar(props: Props) {
             const next = SORTS.find((s) => s.id === e.target.value);
             if (next) onSort(next.by, next.order);
           }}
+          // La liste native se dessine dans le schéma de l'hôte : ouverte, elle
+          // était blanche, texte blanc compris, en thème sombre.
+          style={{ colorScheme: "var(--vg-color-scheme)" }}
           className="h-10 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-tentacle-fill-subtle pl-10 pr-9 text-sm font-semibold text-tentacle-text-secondary outline-none ring-1 ring-tentacle-border-subtle transition-colors hover:bg-tentacle-fill-soft hover:text-tentacle-text-primary focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)] sm:w-auto"
         >
-          {SORTS.map((s) => <option key={s.id} value={s.id}>{t(s.key)}</option>)}
+          {SORTS.map((s) => (
+            <option key={s.id} value={s.id} className="bg-[var(--surface-2)] text-[var(--text-primary)]">{t(s.key)}</option>
+          ))}
         </select>
         <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-tentacle-text-tertiary" />
       </label>

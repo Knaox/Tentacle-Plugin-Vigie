@@ -175,6 +175,15 @@ export const seerPlugin: TentaclePlugin = {
         "@keyframes toastTimer{from{transform:scaleX(1)}to{transform:scaleX(0)}}",
         // Barre de progression sans taille connue (Sonarr cherche encore).
         "@keyframes seerIndeterminate{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}",
+        // Panneaux : au téléphone ils montent du bas, sur grand écran le tiroir
+        // glisse de la droite et la fiche apparaît en place. Mouvement réduit :
+        // un simple fondu.
+        "@keyframes vigieSheetIn{from{transform:translateY(100%)}to{transform:none}}",
+        "@keyframes vigieDialogIn{from{transform:translateY(100%)}to{transform:none}}",
+        "@media (min-width:640px){@keyframes vigieSheetIn{from{transform:translateX(100%)}to{transform:none}}"
+          + "@keyframes vigieDialogIn{from{opacity:0;transform:translateY(12px) scale(0.98)}to{opacity:1;transform:none}}}",
+        "@media (prefers-reduced-motion:reduce){@keyframes vigieSheetIn{from{opacity:0}to{opacity:1}}"
+          + "@keyframes vigieDialogIn{from{opacity:0}to{opacity:1}}}",
       ].join("");
       document.head.appendChild(style);
     }
