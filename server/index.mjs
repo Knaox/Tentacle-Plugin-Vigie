@@ -1568,7 +1568,6 @@ function mapSeerrStatus(requestStatus, mediaStatus, downloadStatus) {
   if (mediaStatus === 7) return "deleted";
   if (mediaStatus === 1) return "unavailable";
   if (mediaStatus === 3) {
-    if (downloadStatus?.some((d) => d.status === "failed" || d.status === "warning")) return "failed";
     return downloadStatus && downloadStatus.length > 0 ? "downloading" : "unavailable";
   }
   if (requestStatus === 1) return "sent_to_seer";
@@ -2486,26 +2485,48 @@ async function processNextRequest(prisma, config, skipIds) {
 // server/request-status.ts
 var AVAILABLE2 = 5;
 var COMPLETED = 5;
-function allRequestedSeasonsAvailable(row) {
+var PARTIAL = 4;
+function requestedSeasonsHere(row, seasonStates) {
   const requested = (row.seasons ?? []).filter((s) => typeof s.seasonNumber === "number");
-  if (requested.length === 0) return false;
-  const available = new Set(
-    (row.media?.seasons ?? []).filter((s) => s.status === AVAILABLE2).map((s) => s.seasonNumber)
-  );
-  return requested.every((s) => available.has(s.seasonNumber) || s.status === COMPLETED);
-}
-function resolveRequestStatus(row, local) {
-  let status = mapSeerrStatus(row.status, row.media?.status, row.media?.downloadStatus);
-  if (local?.status === "available" && (status === "approved" || status === "unavailable" || status === "deleted")) {
-    status = "available";
+  if (requested.length === 0) return "unknown";
+  const states = new Map(seasonStates ?? []);
+  for (const s of row.media?.seasons ?? []) {
+    if (typeof s.status === "number") states.set(s.seasonNumber, s.status);
   }
-  if (status === "partially_available" && allRequestedSeasonsAvailable(row)) {
+  let here = 0;
+  let some = 0;
+  let known = 0;
+  for (const s of requested) {
+    const state2 = states.get(s.seasonNumber);
+    if (state2 === AVAILABLE2 || s.status === COMPLETED) here++;
+    else if (state2 === PARTIAL) some++;
+    if (state2 !== void 0 || s.status === COMPLETED) known++;
+  }
+  if (here === requested.length) return "all";
+  if (here + some > 0) return "some";
+  return known === requested.length ? "none" : "unknown";
+}
+function resolveRequestStatus(row, local, seasonStates) {
+  let status = mapSeerrStatus(row.status, row.media?.status, row.media?.downloadStatus);
+  if (status === "partially_available") {
+    const here = requestedSeasonsHere(row, seasonStates);
+    if (here === "all") status = "available";
+    else if (here === "none") {
+      const downloads = row.media?.downloadStatus;
+      status = mapSeerrStatus(row.status, downloads && downloads.length > 0 ? 3 : 2, downloads);
+    }
+  }
+  if (local?.status === "available" && (status === "approved" || status === "unavailable" || status === "deleted")) {
     status = "available";
   }
   return status;
 }
 
 // server/download-progress.ts
+var STALLED_STATUSES = /* @__PURE__ */ new Set(["warning", "failed", "paused", "downloadClientUnavailable"]);
+function isStalledStatus(status) {
+  return typeof status === "string" && STALLED_STATUSES.has(status);
+}
 function parseTimeSpan(raw) {
   if (!raw || typeof raw !== "string") return null;
   let rest = raw.trim();
@@ -2556,15 +2577,25 @@ function toDownloadProgress(item) {
     estimatedCompletionAt: eta.at,
     status,
     validating: isValidating(size, sizeLeft, status),
+    stalled: isStalledStatus(status),
     title: item.title ?? item.episode?.title ?? null,
     seasonNumber: item.episode?.seasonNumber ?? null,
     episodeNumber: item.episode?.episodeNumber ?? null
   };
 }
 var MAX_DETAIL_ITEMS = 24;
-function aggregateDownloads(items) {
+function aggregateDownloads(items, isBlocked) {
   if (!Array.isArray(items) || items.length === 0) return { summary: null, items: [] };
-  const parsed = items.map(toDownloadProgress).filter((p) => p !== null);
+  const parsed = [];
+  for (const raw of items) {
+    const p = toDownloadProgress(raw);
+    if (!p) continue;
+    if (!p.stalled && raw.downloadId && isBlocked?.(raw.downloadId)) {
+      p.stalled = true;
+      p.validating = false;
+    }
+    parsed.push(p);
+  }
   if (parsed.length === 0) return { summary: null, items: [] };
   let totalSize = 0;
   let totalLeft = 0;
@@ -2583,6 +2614,7 @@ function aggregateDownloads(items) {
     }
   }
   const active = parsed.find((p) => p.status === "downloading") ?? parsed[0];
+  const stalledCount = parsed.filter((p) => p.stalled).length;
   const percent = sized > 0 && totalSize > 0 ? Math.min(100, Math.max(0, (totalSize - totalLeft) / totalSize * 100)) : null;
   const summary = {
     percent,
@@ -2594,6 +2626,9 @@ function aggregateDownloads(items) {
     // `every` et non `some` : tant qu'un seul épisode descend encore, la
     // demande télécharge réellement — ce n'est pas de la validation.
     validating: parsed.every((p) => p.validating),
+    // Un épisode bloqué parmi d'autres qui avancent : la demande avance.
+    stalled: stalledCount > 0 && parsed.every((p) => p.stalled || p.validating),
+    stalledCount,
     title: parsed.length === 1 ? active.title : null,
     seasonNumber: parsed.length === 1 ? active.seasonNumber : null,
     episodeNumber: parsed.length === 1 ? active.episodeNumber : null
@@ -2606,9 +2641,9 @@ function aggregateDownloads(items) {
 function getUser(request) {
   return request.user;
 }
-function seerrRequestToUnified(sr, detail, localById, fallbackUser) {
+function seerrRequestToUnified(sr, detail, localById, fallbackUser, seasonStates) {
   const local = localById.get(sr.id);
-  const status = resolveRequestStatus(sr, local);
+  const status = resolveRequestStatus(sr, local, seasonStates);
   const seasons = sr.seasons?.map((s) => s.seasonNumber).filter((n) => typeof n === "number") ?? null;
   const mediaType = sr.media?.mediaType ?? "movie";
   const title = detail?.title ?? detail?.name ?? local?.title ?? `#${sr.id}`;
@@ -2707,6 +2742,52 @@ function parseRequestId(id) {
   return { kind: "local", id };
 }
 
+// server/series-gaps.ts
+var AVAILABLE3 = 5;
+var PARTIAL2 = 4;
+var PAGE = 100;
+var MAX_PAGES = 10;
+async function loadIndex(cfg) {
+  const out = /* @__PURE__ */ new Map();
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const url = `${cfg.seerrUrl}/api/v1/media?filter=partial&take=${PAGE}&skip=${page * PAGE}&sort=mediaAdded`;
+    const res = await fetch(url, { headers: { "X-Api-Key": cfg.seerrApiKey }, signal: AbortSignal.timeout(1e4) });
+    if (!res.ok) throw new Error(`Jellyseerr GET /media?filter=partial : ${res.status}`);
+    const body = await res.json();
+    for (const media of body.results ?? []) {
+      if (media.mediaType !== "tv" || typeof media.tmdbId !== "number") continue;
+      const seasons = /* @__PURE__ */ new Map();
+      for (const s of media.seasons ?? []) {
+        if (typeof s.seasonNumber === "number" && s.seasonNumber > 0 && typeof s.status === "number") {
+          seasons.set(s.seasonNumber, s.status);
+        }
+      }
+      out.set(media.tmdbId, seasons);
+    }
+    if ((body.pageInfo?.pages ?? 1) <= page + 1) break;
+  }
+  return out;
+}
+async function partialSeriesSeasons(cfg) {
+  if (!cfg) return /* @__PURE__ */ new Map();
+  try {
+    return await cached(`series-gaps:${cfg.seerrUrl}`, 6e4, () => loadIndex(cfg), { staleMs: 10 * 6e4 });
+  } catch {
+    return /* @__PURE__ */ new Map();
+  }
+}
+function gapsOf(seasons) {
+  if (!seasons || seasons.size === 0) return null;
+  const missing = [];
+  const partial = [];
+  for (const [season, status] of seasons) {
+    if (status === PARTIAL2) partial.push(season);
+    else if (status !== AVAILABLE3) missing.push(season);
+  }
+  if (missing.length === 0 && partial.length === 0) return null;
+  return { missing: missing.sort((a, b) => a - b), partial: partial.sort((a, b) => a - b) };
+}
+
 // server/requests-list.ts
 var LOCAL_PENDING_STATUSES = [
   "queued",
@@ -2737,6 +2818,7 @@ async function buildMergedRows(prisma, cfg, user, log) {
   }
   let seerrRows = [];
   let seerrUnreachable = false;
+  const seasonStatesP = partialSeriesSeasons(cfg);
   try {
     const seerUserId = await resolveJellyseerrUserId(cfg, prisma, user.userId, user.username);
     const all = await fetchAllSeerrRequests(cfg, seerUserId);
@@ -2758,17 +2840,19 @@ async function buildMergedRows(prisma, cfg, user, log) {
     for (const r of pending2) deletingIds.add(Number(r.seerr_request_id));
   } catch {
   }
+  const seasonStates = await seasonStatesP;
   return {
     seerrRows,
     localBySeerrId,
     localOnly,
     deletingIds,
-    stats: computeStats(seerrRows, localOnly, localBySeerrId, deletingIds),
+    stats: computeStats(seerrRows, localOnly, localBySeerrId, deletingIds, seasonStates),
     fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    seasonStates,
     seerrUnreachable
   };
 }
-function computeStats(seerrRows, localOnly, localBySeerrId, deletingIds) {
+function computeStats(seerrRows, localOnly, localBySeerrId, deletingIds, seasonStates) {
   const byStatus = {};
   const byType = { movie: 0, tv: 0 };
   let total = 0;
@@ -2779,14 +2863,14 @@ function computeStats(seerrRows, localOnly, localBySeerrId, deletingIds) {
     else if (mediaType === "tv") byType.tv++;
   };
   for (const sr of seerrRows) {
-    bump(effectiveStatus(sr, localBySeerrId, deletingIds), sr.media?.mediaType);
+    bump(effectiveStatus(sr, localBySeerrId, deletingIds, seasonStates), sr.media?.mediaType);
   }
   for (const l of localOnly) bump(l.status, l.mediaType);
   return { total, byStatus, byType };
 }
-function effectiveStatus(sr, localBySeerrId, deletingIds) {
+function effectiveStatus(sr, localBySeerrId, deletingIds, seasonStates) {
   if (deletingIds.has(sr.id)) return "deleting";
-  return resolveRequestStatus(sr, localBySeerrId.get(sr.id));
+  return resolveRequestStatus(sr, localBySeerrId.get(sr.id), seasonStates.get(sr.media?.tmdbId ?? 0));
 }
 function collectTmdbRefs(rows) {
   const out = [];
@@ -2819,7 +2903,7 @@ function hydrateRows(rows, meta, user) {
     const unified = seerrRequestToUnified(sr, detail, rows.localBySeerrId, {
       jellyfinUserId: user.userId,
       username: user.username
-    });
+    }, rows.seasonStates?.get(sr.media.tmdbId));
     if (rows.deletingIds.has(sr.id)) unified.status = "deleting";
     out.push(unified);
   }
@@ -4104,10 +4188,21 @@ function registerAvailabilityRoutes(app, prisma, getWorkerConfig2) {
     }
     return { results, pending: missing.length };
   });
+  app.get("/series/gaps", async () => {
+    const seasons = await partialSeriesSeasons(await getWorkerConfig2());
+    const items = {};
+    for (const [tmdbId, states] of seasons) {
+      const gaps = gapsOf(states);
+      if (gaps) items[tmdbId] = gaps;
+    }
+    return { items };
+  });
 }
 
 // server/arr-queue.ts
 var MAX_ITEMS2 = 60;
+var QUEUE_TTL_MS = 8e3;
+var PAGE_SIZE = 250;
 async function fetchQueue(server, path) {
   try {
     const res = await fetch(`${buildArrUrl(server)}${path}`, {
@@ -4127,6 +4222,10 @@ function isValidating2(r) {
   if (r.status === "completed") return true;
   return r.sizeleft === 0 && typeof r.size === "number" && r.size > 0;
 }
+var BLOCKED_STATES = /* @__PURE__ */ new Set(["importBlocked", "importFailed", "failedPending", "failed"]);
+function isStalledRecord(r) {
+  return isStalledStatus(r.status) || BLOCKED_STATES.has(r.trackedDownloadState ?? "") || r.trackedDownloadStatus === "error";
+}
 function firstMessage(r) {
   if (r.errorMessage) return r.errorMessage;
   for (const m of r.statusMessages ?? []) {
@@ -4141,6 +4240,7 @@ function toEntry(r, source) {
   const left = typeof r.sizeleft === "number" ? Math.max(0, r.sizeleft) : null;
   const percent = size != null && left != null ? Math.min(100, Math.max(0, (size - left) / size * 100)) : null;
   const media = source === "sonarr" ? r.series : r.movie;
+  const stalled = isStalledRecord(r);
   return {
     id: `${source}-${r.id}`,
     source,
@@ -4153,19 +4253,21 @@ function toEntry(r, source) {
     percent,
     size,
     etaSeconds: parseTimeSpan(r.timeleft),
-    validating: isValidating2(r),
+    validating: isValidating2(r) && !stalled,
     paused: r.status === "paused" || r.status === "delay",
-    warning: r.status === "warning" || r.status === "failed" ? firstMessage(r) : null
+    stalled,
+    warning: stalled || r.status === "warning" || r.status === "failed" ? firstMessage(r) : null,
+    downloadId: typeof r.downloadId === "string" && r.downloadId !== "" ? r.downloadId : null
   };
 }
-async function fetchServerQueue(cfg) {
+async function readQueues(cfg) {
   const [sonarr2, radarr] = await Promise.all([
     getArrServerConfig(cfg.seerrUrl, cfg.seerrApiKey, "sonarr"),
     getArrServerConfig(cfg.seerrUrl, cfg.seerrApiKey, "radarr")
   ]);
   const [sq, rq] = await Promise.all([
-    sonarr2 ? fetchQueue(sonarr2, "/api/v3/queue?pageSize=100&includeSeries=true&includeEpisode=true") : Promise.resolve(null),
-    radarr ? fetchQueue(radarr, "/api/v3/queue?pageSize=100&includeMovie=true") : Promise.resolve(null)
+    sonarr2 ? fetchQueue(sonarr2, `/api/v3/queue?pageSize=${PAGE_SIZE}&includeSeries=true&includeEpisode=true`) : Promise.resolve(null),
+    radarr ? fetchQueue(radarr, `/api/v3/queue?pageSize=${PAGE_SIZE}&includeMovie=true`) : Promise.resolve(null)
   ]);
   const unreachable = [];
   if (!sq) unreachable.push("sonarr");
@@ -4177,15 +4279,29 @@ async function fetchServerQueue(cfg) {
   items.sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1) || a.title.localeCompare(b.title));
   return {
     updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    items: items.slice(0, MAX_ITEMS2),
+    items,
     total: (sq?.total ?? 0) + (rq?.total ?? 0),
     unreachable
   };
 }
+function queueSnapshot(cfg) {
+  return cached("seer:arr:queue:all", QUEUE_TTL_MS, () => readQueues(cfg));
+}
+async function fetchServerQueue(cfg) {
+  const snapshot = await queueSnapshot(cfg);
+  return { ...snapshot, items: snapshot.items.slice(0, MAX_ITEMS2) };
+}
+async function blockedDownloadIds(cfg) {
+  const snapshot = await queueSnapshot(cfg);
+  const ids = /* @__PURE__ */ new Set();
+  for (const entry of snapshot.items) {
+    if (entry.stalled && entry.downloadId) ids.add(entry.downloadId);
+  }
+  return ids;
+}
 
 // server/routes-progress.ts
 var PROGRESS_TTL_MS = 1e4;
-var QUEUE_TTL_MS = 8e3;
 function registerProgressRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
   app.get("/downloads", { preHandler: requireAdmin }, async () => {
     const config = await getWorkerConfig2();
@@ -4196,7 +4312,7 @@ function registerProgressRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
       unreachable: []
     };
     if (!config) return empty;
-    return cached("seer:arr:queue", QUEUE_TTL_MS, () => fetchServerQueue(config));
+    return fetchServerQueue(config);
   });
   app.get("/requests/progress", async (request) => {
     const user = getUser(request);
@@ -4216,11 +4332,13 @@ function registerProgressRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
         ).catch(() => []);
         for (const f of found) localIds.set(Number(f.seerr_request_id), f.id);
       }
+      const blocked = await blockedDownloadIds(config).catch(() => /* @__PURE__ */ new Set());
+      const seasonStates = await partialSeriesSeasons(config);
       const items = [];
       for (const sr of rows) {
-        const { summary, items: detail } = aggregateDownloads(sr.media?.downloadStatus);
+        const { summary, items: detail } = aggregateDownloads(sr.media?.downloadStatus, (id) => blocked.has(id));
         if (!summary) continue;
-        const status = resolveRequestStatus(sr);
+        const status = resolveRequestStatus(sr, null, seasonStates.get(sr.media?.tmdbId ?? 0));
         if (status === "available" && (summary.percent ?? 0) >= 100) continue;
         items.push({
           id: localIds.get(sr.id) ?? `seerr-${sr.id}`,
@@ -4518,7 +4636,7 @@ function collectRequestRefs(rows, includeSettled) {
     if (!statusByKey.has(key)) {
       const local = rows.localBySeerrId.get(sr.id);
       statusByKey.set(key, {
-        status: resolveRequestStatus(sr, local),
+        status: resolveRequestStatus(sr, local, rows.seasonStates?.get(sr.media.tmdbId)),
         requestId: local?.id ?? `seerr-${sr.id}`
       });
     }
@@ -5142,6 +5260,259 @@ function rowsSubset(rows, keep) {
   };
 }
 
+// server/sonarr-episodes.ts
+var FACTS_TTL_MS = 6e4;
+var SERIES_FACTS_TTL_MS = 45e3;
+var FACTS_STALE_MS = 10 * 6e4;
+function episodeKey(tmdbId, season, episode) {
+  return `${tmdbId}:${airTimeKey(season, episode)}`;
+}
+function factOf(row) {
+  const fact = { hasFile: row.hasFile === true, monitored: row.monitored === true };
+  if (row.airDate && /^\d{4}-\d{2}-\d{2}$/.test(row.airDate)) fact.airDate = row.airDate;
+  return fact;
+}
+async function sonarrWindowFacts(cfg, from, to) {
+  return cached(
+    `seer:sonarr:facts:${from}:${to}`,
+    FACTS_TTL_MS,
+    async () => {
+      const facts = { byEpisode: /* @__PURE__ */ new Map(), byDay: /* @__PURE__ */ new Map() };
+      const [server, index] = await Promise.all([sonarr(cfg), sonarrSeriesIndex(cfg)]);
+      if (!server || index.size === 0) return facts;
+      const rows = await arrGet(
+        server,
+        `/api/v3/calendar?start=${from}&end=${to}&unmonitored=true&includeSeries=false`
+      );
+      if (rows === null) throw new Error("Sonarr injoignable (\xE9tat des \xE9pisodes)");
+      const tmdbBySeries = /* @__PURE__ */ new Map();
+      for (const [tmdbId, seriesId] of index) tmdbBySeries.set(seriesId, tmdbId);
+      for (const row of rows) {
+        const tmdbId = row.seriesId != null ? tmdbBySeries.get(row.seriesId) : void 0;
+        if (!tmdbId || row.seasonNumber == null || row.episodeNumber == null) continue;
+        const fact = factOf(row);
+        facts.byEpisode.set(episodeKey(tmdbId, row.seasonNumber, row.episodeNumber), fact);
+        if (row.airDate) {
+          const day = `${tmdbId}:${row.airDate}`;
+          facts.byDay.set(day, [...facts.byDay.get(day) ?? [], fact]);
+        }
+      }
+      return facts;
+    },
+    { staleMs: FACTS_STALE_MS }
+  );
+}
+async function sonarrSeriesFacts(cfg, tmdbId) {
+  return cached(
+    `seer:sonarr:facts:series:${tmdbId}`,
+    SERIES_FACTS_TTL_MS,
+    async () => {
+      const [server, index] = await Promise.all([sonarr(cfg), sonarrSeriesIndex(cfg)]);
+      const seriesId = index.get(tmdbId);
+      if (!server || !seriesId) return /* @__PURE__ */ new Map();
+      const rows = await arrGet(server, `/api/v3/episode?seriesId=${seriesId}`);
+      if (rows === null) throw new Error("Sonarr injoignable (\xE9pisodes de la s\xE9rie)");
+      const facts = /* @__PURE__ */ new Map();
+      for (const row of rows) {
+        if (row.seasonNumber == null || row.episodeNumber == null) continue;
+        facts.set(airTimeKey(row.seasonNumber, row.episodeNumber), factOf(row));
+      }
+      return facts;
+    },
+    { staleMs: FACTS_STALE_MS }
+  );
+}
+
+// server/search/status-map.ts
+var MEDIA_STATUS = {
+  UNKNOWN: 1,
+  PENDING: 2,
+  PROCESSING: 3,
+  PARTIALLY_AVAILABLE: 4,
+  AVAILABLE: 5,
+  BLOCKLISTED: 6,
+  DELETED: 7
+};
+var PAGE_SIZE2 = 100;
+var INCREMENTAL_EVERY_MS = 6e4;
+var FULL_EVERY_MS = 6 * 36e5;
+var FULL_CONCURRENCY = 3;
+var statuses = /* @__PURE__ */ new Map();
+var lastFull = 0;
+var lastIncremental = 0;
+var newestSeen = "";
+var running = null;
+var retryAfter = 0;
+var RETRY_MS = 6e4;
+function statusOf(mediaType, tmdbId) {
+  return statuses.get(`${mediaType}:${tmdbId}`);
+}
+function noteStatus(mediaType, tmdbId, status) {
+  if (typeof status === "number" && status > 0) statuses.set(`${mediaType}:${tmdbId}`, status);
+}
+function statusMapReady() {
+  return lastFull > 0;
+}
+async function fetchPage(cfg, skip, take = PAGE_SIZE2) {
+  const res = await fetch(
+    `${cfg.seerrUrl}/api/v1/media?take=${take}&skip=${skip}&filter=all&sort=modified`,
+    { headers: { "X-Api-Key": cfg.seerrApiKey }, signal: AbortSignal.timeout(1e4) }
+  );
+  if (!res.ok) throw new Error(`GET /media ${res.status}`);
+  return await res.json();
+}
+function absorb(rows, into) {
+  for (const row of rows ?? []) {
+    if (typeof row.tmdbId !== "number" || row.mediaType !== "movie" && row.mediaType !== "tv") continue;
+    if (typeof row.status === "number") into.set(`${row.mediaType}:${row.tmdbId}`, row.status);
+    if (row.updatedAt && row.updatedAt > newestSeen) newestSeen = row.updatedAt;
+  }
+}
+async function fullReload(cfg) {
+  const first = await fetchPage(cfg, 0);
+  const fresh = /* @__PURE__ */ new Map();
+  absorb(first.results, fresh);
+  const total = first.pageInfo?.results ?? 0;
+  const skips = [];
+  for (let skip = PAGE_SIZE2; skip < total; skip += PAGE_SIZE2) skips.push(skip);
+  const pages = await mapLimit(skips, FULL_CONCURRENCY, (skip) => fetchPage(cfg, skip));
+  for (const page of pages) absorb(page?.results, fresh);
+  statuses.clear();
+  for (const [k, v] of fresh) statuses.set(k, v);
+  lastFull = Date.now();
+  lastIncremental = lastFull;
+}
+async function incremental(cfg) {
+  const since = newestSeen;
+  const page = await fetchPage(cfg, 0, 50);
+  absorb(page.results, statuses);
+  lastIncremental = Date.now();
+  const rows = page.results ?? [];
+  if (rows.length === 50 && rows.every((r) => (r.updatedAt ?? "") > since)) lastFull = 0;
+}
+function refreshStatusMap(cfg) {
+  if (running) return;
+  const now = Date.now();
+  if (now < retryAfter) return;
+  const needFull = now - lastFull > FULL_EVERY_MS;
+  if (!needFull && now - lastIncremental < INCREMENTAL_EVERY_MS) return;
+  running = (needFull ? fullReload(cfg) : incremental(cfg)).catch((err) => {
+    console.warn(`[Vigie] Statuts des m\xE9dias indisponibles : ${err instanceof Error ? err.message : err}`);
+    retryAfter = Date.now() + RETRY_MS;
+  }).finally(() => {
+    running = null;
+  });
+}
+
+// server/item-states.ts
+var NO_FACTS = { byEpisode: /* @__PURE__ */ new Map(), byDay: /* @__PURE__ */ new Map() };
+var NO_QUEUE = { episodes: /* @__PURE__ */ new Map(), movies: /* @__PURE__ */ new Map() };
+function merge(prev, next) {
+  if (!prev) return { stalled: next.stalled, percent: next.percent };
+  return { stalled: prev.stalled && next.stalled, percent: prev.percent ?? next.percent };
+}
+function indexQueue(entries) {
+  const index = { episodes: /* @__PURE__ */ new Map(), movies: /* @__PURE__ */ new Map() };
+  for (const e of entries) {
+    if (e.tmdbId == null) continue;
+    if (e.source === "radarr") {
+      index.movies.set(e.tmdbId, merge(index.movies.get(e.tmdbId), e));
+    } else if (e.seasonNumber != null && e.episodeNumber != null) {
+      const key = episodeKey(e.tmdbId, e.seasonNumber, e.episodeNumber);
+      index.episodes.set(key, merge(index.episodes.get(key), e));
+    }
+  }
+  return index;
+}
+var WAITING = /* @__PURE__ */ new Set([
+  "queued",
+  "processing",
+  "sent_to_seer",
+  "approved",
+  "unavailable",
+  "retry_pending",
+  "downloading",
+  "partially_available"
+]);
+function fromQueue(q) {
+  return q ? q.stalled ? "stalled" : "downloading" : null;
+}
+function fromRequest(status, seriesLevel = false) {
+  if (!status || !WAITING.has(status)) return null;
+  return seriesLevel && status === "partially_available" ? "partial" : "requested";
+}
+function episodeState(fact, queued, fallback) {
+  if (fact?.hasFile) return "available";
+  const inQueue = fromQueue(queued);
+  if (inQueue) return inQueue;
+  if (fact) return fact.monitored ? "requested" : null;
+  return fallback;
+}
+function movieState(mediaStatus, queued, fallback) {
+  if (mediaStatus === 5) return "available";
+  const inQueue = fromQueue(queued);
+  if (inQueue) return inQueue;
+  if (mediaStatus === 2 || mediaStatus === 3) return "requested";
+  return fallback;
+}
+function stateOfItem(item, facts, queue, today) {
+  const request = fromRequest(item.requestStatus);
+  if (item.mediaType === "movie") {
+    const queued2 = queue.movies.get(item.tmdbId);
+    const state3 = movieState(statusOf("movie", item.tmdbId), queued2, request);
+    return { state: state3, percent: state3 === "downloading" ? queued2?.percent ?? null : null };
+  }
+  const media = statusOf("tv", item.tmdbId);
+  const fallback = media === 5 ? item.date <= today ? "available" : null : media === 2 || media === 3 ? "requested" : request;
+  if (item.kind !== "episode" || item.seasonNumber == null || item.episodeNumber == null) {
+    const series = media === 4 ? "partial" : fallback === "requested" ? fromRequest(item.requestStatus, true) ?? fallback : fallback;
+    return { state: series, percent: null };
+  }
+  const key = episodeKey(item.tmdbId, item.seasonNumber, item.episodeNumber);
+  let fact = facts.byEpisode.get(key);
+  if (!fact) {
+    const sameDay = facts.byDay.get(`${item.tmdbId}:${item.date}`);
+    if (sameDay?.length === 1) fact = sameDay[0];
+  }
+  const queued = queue.episodes.get(key);
+  const state2 = episodeState(fact, queued, fallback);
+  return { state: state2, percent: state2 === "downloading" ? queued?.percent ?? null : null };
+}
+async function attachItemStates(cfg, res, today) {
+  if (res.items.length === 0) return res;
+  const hasEpisodes = res.items.some((i) => i.kind === "episode");
+  const [facts, queue] = await Promise.all([
+    hasEpisodes ? sonarrWindowFacts(cfg, addDays(res.from, -1), addDays(res.to, 1)).catch(() => NO_FACTS) : Promise.resolve(NO_FACTS),
+    queueSnapshot(cfg).then((s) => indexQueue(s.items)).catch(() => NO_QUEUE)
+  ]);
+  return {
+    ...res,
+    items: res.items.map((item) => ({ ...item, ...stateOfItem(item, facts, queue, today) }))
+  };
+}
+async function seriesEpisodeStates(cfg, tmdbId) {
+  const [facts, queue] = await Promise.all([
+    sonarrSeriesFacts(cfg, tmdbId),
+    queueSnapshot(cfg).then((s) => indexQueue(s.items)).catch(() => NO_QUEUE)
+  ]);
+  const states = {};
+  const percents = {};
+  const byDay = /* @__PURE__ */ new Map();
+  const seasons = /* @__PURE__ */ new Set();
+  for (const [key, fact] of facts) {
+    const queued = queue.episodes.get(`${tmdbId}:${key}`);
+    const state2 = episodeState(fact, queued, null);
+    if (state2) states[key] = state2;
+    if (state2 === "downloading" && queued?.percent != null) percents[key] = Math.round(queued.percent);
+    if (fact.airDate) byDay.set(fact.airDate, [...byDay.get(fact.airDate) ?? [], key]);
+    const season = Number(/^S(\d+)E/.exec(key)?.[1]);
+    if (season > 0) seasons.add(season);
+  }
+  const dates = {};
+  for (const [day, keys2] of byDay) if (keys2.length === 1) dates[day] = keys2[0];
+  return { tracked: facts.size > 0, states, percents, dates, seasons: [...seasons].sort((a, b) => a - b) };
+}
+
 // server/routes-calendar.ts
 var PERSONAL_TTL_MS = 15 * 6e4;
 var PERSONAL_STALE_MS = 6 * 36e5;
@@ -5176,7 +5547,7 @@ function registerCalendarRoutes(app, prisma, getWorkerConfig2) {
     const config = await getWorkerConfig2();
     if (!config) return EMPTY(from, to);
     const key = everyone ? `seer:cal:everyone:${region}:${from}:${to}:${includeSettled ? "all" : "up"}` : `seer-cache:${user.userId}:cal:${region}:${from}:${to}:${includeSettled ? "all" : "up"}`;
-    return cached(
+    const res = await cached(
       key,
       PERSONAL_TTL_MS,
       async () => {
@@ -5201,9 +5572,10 @@ function registerCalendarRoutes(app, prisma, getWorkerConfig2) {
       },
       {
         staleMs: PERSONAL_STALE_MS,
-        ttlFor: (res) => res.partial ? PARTIAL_TTL_MS : PERSONAL_TTL_MS
+        ttlFor: (value) => value.partial ? PARTIAL_TTL_MS : PERSONAL_TTL_MS
       }
     );
+    return attachItemStates(config, res, todayString());
   });
   app.get("/calendar/global", async (request) => {
     const q = request.query;
@@ -5212,13 +5584,14 @@ function registerCalendarRoutes(app, prisma, getWorkerConfig2) {
     if (!config) return EMPTY(from, to);
     const providerIds = String(q.providerIds ?? "").split(",").map(Number).filter((n) => Number.isFinite(n) && n > 0).slice(0, MAX_PROVIDERS);
     const mediaType = q.mediaType === "movie" || q.mediaType === "tv" ? q.mediaType : "both";
-    return buildGlobalFromStore(prisma, config, {
+    const res = await buildGlobalFromStore(prisma, config, {
       providerIds,
       mediaType,
       region: readRegion(q),
       from,
       to
     }, warn);
+    return attachItemStates(config, res, todayString());
   });
   app.get("/calendar/airtimes", async (request) => {
     const q = request.query;
@@ -5231,6 +5604,18 @@ function registerCalendarRoutes(app, prisma, getWorkerConfig2) {
       return { times: Object.fromEntries(times) };
     } catch {
       return { times: {} };
+    }
+  });
+  app.get("/episodes/states", async (request) => {
+    const tmdbId = Number(request.query.tmdbId);
+    const empty = { tracked: false, states: {}, percents: {}, dates: {}, seasons: [] };
+    if (!Number.isFinite(tmdbId) || tmdbId <= 0) return empty;
+    const config = await getWorkerConfig2();
+    if (!config) return empty;
+    try {
+      return await seriesEpisodeStates(config, tmdbId);
+    } catch {
+      return empty;
     }
   });
   app.get("/calendar/providers", async (request) => {
@@ -5919,87 +6304,6 @@ var TitleIndex = class {
   }
 };
 
-// server/search/status-map.ts
-var MEDIA_STATUS = {
-  UNKNOWN: 1,
-  PENDING: 2,
-  PROCESSING: 3,
-  PARTIALLY_AVAILABLE: 4,
-  AVAILABLE: 5,
-  BLOCKLISTED: 6,
-  DELETED: 7
-};
-var PAGE_SIZE = 100;
-var INCREMENTAL_EVERY_MS = 6e4;
-var FULL_EVERY_MS = 6 * 36e5;
-var FULL_CONCURRENCY = 3;
-var statuses = /* @__PURE__ */ new Map();
-var lastFull = 0;
-var lastIncremental = 0;
-var newestSeen = "";
-var running = null;
-var retryAfter = 0;
-var RETRY_MS = 6e4;
-function statusOf(mediaType, tmdbId) {
-  return statuses.get(`${mediaType}:${tmdbId}`);
-}
-function noteStatus(mediaType, tmdbId, status) {
-  if (typeof status === "number" && status > 0) statuses.set(`${mediaType}:${tmdbId}`, status);
-}
-function statusMapReady() {
-  return lastFull > 0;
-}
-async function fetchPage(cfg, skip, take = PAGE_SIZE) {
-  const res = await fetch(
-    `${cfg.seerrUrl}/api/v1/media?take=${take}&skip=${skip}&filter=all&sort=modified`,
-    { headers: { "X-Api-Key": cfg.seerrApiKey }, signal: AbortSignal.timeout(1e4) }
-  );
-  if (!res.ok) throw new Error(`GET /media ${res.status}`);
-  return await res.json();
-}
-function absorb(rows, into) {
-  for (const row of rows ?? []) {
-    if (typeof row.tmdbId !== "number" || row.mediaType !== "movie" && row.mediaType !== "tv") continue;
-    if (typeof row.status === "number") into.set(`${row.mediaType}:${row.tmdbId}`, row.status);
-    if (row.updatedAt && row.updatedAt > newestSeen) newestSeen = row.updatedAt;
-  }
-}
-async function fullReload(cfg) {
-  const first = await fetchPage(cfg, 0);
-  const fresh = /* @__PURE__ */ new Map();
-  absorb(first.results, fresh);
-  const total = first.pageInfo?.results ?? 0;
-  const skips = [];
-  for (let skip = PAGE_SIZE; skip < total; skip += PAGE_SIZE) skips.push(skip);
-  const pages = await mapLimit(skips, FULL_CONCURRENCY, (skip) => fetchPage(cfg, skip));
-  for (const page of pages) absorb(page?.results, fresh);
-  statuses.clear();
-  for (const [k, v] of fresh) statuses.set(k, v);
-  lastFull = Date.now();
-  lastIncremental = lastFull;
-}
-async function incremental(cfg) {
-  const since = newestSeen;
-  const page = await fetchPage(cfg, 0, 50);
-  absorb(page.results, statuses);
-  lastIncremental = Date.now();
-  const rows = page.results ?? [];
-  if (rows.length === 50 && rows.every((r) => (r.updatedAt ?? "") > since)) lastFull = 0;
-}
-function refreshStatusMap(cfg) {
-  if (running) return;
-  const now = Date.now();
-  if (now < retryAfter) return;
-  const needFull = now - lastFull > FULL_EVERY_MS;
-  if (!needFull && now - lastIncremental < INCREMENTAL_EVERY_MS) return;
-  running = (needFull ? fullReload(cfg) : incremental(cfg)).catch((err) => {
-    console.warn(`[Vigie] Statuts des m\xE9dias indisponibles : ${err instanceof Error ? err.message : err}`);
-    retryAfter = Date.now() + RETRY_MS;
-  }).finally(() => {
-    running = null;
-  });
-}
-
 // server/search/remote.ts
 var TTL_MS = 10 * 6e4;
 var STALE_MS = 60 * 6e4;
@@ -6482,7 +6786,7 @@ function fromRemote(m) {
     score: 0
   };
 }
-function merge(into, c) {
+function merge2(into, c) {
   const known = into.get(c.key);
   if (!known) {
     into.set(c.key, c);
@@ -6583,15 +6887,15 @@ async function computeFull(ctx, q, opts) {
   ]);
   const pages = [typed, fixed].filter((p) => p !== null);
   const all = /* @__PURE__ */ new Map();
-  if (opts.page === 1) for (const h of lookup.hits) merge(all, fromEntry(h.entry, opts.lang));
-  for (const page of pages) for (const m of page.media) merge(all, fromRemote(m));
+  if (opts.page === 1) for (const h of lookup.hits) merge2(all, fromEntry(h.entry, opts.lang));
+  for (const page of pages) for (const m of page.media) merge2(all, fromRemote(m));
   if (parsed.year !== null && parsed.text !== parsed.raw && opts.page === 1) {
     const found = [...all.values()].some((c) => c.year === parsed.year && textScore(c.names, parsed.tokens) >= TEXT_KEY_WORDS);
     if (!found) {
       const raw = await tryRemote(ctx, parsed.raw, opts);
       if (raw) {
         pages.push(raw);
-        for (const m of raw.media) merge(all, fromRemote(m));
+        for (const m of raw.media) merge2(all, fromRemote(m));
       }
     }
   }
@@ -6875,6 +7179,100 @@ async function providerFacets(cfg, query, lang, wait) {
   }
 }
 
+// server/search/person-credits.ts
+var CREDITS_TTL_MS = 30 * 6e4;
+var CREDITS_STALE_MS = 6 * 36e5;
+var SELF = /^(himself|herself|themselves|self|lui-même|elle-même|eux-mêmes)\b/i;
+var CREW_JOBS = /* @__PURE__ */ new Set(["Director", "Screenplay", "Writer", "Creator", "Novel", "Story"]);
+var TALK_OR_NEWS = /* @__PURE__ */ new Set([10767, 10763]);
+var str2 = (v) => typeof v === "string" && v.trim() !== "" ? v : null;
+var num3 = (v) => typeof v === "number" && Number.isFinite(v) ? v : 0;
+function toCredit(r, crew) {
+  const mediaType = r.mediaType === "movie" || r.mediaType === "tv" ? r.mediaType : null;
+  const id = num3(r.id);
+  if (!mediaType || id <= 0) return null;
+  const role = crew ? str2(r.job) : str2(r.character);
+  if (!crew && role && SELF.test(role)) return null;
+  if (crew && !CREW_JOBS.has(String(r.job ?? ""))) return null;
+  const genres = Array.isArray(r.genreIds) ? r.genreIds : [];
+  if (genres.some((g) => typeof g === "number" && TALK_OR_NEWS.has(g))) return null;
+  const info = r.mediaInfo;
+  return {
+    mediaType,
+    id,
+    title: str2(r.title) ?? str2(r.name) ?? "",
+    releaseDate: str2(r.releaseDate) ?? str2(r.firstAirDate),
+    posterPath: str2(r.posterPath),
+    voteCount: num3(r.voteCount),
+    popularity: num3(r.popularity),
+    role,
+    status: typeof info?.status === "number" ? info.status : void 0
+  };
+}
+async function seerrGet(cfg, path, lang) {
+  const res = await fetch(`${cfg.seerrUrl}${path}`, {
+    headers: { "X-Api-Key": cfg.seerrApiKey, "Accept-Language": lang },
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res.ok) throw new Error(`Jellyseerr ${path.split("?")[0]} ${res.status}`);
+  return await res.json();
+}
+async function personCredits(cfg, personId, lang) {
+  return cached(`vigie:person:${personId}:${lang}`, CREDITS_TTL_MS, async () => {
+    const raw = await seerrGet(cfg, `/api/v1/person/${personId}/combined_credits?language=${lang}`, lang);
+    const all = [
+      ...Array.isArray(raw.cast) ? raw.cast.map((r) => toCredit(r, false)) : [],
+      ...Array.isArray(raw.crew) ? raw.crew.map((r) => toCredit(r, true)) : []
+    ];
+    const byKey = /* @__PURE__ */ new Map();
+    for (const credit of all) {
+      if (!credit || !credit.title) continue;
+      const key = `${credit.mediaType}:${credit.id}`;
+      if (!byKey.has(key)) byKey.set(key, credit);
+    }
+    const credits = [...byKey.values()];
+    for (const c of credits) noteStatus(c.mediaType, c.id, c.status);
+    return credits;
+  }, { staleMs: CREDITS_STALE_MS });
+}
+async function resolvePerson(cfg, name, tmdbId, lang) {
+  if (tmdbId !== null) return tmdbId;
+  const folded = foldText(name);
+  if (!folded) return null;
+  const page = await remoteSearch(cfg, name, 1, lang, true);
+  const exact = page.people.filter((p) => foldText(p.name) === folded);
+  const best = (exact.length > 0 ? exact : page.people.slice(0, 1)).sort((a, b) => b.popularity - a.popularity)[0];
+  return best?.id ?? null;
+}
+var LABELS2 = {
+  fr: { movie: "Film", series: "S\xE9rie", requested: "Demand\xE9", processing: "En cours" },
+  en: { movie: "Movie", series: "Series", requested: "Requested", processing: "In progress" }
+};
+function toItem(c, status, lang) {
+  const l = lang === "fr" ? LABELS2.fr : LABELS2.en;
+  const kind = c.mediaType === "movie" ? "movie" : "series";
+  const year = c.releaseDate ? Number(c.releaseDate.slice(0, 4)) || null : null;
+  const subtitle = [kind === "movie" ? l.movie : l.series, year, c.role].filter(Boolean).join(" \xB7 ");
+  return {
+    id: `${c.mediaType}:${c.id}`,
+    kind,
+    title: c.title,
+    year,
+    subtitle: subtitle.slice(0, 120),
+    imageUrl: c.posterPath ? `https://image.tmdb.org/t/p/w185${c.posterPath}` : null,
+    href: `/discover?media=${c.mediaType}:${c.id}`,
+    badge: status === MEDIA_STATUS.PENDING ? { label: l.requested, tone: "info" } : status === MEDIA_STATUS.PROCESSING ? { label: l.processing, tone: "warning" } : null
+  };
+}
+async function personProvider(cfg, q) {
+  const empty = { query: q.name, correction: null, complete: true, items: [], moreHref: null };
+  const personId = await resolvePerson(cfg, q.name, q.tmdbId, q.lang);
+  if (personId === null) return empty;
+  const credits = await personCredits(cfg, personId, q.lang);
+  const items = credits.filter((c) => q.type === null || q.type === "movie" === (c.mediaType === "movie")).map((c) => ({ c, status: statusOf(c.mediaType, c.id) ?? c.status })).filter(({ status }) => !inLibraryOrBlocked(status)).sort((a, b) => b.c.voteCount - a.c.voteCount || b.c.popularity - a.c.popularity).slice(0, q.limit).map(({ c, status }) => toItem(c, status, q.lang));
+  return { ...empty, items, moreHref: `/discover?person=${personId}` };
+}
+
 // server/routes-search.ts
 var MAX_QUERY = 120;
 var MAX_PAGE = 20;
@@ -6922,6 +7320,27 @@ async function registerSearchRoutes(app, prisma, getWorkerConfig2) {
     const opts = { lang, page: 1, showBlocked: false };
     const ranked = fullIfReady(ctx, q, opts) ?? instantSearch(ctx, q, opts);
     return presentProvider(ranked, type, limit, lang, todayIso2());
+  });
+  app.get("/search/person", async (request, reply) => {
+    const query = request.query;
+    const name = (query.name ?? "").trim().slice(0, MAX_QUERY);
+    const tmdb = Number(query.tmdb);
+    const tmdbId = Number.isInteger(tmdb) && tmdb > 0 ? tmdb : null;
+    const ctx = await context();
+    if (!ctx) return reply.status(503).send({ message: "Vigie is not configured" });
+    const empty = { query: name, correction: null, complete: true, items: [], moreHref: null };
+    if (!name && tmdbId === null) return empty;
+    try {
+      return await personProvider(ctx.cfg, {
+        name,
+        tmdbId,
+        lang: readLang(query.lang),
+        limit: Math.min(Math.max(1, Number(query.limit) || 20), 40),
+        type: query.type === "movie" || query.type === "series" ? query.type : null
+      });
+    } catch {
+      return empty;
+    }
   });
 }
 
