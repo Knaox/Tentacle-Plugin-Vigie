@@ -33,6 +33,7 @@ export const RequestsToolbar = memo(function RequestsToolbar(props: Props) {
   const chips: Array<{ id: RequestsFilter; label: string; count?: number }> = [
     { id: "all", label: t("seer:reqFilterAll"), count: total },
     { id: "active", label: t("seer:reqFilterActive"), count: counts.active },
+    ...(counts.partial > 0 ? [{ id: "partial" as const, label: t("seer:reqFilterPartial"), count: counts.partial }] : []),
     { id: "available", label: t("seer:reqFilterAvailable"), count: counts.available },
     ...(counts.attention > 0 ? [{ id: "attention" as const, label: t("seer:reqFilterAttention"), count: counts.attention }] : []),
     ...(showServer ? [{ id: "server" as const, label: t("seer:serverQueue") }] : []),

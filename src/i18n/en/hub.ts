@@ -101,10 +101,12 @@ export default {
 
   reqFilterAll: "All",
   reqFilterActive: "In progress",
+  reqFilterPartial: "Partial",
   reqFilterAvailable: "Available",
   reqFilterAttention: "Needs attention",
   serverQueue: "Server queue",
   groupActive: "In progress",
+  groupPartial: "Partially available",
   groupAvailable: "Available",
   groupAttention: "Needs attention",
   groupArchived: "Archived",

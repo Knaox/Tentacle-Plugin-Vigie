@@ -25,7 +25,11 @@ test("treize statuts, trois questions : ça arrive, c'est là, ça coince", () =
 
 test("une série en partie là qui récupère encore des épisodes est en cours", () => {
   assert.equal(groupOf({ status: "partially_available" }, true), "active");
-  assert.equal(groupOf({ status: "partially_available" }, false), "available");
+});
+
+test("en partie là, elle a son groupe : pas rangée parmi ce qui est là en entier", () => {
+  assert.equal(groupOf({ status: "partially_available" }, false), "partial");
+  assert.equal(groupOf({ status: "available" }), "available");
 });
 
 test("les plus récentes d'abord, dans chaque groupe", () => {
@@ -39,8 +43,8 @@ test("les plus récentes d'abord, dans chaque groupe", () => {
 });
 
 test("les compteurs suivent les statistiques du serveur", () => {
-  assert.deepEqual(countByGroup({ queued: 2, downloading: 1, available: 5, failed: 1, deleted: 3 }), {
-    active: 3, available: 5, attention: 1, archived: 3,
+  assert.deepEqual(countByGroup({ queued: 2, downloading: 1, partially_available: 2, available: 5, failed: 1, deleted: 3 }), {
+    active: 3, partial: 2, available: 5, attention: 1, archived: 3,
   });
 });
 

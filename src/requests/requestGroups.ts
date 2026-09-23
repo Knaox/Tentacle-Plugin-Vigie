@@ -4,9 +4,10 @@
 
 /*
  * Treize statuts techniques côté serveur (file locale, envoyée, approuvée,
- * téléchargement, nouvelle tentative…) — et trois questions côté utilisateur :
- * est-ce que ça arrive, est-ce que c'est là, est-ce que ça coince ? La page
- * « Mes demandes » ne parle plus que de ces trois-là.
+ * téléchargement, nouvelle tentative…) — et quatre questions côté
+ * utilisateur : est-ce que ça arrive, est-ce que c'est là en entier, là en
+ * partie seulement (il manque des épisodes de ce qu'on a demandé), est-ce que
+ * ça coince ? La page « Mes demandes » ne parle plus que de celles-là.
  *
  * Le détail reste lisible dans la phrase d'état de chaque demande, jamais
  * dans une rangée de filtres techniques.
@@ -14,9 +15,9 @@
 
 import type { LocalRequest, RequestStatus } from "../api/types";
 
-export type RequestGroup = "active" | "available" | "attention" | "archived";
+export type RequestGroup = "active" | "partial" | "available" | "attention" | "archived";
 
-export const GROUP_ORDER: readonly RequestGroup[] = ["active", "available", "attention", "archived"];
+export const GROUP_ORDER: readonly RequestGroup[] = ["active", "partial", "available", "attention", "archived"];
 
 const ACTIVE: ReadonlySet<RequestStatus> = new Set([
   "queued", "processing", "sent_to_seer", "approved", "unavailable", "downloading", "retry_pending",
@@ -24,13 +25,14 @@ const ACTIVE: ReadonlySet<RequestStatus> = new Set([
 
 /**
  * Le groupe d'une demande. `downloading` : l'avancement réel connu — une série
- * « disponible en partie » qui récupère encore des épisodes est EN COURS, pas
- * rangée parmi ce qui est déjà là.
+ * « disponible en partie » qui récupère encore des épisodes est EN COURS ;
+ * sinon, elle a son propre groupe : rangée parmi « Disponibles », elle se
+ * confondait avec ce qui est là en entier.
  */
 export function groupOf(request: Pick<LocalRequest, "status">, downloading = false): RequestGroup {
   const { status } = request;
   if (ACTIVE.has(status)) return "active";
-  if (status === "partially_available") return downloading ? "active" : "available";
+  if (status === "partially_available") return downloading ? "active" : "partial";
   if (status === "available") return "available";
   if (status === "failed" || status === "delete_failed") return "attention";
   return "archived";
@@ -49,7 +51,7 @@ export function groupRequests(
 
 /** Combien de demandes dans chaque groupe, d'après les statistiques du serveur. */
 export function countByGroup(byStatus: Record<string, number> | undefined): Record<RequestGroup, number> {
-  const counts: Record<RequestGroup, number> = { active: 0, available: 0, attention: 0, archived: 0 };
+  const counts: Record<RequestGroup, number> = { active: 0, partial: 0, available: 0, attention: 0, archived: 0 };
   for (const [status, n] of Object.entries(byStatus ?? {})) {
     counts[groupOf({ status: status as RequestStatus })] += n ?? 0;
   }

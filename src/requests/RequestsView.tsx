@@ -34,7 +34,8 @@ import { useRequestActions } from "./useRequestActions";
 import { useMoreRequests } from "./useMoreRequests";
 
 const TITLE: Record<RequestGroup, string> = {
-  active: "seer:groupActive", available: "seer:groupAvailable", attention: "seer:groupAttention", archived: "seer:groupArchived",
+  active: "seer:groupActive", partial: "seer:groupPartial", available: "seer:groupAvailable",
+  attention: "seer:groupAttention", archived: "seer:groupArchived",
 };
 
 export function RequestsView({ data, active }: { data: HubData; active: boolean }) {

@@ -109,10 +109,12 @@ export default {
   // Mes demandes
   reqFilterAll: "Toutes",
   reqFilterActive: "En cours",
+  reqFilterPartial: "En partie",
   reqFilterAvailable: "Disponibles",
   reqFilterAttention: "À vérifier",
   serverQueue: "File du serveur",
   groupActive: "En cours",
+  groupPartial: "Disponibles en partie",
   groupAvailable: "Disponibles",
   groupAttention: "À vérifier",
   groupArchived: "Archivées",
