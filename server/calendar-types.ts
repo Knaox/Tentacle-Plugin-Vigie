@@ -15,11 +15,12 @@
 import type { RequestStatus } from "./types";
 
 /**
- * Où en est une sortie, en quatre mots — ceux qu'on se pose devant un
+ * Où en est une sortie, en quelques mots — ceux qu'on se pose devant un
  * calendrier. `null` : personne ne l'a demandée. Jamais « échec » : un
- * téléchargement qui coince est BLOQUÉ.
+ * téléchargement qui coince est BLOQUÉ. « partial » ne vaut que pour une
+ * sortie de niveau SÉRIE (une première) : un épisode est là ou pas.
  */
-export type ItemState = "requested" | "downloading" | "stalled" | "available";
+export type ItemState = "requested" | "downloading" | "stalled" | "available" | "partial";
 
 export type CalendarKind =
   | "digital"

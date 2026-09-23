@@ -63,6 +63,13 @@ test("sans Sonarr, la demande dit « demandé » — jamais plus", () => {
   assert.equal(stateOfItem(episode(4, 18), facts([]), indexQueue([]), TODAY).state, null);
 });
 
+test("une première de série en partie là se dit « en partie », pas « demandé »", () => {
+  const premiere = episode(1, 1, { kind: "premiere", seasonNumber: null, episodeNumber: null, requestStatus: "partially_available" });
+  assert.equal(stateOfItem(premiere, facts([]), indexQueue([]), TODAY).state, "partial");
+  const asked = episode(1, 1, { kind: "premiere", seasonNumber: null, episodeNumber: null, requestStatus: "approved" });
+  assert.equal(stateOfItem(asked, facts([]), indexQueue([]), TODAY).state, "requested");
+});
+
 test("un film : là, en route, bloqué, demandé", () => {
   assert.equal(movieState(5, { stalled: false, percent: 10 }, null), "available");
   assert.equal(movieState(3, { stalled: false, percent: 10 }, null), "downloading");

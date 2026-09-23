@@ -69,8 +69,10 @@ function fromQueue(q: Queued | undefined): ItemState | null {
   return q ? (q.stalled ? "stalled" : "downloading") : null;
 }
 
-function fromRequest(status: RequestStatus | null | undefined): ItemState | null {
-  return status && WAITING.has(status) ? "requested" : null;
+/** Une série en partie là se dit « en partie » ; un épisode, lui, est demandé. */
+function fromRequest(status: RequestStatus | null | undefined, seriesLevel = false): ItemState | null {
+  if (!status || !WAITING.has(status)) return null;
+  return seriesLevel && status === "partially_available" ? "partial" : "requested";
 }
 
 /** L'épisode, d'après Sonarr : son fichier, la file, son suivi. */
@@ -124,7 +126,9 @@ export function stateOfItem(
     ? (item.date <= today ? "available" : null)
     : media === 2 || media === 3 ? "requested" : request;
   if (item.kind !== "episode" || item.seasonNumber == null || item.episodeNumber == null) {
-    return { state: fallback, percent: null };
+    // Une sortie de niveau série : une série en partie là le dit.
+    const series = media === 4 ? "partial" : fallback === "requested" ? fromRequest(item.requestStatus, true) ?? fallback : fallback;
+    return { state: series, percent: null };
   }
 
   const key = episodeKey(item.tmdbId, item.seasonNumber, item.episodeNumber);

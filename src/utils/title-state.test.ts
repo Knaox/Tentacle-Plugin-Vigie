@@ -38,6 +38,16 @@ test("une demande : attente, route, blocage, arrivée — jamais « échec » po
   assert.equal(stateFromRequest({ status: "partially_available" }, progress())?.state, "downloading");
   assert.equal(stateFromRequest({ status: "available" })?.state, "available");
   assert.equal(stateFromRequest({ status: "deleted" }), null);
+  // Partiellement demandée, partiellement là : en partie.
+  assert.equal(stateFromRequest({ status: "approved", seerrMediaStatus: 4 })?.state, "partial");
+});
+
+test("une série en partie là reste « en partie », quoi qu'en dise sa demande", () => {
+  const partial = { state: "partial" as const, percent: null };
+  assert.equal(mergeStatus(partial, { state: "requested", percent: null })?.state, "partial");
+  assert.equal(mergeStatus(partial, { state: "available", percent: null })?.state, "partial");
+  // Ce qui arrive se voit toujours, avec son avancement.
+  assert.equal(mergeStatus(partial, { state: "downloading", percent: 12 })?.state, "downloading");
 });
 
 test("sur une affiche : Jellyseerr « disponible » l'emporte, sinon ce qu'on sait de sa demande", () => {
@@ -49,11 +59,20 @@ test("sur une affiche : Jellyseerr « disponible » l'emporte, sinon ce qu'on sa
   assert.equal(mergeStatus(null, { state: "stalled", percent: 12 })?.state, "stalled");
 });
 
+test("une saison là, une autre seulement demandée : la série est en partie là", () => {
+  const here = { state: "available" as const, percent: null };
+  const asked = { state: "requested" as const, percent: null };
+  assert.equal(strongest(here, asked)?.state, "partial");
+  assert.equal(strongest(asked, { state: "partial", percent: null })?.state, "partial");
+  assert.equal(strongest(asked, asked)?.state, "requested");
+  assert.equal(strongest(here, here)?.state, "available");
+});
+
 test("deux saisons demandées : celle qui arrive se voit avant celle qui est là", () => {
   const here = { state: "available" as const, percent: null };
   const moving = { state: "downloading" as const, percent: 20 };
   assert.deepEqual(strongest(here, moving), moving);
-  assert.deepEqual(strongest({ state: "requested", percent: null }, here), here);
+  assert.equal(strongest({ state: "requested", percent: null }, here)?.state, "partial");
 });
 
 test("une saison publiée d'un coup : l'état du groupe dit l'essentiel", () => {

@@ -72,8 +72,13 @@ const WAITING: ReadonlySet<RequestStatus> = new Set([
  * L'état d'UNE demande, avancement réel compris. `null` pour ce qui n'est
  * plus une attente : refusée, supprimée, en cours de suppression.
  */
-export function stateFromRequest(request: Pick<LocalRequest, "status">, progress?: ProgressItem): TitleStatus | null {
+export function stateFromRequest(
+  request: Pick<LocalRequest, "status"> & { seerrMediaStatus?: number | null },
+  progress?: ProgressItem,
+): TitleStatus | null {
   const download = progress?.download;
+  // Demandée, mais la série est déjà en partie là (d'autres saisons) : on le dit.
+  if (WAITING.has(request.status) && request.seerrMediaStatus === 4) return { state: "partial", percent: null };
   switch (request.status) {
     case "available":
       return { state: "available", percent: null };
@@ -90,27 +95,33 @@ const RANK: Record<TitleState, number> = { requested: 1, partial: 2, downloading
 
 /**
  * L'état d'un titre sur une affiche : celui de Jellyseerr, précisé par ce
- * que l'on sait de SA demande (l'avancement réel, « bloqué »). Disponible
- * pour Jellyseerr l'emporte toujours ; sinon, l'état le plus avancé.
+ * que l'on sait de SA demande (l'avancement réel, « bloqué »). L'affiche parle
+ * du TITRE : disponible pour Jellyseerr l'emporte toujours, et une série en
+ * partie là le reste — même si la saison qu'on a demandée est arrivée, ou
+ * seulement demandée.
  */
 export function mergeStatus(media: TitleStatus | null, mine: TitleStatus | null | undefined): TitleStatus | null {
   if (!mine) return media;
   if (!media) return mine;
   if (media.state === "available") return media;
   if (mine.state === "downloading" || mine.state === "stalled") return mine;
+  if (media.state === "partial" || media.state === "downloading" || media.state === "stalled") return media;
   return RANK[mine.state] >= RANK[media.state] ? mine : media;
 }
 
 /**
  * Deux demandes pour un même titre (deux saisons) : ce qui bouge d'abord —
- * une saison qui arrive dit plus que celle qui est déjà là —, puis la plus
- * avancée.
+ * une saison qui arrive dit plus que celle qui est déjà là. Une saison là et
+ * une autre seulement demandée : la série est EN PARTIE là, pas « demandée ».
  */
 export function strongest(a: TitleStatus | null, b: TitleStatus | null): TitleStatus | null {
   if (!a) return b;
   if (!b) return a;
   const moving = (s: TitleStatus) => s.state === "downloading" || s.state === "stalled";
   if (moving(a) !== moving(b)) return moving(a) ? a : b;
+  if (moving(a)) return a;
+  const here = (s: TitleStatus) => s.state === "available" || s.state === "partial";
+  if (here(a) !== here(b) || a.state === "partial" || b.state === "partial") return { state: "partial", percent: null };
   return RANK[b.state] > RANK[a.state] ? b : a;
 }
 

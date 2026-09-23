@@ -137,7 +137,7 @@ export interface RequestsProgressResponse {
  * L'état d'UNE sortie — l'épisode lui-même, pas sa saison. Jamais « échec » :
  * un téléchargement qui coince est bloqué. `null` : personne ne l'a demandée.
  */
-export type ItemState = "requested" | "downloading" | "stalled" | "available";
+export type ItemState = "requested" | "downloading" | "stalled" | "available" | "partial";
 
 export type CalendarKind =
   | "digital"
