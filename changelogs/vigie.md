@@ -21,10 +21,12 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ## [1.15.1]
 ### FR
+- **Mes demandes suivent Sonarr et Radarr en direct** : l'avancement réel, comme dans la file du serveur, puis « En cours d'importation » dès que le fichier est complet, et « Disponible » dès qu'il est rangé — sans plus attendre que Jellyseerr le constate. Ce nouvel état se lit aussi sur les affiches, la fiche et le calendrier
 - **Une série demandée en partie ne se dit plus demandée en entier** : sur la fiche, seules les saisons réellement demandées portent « Demandé », comme chez Jellyseerr ; les autres restent libres et se cochent pour une demande
 - **Un film déjà demandé ne propose plus « Demander quand même »** : sa fiche n'affiche que son état, y compris après « Marquer comme… › Demandée » et tant que la demande attend dans la file de Vigie
 - **« Films » ne montre plus de séries** : dans le Catalogue, passer d'un type à l'autre rangeait parfois des titres du nouveau type sous l'ancien — de retour sur « Films », des séries s'y glissaient (et inversement). La grille du nouveau type charge aussi plus vite
 ### EN
+- **My requests follow Sonarr and Radarr live**: real progress, as in the server queue, then "Importing" as soon as the file is complete, and "Available" as soon as it is in the library — no more waiting for Jellyseerr to notice. The new state also shows on posters, the detail page and the calendar
 - **A partly requested series no longer shows every season as requested**: on the detail page, only the seasons actually requested read "Requested", as in Jellyseerr; the others stay free and can be ticked for a request
 - **An already requested movie no longer offers "Request anyway"**: its detail page shows only its state, including after "Mark as… › Requested" and while the request is still waiting in Vigie's queue
 - **"Movies" no longer shows series**: in the Catalog, switching types sometimes filed titles of the new type under the old one — back on "Movies", series slipped in (and vice versa). The new type's grid also loads faster
