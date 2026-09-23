@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 import type { CalendarItem } from "../../api/types-releases";
 import { posterUrl } from "../../utils/media-helpers";
 import { KIND_STYLE, KIND_I18N, episodeLabel } from "../../utils/calendar-kind";
-import { STATUS_STYLE } from "../../styles/status";
+import { calendarStatus } from "../../utils/title-state";
+import { StateBadge } from "../ui/StateBadge";
 import { PlatformBadges } from "../PlatformBadges";
 import { PosterImage } from "../PosterImage";
 
@@ -12,7 +13,7 @@ interface Props {
   onOpen?: (item: CalendarItem) => void;
 }
 
-/** Une sortie : affiche, titre, type, et le contexte utile (épisode, chaîne). */
+/** Une sortie : affiche, titre, type, le contexte utile (épisode, chaîne) — et son état. */
 export const ReleaseRow = memo(function ReleaseRow({ item, onOpen }: Props) {
   const { t } = useTranslation("seer");
   /* Une vignette de 48 × 72 n'a pas besoin d'une affiche de catalogue : la
@@ -22,6 +23,7 @@ export const ReleaseRow = memo(function ReleaseRow({ item, onOpen }: Props) {
   const poster = posterUrl(item.posterPath, "w154");
   const kind = KIND_STYLE[item.kind];
   const ep = episodeLabel(item.seasonNumber, item.episodeNumber);
+  const status = calendarStatus(item);
 
   return (
     <button
@@ -45,11 +47,7 @@ export const ReleaseRow = memo(function ReleaseRow({ item, onOpen }: Props) {
               {ep}
             </span>
           )}
-          {item.requestStatus && (
-            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_STYLE.approved.chip}`}>
-              {t("seer:releasesRequested")}
-            </span>
-          )}
+          {status && <StateBadge status={status} variant="chip" />}
         </div>
 
         <div className="mt-1 flex items-center gap-2">

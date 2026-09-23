@@ -19,6 +19,8 @@ import type { ReactNode } from "react";
 export interface SegmentOption<T extends string> {
   value: T;
   label: string;
+  /** Libellé du téléphone, quand le complet ne tient pas en trois segments. */
+  short?: string;
   icon?: ReactNode;
 }
 
@@ -62,6 +64,7 @@ export function Segmented<T extends string>({ value, options, onChange, ariaLabe
             type="button"
             role="radio"
             aria-checked={selected}
+            aria-label={option.short ? option.label : undefined}
             onClick={() => onChange(option.value)}
             className={`inline-flex min-w-0 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)] ${SIZE[size]} ${SEGMENT[mode]} ${
               selected
@@ -70,7 +73,14 @@ export function Segmented<T extends string>({ value, options, onChange, ariaLabe
             }`}
           >
             {option.icon && <span className={`shrink-0 ${selected ? "text-[var(--brand-light)]" : ""}`}>{option.icon}</span>}
-            <span className="truncate">{option.label}</span>
+            {option.short ? (
+              <>
+                <span className="truncate sm:hidden">{option.short}</span>
+                <span className="hidden truncate sm:inline">{option.label}</span>
+              </>
+            ) : (
+              <span className="truncate">{option.label}</span>
+            )}
           </button>
         );
       })}

@@ -81,4 +81,7 @@ export default {
   dtPartialHere: "Déjà là en partie",
   dtArrivedOn: "Arrivé le {{date}}",
   backToTab: "Retour à {{tab}}",
+  scopeMineShort: "Les miennes",
+  scopeEveryoneShort: "Le serveur",
+  scopeAllShort: "Toutes",
 } as const;

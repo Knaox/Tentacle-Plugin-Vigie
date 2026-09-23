@@ -26,9 +26,9 @@ import { ReleaseWeekView } from "../components/releases/ReleaseWeekView";
 import { ReleaseMonthView } from "../components/releases/ReleaseMonthView";
 import { ReleasesFilterSheet } from "../components/releases/ReleasesFilterSheet";
 import { CalendarSkeleton } from "../components/releases/CalendarSkeleton";
-import { segment, SEGMENT_GROUP } from "../styles/pills";
 import { CTA_PRIMARY, CTA_SECONDARY, CTA_SIZE_MD } from "../styles/cta";
-import { FilterIcon } from "../components/ui/icons";
+import { Segmented } from "../components/ui/Segmented";
+import { FilterButton } from "../components/ui/FilterButton";
 import { AgendaList } from "./AgendaList";
 
 export type CalendarScope = "mine" | "everyone" | "all";
@@ -83,15 +83,15 @@ export function CalendarView({ active }: { active: boolean }) {
   const partial = !!(personal.data?.partial || (scope === "all" && global.data?.partial));
   const open = useCallback((item: CalendarItem) => hub.openMedia(calendarAsMedia(item)), [hub]);
 
-  const scopes: Array<{ id: CalendarScope; label: string }> = [
-    { id: "mine", label: t("seer:scopeMine") },
-    { id: "everyone", label: t("seer:scopeEveryone") },
-    { id: "all", label: t("seer:scopeAll") },
+  const scopes: Array<{ value: CalendarScope; label: string; short: string }> = [
+    { value: "mine", label: t("seer:scopeMine"), short: t("seer:scopeMineShort") },
+    { value: "everyone", label: t("seer:scopeEveryone"), short: t("seer:scopeEveryoneShort") },
+    { value: "all", label: t("seer:scopeAll"), short: t("seer:scopeAllShort") },
   ];
-  const layouts: Array<{ id: CalendarLayout; label: string }> = [
-    { id: "week", label: t("seer:releasesViewWeek") },
-    { id: "list", label: t("seer:releasesViewList") },
-    { id: "month", label: t("seer:releasesViewMonth") },
+  const layouts: Array<{ value: CalendarLayout; label: string }> = [
+    { value: "week", label: t("seer:releasesViewWeek") },
+    { value: "list", label: t("seer:releasesViewList") },
+    { value: "month", label: t("seer:releasesViewMonth") },
   ];
 
   const empty = scope === "mine" && filterCount === 0
@@ -103,24 +103,11 @@ export function CalendarView({ active }: { active: boolean }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className={`${SEGMENT_GROUP} max-w-full overflow-x-auto`} role="tablist" aria-label={t("seer:calendarScope")}>
-          {scopes.map((s) => (
-            <button key={s.id} type="button" role="tab" aria-selected={scope === s.id} onClick={() => setScope(s.id)} className={`${segment(scope === s.id)} min-h-[32px] whitespace-nowrap`}>
-              {s.label}
-            </button>
-          ))}
-        </div>
-        <button type="button" onClick={() => setFiltersOpen(true)} className={`${CTA_SECONDARY} h-9 gap-1.5 px-3 text-xs`}>
-          <FilterIcon className="h-4 w-4" />
-          {t("seer:filterTitle")}
-          {filterCount > 0 && <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-tentacle-brand px-1 text-[10px] font-bold text-tentacle-cta-brand-fg">{filterCount}</span>}
-        </button>
-        <div className={`${SEGMENT_GROUP} ml-auto`} role="tablist" aria-label={t("seer:calendarLayout")}>
-          {layouts.map((l) => (
-            <button key={l.id} type="button" role="tab" aria-selected={layout === l.id} onClick={() => setLayout(l.id)} className={`${segment(layout === l.id)} min-h-[32px]`}>
-              {l.label}
-            </button>
-          ))}
+        {/* Au téléphone, des libellés courts : les complets se tronquaient. */}
+        <Segmented ariaLabel={t("seer:calendarScope")} value={scope} onChange={setScope} options={scopes} size="sm" stretch="mobile" />
+        <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+          <Segmented ariaLabel={t("seer:calendarLayout")} value={layout} onChange={setLayout} options={layouts} size="sm" stretch="mobile" className="min-w-0 flex-1 sm:flex-none" />
+          <FilterButton count={filterCount} onClick={() => setFiltersOpen(true)} />
         </div>
       </div>
       <p className="text-sm text-tentacle-text-tertiary">{t(`seer:scopeHint_${scope}`)}</p>

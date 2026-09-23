@@ -124,3 +124,26 @@ export function calendarStatus(item: Pick<CalendarItem, "state" | "percent" | "r
   if (item.state !== undefined) return stateFromItem(item.state, item.percent);
   return item.requestStatus ? stateFromRequest({ status: item.requestStatus }) : null;
 }
+
+/**
+ * Plusieurs épisodes le même jour (une saison publiée d'un coup, repliée en
+ * une ligne) : ce qui coince d'abord, puis ce qui arrive ; tous là,
+ * disponible ; une partie seulement, « en partie ».
+ */
+export function groupStatus(items: ReadonlyArray<Pick<CalendarItem, "state" | "percent" | "requestStatus">>): TitleStatus | null {
+  const all = items.map(calendarStatus);
+  const known = all.filter((s): s is TitleStatus => s !== null);
+  if (known.length === 0) return null;
+  const stalled = known.find((s) => s.state === "stalled");
+  if (stalled) return stalled;
+  const moving = known.filter((s) => s.state === "downloading");
+  if (moving.length > 0) {
+    const measured = moving.filter((s) => s.percent !== null);
+    const percent = measured.length > 0 ? measured.reduce((n, s) => n + (s.percent as number), 0) / measured.length : null;
+    return { state: "downloading", percent };
+  }
+  const here = known.filter((s) => s.state === "available").length;
+  if (here === all.length) return { state: "available", percent: null };
+  if (here > 0) return { state: "partial", percent: null };
+  return known.find((s) => s.state === "requested") ?? known[0];
+}

@@ -1,17 +1,30 @@
+import type { ReactNode } from "react";
 import type { CalendarKind } from "../api/types-releases";
-import { STATUS_STYLE } from "../styles/status";
+import { DiscIcon, PlayCircleIcon, SparkIcon, TicketIcon, TvIcon } from "../components/ui/icons";
 
 /**
- * Chaque type de sortie emprunte une teinte du dictionnaire de statuts du
- * plugin : aucune nouvelle variable de couleur, et le thème clair comme le
- * thème sombre sont pris en charge sans travail supplémentaire.
+ * Chaque type de sortie se reconnaît à son ICÔNE, sur une puce neutre : la
+ * couleur, dans Vigie, ne dit que l'état (demandé, en route, bloqué,
+ * disponible). Les types empruntaient les teintes des statuts — un épisode
+ * s'affichait dans l'orange d'un blocage, une sortie en ligne dans le vert de
+ * « Disponible » : deux sens pour une même couleur, sur la même ligne.
  */
+const NEUTRAL = { chip: "bg-tentacle-fill-soft text-tentacle-text-secondary", dot: "bg-tentacle-fill-strong" };
+
 export const KIND_STYLE: Record<CalendarKind, { chip: string; dot: string }> = {
-  digital: { chip: STATUS_STYLE.available.chip, dot: STATUS_STYLE.available.solid },
-  theatrical: { chip: STATUS_STYLE.retry_pending.chip, dot: STATUS_STYLE.retry_pending.solid },
-  physical: { chip: STATUS_STYLE.queued.chip, dot: STATUS_STYLE.queued.solid },
-  episode: { chip: STATUS_STYLE.downloading.chip, dot: STATUS_STYLE.downloading.solid },
-  premiere: { chip: STATUS_STYLE.approved.chip, dot: STATUS_STYLE.approved.solid },
+  digital: NEUTRAL,
+  theatrical: NEUTRAL,
+  physical: NEUTRAL,
+  episode: NEUTRAL,
+  premiere: NEUTRAL,
+};
+
+export const KIND_ICON: Record<CalendarKind, (p: { className?: string }) => ReactNode> = {
+  digital: PlayCircleIcon,
+  theatrical: TicketIcon,
+  physical: DiscIcon,
+  episode: TvIcon,
+  premiere: SparkIcon,
 };
 
 export const KIND_I18N: Record<CalendarKind, string> = {

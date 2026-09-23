@@ -76,4 +76,7 @@ export default {
   dtPartialHere: "Partly here already",
   dtArrivedOn: "Arrived {{date}}",
   backToTab: "Back to {{tab}}",
+  scopeMineShort: "Mine",
+  scopeEveryoneShort: "Server",
+  scopeAllShort: "All",
 } as const;
