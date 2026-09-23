@@ -3,7 +3,7 @@
 /* ------------------------------------------------------------------ */
 
 import { discoverMedia, discoverTrending } from "./client-catalog";
-import type { DiscoverFilters, SeerrPagedResponse } from "./types";
+import type { DiscoverFilters, DiscoverMediaType, SeerrPagedResponse } from "./types";
 import type { BrowsePreset } from "../hub/HubContext";
 
 /** TMDB ne sert pas au-delà de la page 500, quoi qu'il annonce. */
@@ -15,8 +15,9 @@ function todayIso(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** Une page d'UNE source : « Tous » en assemble deux (cf. mixCatalogs). */
 export function fetchBrowsePage(
-  preset: BrowsePreset,
+  preset: Pick<BrowsePreset, "source" | "upcoming"> & { mediaType: DiscoverMediaType },
   filters: DiscoverFilters,
   page: number,
   showBlocked: boolean,

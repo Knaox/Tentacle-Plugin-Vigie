@@ -90,4 +90,11 @@ export default {
   quickSeasonsDone_one: "« {{title}} » : {{count}} saison demandée",
   quickSeasonsDone_other: "« {{title}} » : {{count}} saisons demandées",
   quickRequestSeasons: "Demander des saisons de {{title}}",
+  profileDefaultChoice: "Qualité par défaut",
+  filterAllTypes: "Tous",
+  type_all: "Tous",
+  titleAll_all: "Tout le catalogue",
+  titlePopular_all: "Les plus populaires",
+  titleTop_all: "Les mieux notés",
+  titleUpcoming_all: "À venir",
 } as const;

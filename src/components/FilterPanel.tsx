@@ -12,12 +12,12 @@ import { TV_STATUSES } from "../constants/tv-statuses";
 import { useCalendarProviders } from "../hooks/useReleases";
 import { PLATFORMS } from "../utils/platforms";
 import { getCurrentLanguage } from "../utils/media-helpers";
-import type { DiscoverMediaType, DiscoverFilters, SortOption, SortOrder, TvStatus } from "../api/types";
+import type { BrowseType, DiscoverFilters, SortOption, SortOrder, TvStatus } from "../api/types";
 
 interface FilterPanelProps {
   open: boolean;
   onClose: () => void;
-  mediaType: DiscoverMediaType;
+  mediaType: BrowseType;
   filters: DiscoverFilters;
   onToggleGenre: (id: number) => void;
   onToggleWatchProvider: (id: number) => void;
@@ -53,7 +53,8 @@ export function FilterPanel({
 }: FilterPanelProps) {
   const { t } = useTranslation("seer");
   const { data: providers } = useCalendarProviders();
-  const genres = mediaType === "movies" ? MOVIE_GENRES : TV_GENRES;
+  // « Tous » filtre avec les genres des films ; la source séries en reçoit la traduction.
+  const genres = mediaType === "movies" || mediaType === "all" ? MOVIE_GENRES : TV_GENRES;
   const names = (keys: Array<string | null | undefined>) => keys.filter(Boolean).join(", ");
   const providerName = (id: number) =>
     providers?.results?.find((p) => p.id === id)?.name ?? PLATFORMS.find((p) => p.id === id)?.name;
@@ -164,7 +165,7 @@ export function FilterPanel({
         </div>
       </FilterSection>
 
-      {mediaType !== "movies" && (
+      {(mediaType === "tv" || mediaType === "anime") && (
         <FilterSection
           title={t("filterTvStatus")}
           count={filters.tvStatus.length}

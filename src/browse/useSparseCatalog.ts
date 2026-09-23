@@ -51,7 +51,8 @@ function totalOf(first: SeerrPagedResponse | undefined): number | null {
   return Math.min(first.totalResults ?? 0, pages * BROWSE_PAGE_SIZE);
 }
 
-export function useSparseCatalog(key: string, fetchPage: (page: number) => Promise<SeerrPagedResponse>): SparseCatalog {
+/** `enabled` faux : une source vide qui ne demande rien (la série d'un « Tous » sans équivalent). */
+export function useSparseCatalog(key: string, fetchPage: (page: number) => Promise<SeerrPagedResponse>, enabled = true): SparseCatalog {
   const qc = useQueryClient();
   const [version, setVersion] = useState(0);
   const [error, setError] = useState(false);
@@ -71,6 +72,7 @@ export function useSparseCatalog(key: string, fetchPage: (page: number) => Promi
   }), [qc, key]);
 
   const pump = useCallback(() => {
+    if (!enabled) return;
     const s = run.current;
     const runKey = s.key;
     while (s.inflight.size < CONCURRENCY) {
@@ -89,7 +91,7 @@ export function useSparseCatalog(key: string, fetchPage: (page: number) => Promi
           if (run.current.key === runKey) pump();
         });
     }
-  }, [qc, pageData]);
+  }, [qc, pageData, enabled]);
 
   // Nouveau parcours : on repart de zéro — le cache, lui, garde ce qu'il sait.
   useEffect(() => {
@@ -123,7 +125,7 @@ export function useSparseCatalog(key: string, fetchPage: (page: number) => Promi
   }, [pump]);
 
   const first = pageData(1);
-  const total = totalOf(first);
+  const total = enabled ? totalOf(first) : 0;
   const capped = total !== null && (first?.totalResults ?? 0) > total;
-  return { total, capped, version, itemAt, ensureRange, error, retry };
+  return { total, capped, version, itemAt, ensureRange, error: enabled && error, retry };
 }

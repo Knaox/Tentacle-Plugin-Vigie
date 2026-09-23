@@ -13,7 +13,7 @@
  * Action & Aventure), et le retire seulement quand il n'en a pas (Horreur).
  */
 
-import type { DiscoverFilters, DiscoverMediaType } from "../api/types";
+import type { BrowseType, DiscoverFilters } from "../api/types";
 import type { BrowsePreset } from "../hub/HubContext";
 import { MOVIE_GENRES, TV_GENRES } from "../constants/genres";
 
@@ -29,23 +29,24 @@ const TV_TO_MOVIE: Record<number, number> = {
   10765: 878, 9648: 9648, 10768: 10752, 37: 37,
 };
 
-const isMovies = (type: DiscoverMediaType) => type === "movies";
+/* « Tous » filtre avec le dictionnaire des films : la source séries reçoit sa traduction. */
+const isMovies = (type: BrowseType) => type === "movies" || type === "all";
 
 /** Les genres retenus, traduits dans le dictionnaire de l'autre type. */
-export function mapGenres(genres: readonly number[], from: DiscoverMediaType, to: DiscoverMediaType): number[] {
+export function mapGenres(genres: readonly number[], from: BrowseType, to: BrowseType): number[] {
   if (isMovies(from) === isMovies(to)) return [...genres];
   const table = isMovies(from) ? MOVIE_TO_TV : TV_TO_MOVIE;
   return [...new Set(genres.map((g) => table[g]).filter((g): g is number => g !== undefined))];
 }
 
-function genreName(id: number, type: DiscoverMediaType, t: Translate): string | null {
+function genreName(id: number, type: BrowseType, t: Translate): string | null {
   const genre = (isMovies(type) ? MOVIE_GENRES : TV_GENRES).find((g) => g.id === id);
   return genre ? t(`seer:${genre.key}`) : null;
 }
 
 export function presetTitle(
   preset: BrowsePreset,
-  mediaType: DiscoverMediaType,
+  mediaType: BrowseType,
   filters: Pick<DiscoverFilters, "genres">,
   t: Translate,
 ): string {

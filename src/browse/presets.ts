@@ -11,6 +11,7 @@
 
 import type { BrowsePreset } from "../hub/HubContext";
 import { DEFAULT_FILTERS } from "../hooks/useDiscoverFilters";
+import type { BrowseType } from "../api/types";
 
 type Translate = (key: string, opts?: Record<string, unknown>) => string;
 
@@ -68,7 +69,7 @@ export function providerPreset(id: number, label: string, mediaType: "movies" | 
   };
 }
 
-/** Le catalogue entier, sans préréglage. */
-export function catalogPreset(t: Translate, mediaType: "movies" | "tv" | "anime" = "movies"): BrowsePreset {
+/** Le catalogue entier, sans préréglage — « Tous » par défaut, films et séries mêlés. */
+export function catalogPreset(t: Translate, mediaType: BrowseType = "all"): BrowsePreset {
   return { id: `all:${mediaType}`, kind: "all", title: t("seer:browseAll"), mediaType, filters: { ...DEFAULT_FILTERS } };
 }

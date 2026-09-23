@@ -11,7 +11,7 @@
  */
 
 import { createContext, useContext } from "react";
-import type { DiscoverFilters, DiscoverMediaType, SeerrSearchResult } from "../api/types";
+import type { BrowseType, DiscoverFilters, SeerrSearchResult } from "../api/types";
 
 export type HubTab = "discover" | "catalog" | "requests" | "calendar";
 
@@ -27,7 +27,7 @@ export interface BrowsePreset {
   kind?: BrowseKind;
   /** Nom de la plateforme, pour un parcours qui en porte une. */
   label?: string;
-  mediaType: DiscoverMediaType;
+  mediaType: BrowseType;
   /** `trending` : les tendances, films et séries mêlés — sans filtre possible. */
   source?: "discover" | "trending";
   filters?: Partial<DiscoverFilters>;
@@ -45,7 +45,7 @@ export interface HubApi {
   tab: HubTab;
   setTab: (tab: HubTab) => void;
   /** Le catalogue entier, dans un type — et, au besoin, ses filtres ouverts. */
-  openCatalog: (mediaType?: DiscoverMediaType, withFilters?: boolean) => void;
+  openCatalog: (mediaType?: BrowseType, withFilters?: boolean) => void;
   openMedia: (item: SeerrSearchResult, options?: OpenMediaOptions) => void;
   openPerson: (id: number) => void;
   /** Le catalogue sur un parcours — « Tout voir », un genre, une plateforme. */

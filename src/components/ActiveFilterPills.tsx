@@ -16,10 +16,10 @@ import { TV_STATUSES } from "../constants/tv-statuses";
 import { PLATFORMS } from "../utils/platforms";
 import { useCalendarProviders } from "../hooks/useReleases";
 import { CloseIcon } from "./ui/icons";
-import type { DiscoverMediaType, DiscoverFilters, TvStatus } from "../api/types";
+import type { BrowseType, DiscoverFilters, TvStatus } from "../api/types";
 
 interface ActiveFilterPillsProps {
-  mediaType: DiscoverMediaType;
+  mediaType: BrowseType;
   filters: DiscoverFilters;
   onRemoveGenre: (id: number) => void;
   onRemoveWatchProvider: (id: number) => void;
@@ -56,12 +56,13 @@ export function ActiveFilterPills({
   const { data: providers } = useCalendarProviders();
   if (!hasActiveFilters) return null;
 
-  const genres = mediaType === "movies" ? MOVIE_GENRES : TV_GENRES;
+  const genres = mediaType === "movies" || mediaType === "all" ? MOVIE_GENRES : TV_GENRES;
   const providerName = (id: number) =>
     providers?.results?.find((p) => p.id === id)?.name ?? PLATFORMS.find((p) => p.id === id)?.name ?? null;
 
   return (
-    <div className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:flex-wrap md:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    // `py-1` : une rangée qui défile rogne l'anneau des puces en haut et en bas.
+    <div className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 py-1 md:mx-0 md:flex-wrap md:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {filters.genres.map((id) => {
         const genre = genres.find((g) => g.id === id);
         return genre ? <Chip key={`g-${id}`} label={t(genre.key)} onRemove={() => onRemoveGenre(id)} /> : null;
@@ -77,7 +78,7 @@ export function ActiveFilterPills({
       {filters.originalLanguage && (
         <Chip label={t(LANGUAGES.find((l) => l.code === filters.originalLanguage)?.key ?? "langEnglish")} onRemove={onClearLanguage} />
       )}
-      {mediaType !== "movies" && filters.tvStatus.map((s) => {
+      {(mediaType === "tv" || mediaType === "anime") && filters.tvStatus.map((s) => {
         const status = TV_STATUSES.find((ts) => ts.value === s);
         return status ? <Chip key={`s-${s}`} label={t(status.key)} onRemove={() => onRemoveTvStatus(s)} /> : null;
       })}

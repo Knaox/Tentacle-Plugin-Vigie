@@ -4,6 +4,8 @@
 
 export type MediaType = "movie" | "tv";
 export type DiscoverMediaType = "movies" | "tv" | "anime";
+/** Le type d'une grille du catalogue : « all » mêle films et séries (cf. mixCatalogs). */
+export type BrowseType = DiscoverMediaType | "all";
 export type SortOption = "popularity" | "vote_average" | "release_date" | "title";
 export type SortOrder = "asc" | "desc";
 export type TvStatus = 0 | 1 | 2 | 3 | 4 | 5;

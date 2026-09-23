@@ -17,7 +17,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { DiscoverMediaType, SeerrSearchResult } from "../api/types";
+import type { BrowseType, SeerrSearchResult } from "../api/types";
 import { formatSeerError } from "../api/seer-client";
 import { useRequestMedia } from "../hooks/useRequestMedia";
 import { useToast } from "../hooks/useToast";
@@ -66,7 +66,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
   const [query, setQueryState] = useState(entry.query);
   const [exact, setExact] = useState(false);
   const [showBlocked, setShowBlocked] = useState(false);
-  const [catalog, setCatalog] = useState<CatalogEntry>(() => ({ nonce: 0, preset: catalogPreset(t, "movies"), filters: false, from: null }));
+  const [catalog, setCatalog] = useState<CatalogEntry>(() => ({ nonce: 0, preset: catalogPreset(t), filters: false, from: null }));
   const [detail, setDetail] = useState<{ item: SeerrSearchResult; options?: OpenMediaOptions } | null>(
     entry.media ? { item: { id: entry.media.id, mediaType: entry.media.mediaType } } : null,
   );
@@ -118,7 +118,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
     goTo("catalog");
   }, [goTo, tab]);
 
-  const openCatalog = useCallback((mediaType?: DiscoverMediaType, withFilters = false) => {
+  const openCatalog = useCallback((mediaType?: BrowseType, withFilters = false) => {
     if (!mediaType && !withFilters) { goTo("catalog"); return; }
     browse(catalogPreset(t, mediaType ?? catalog.preset.mediaType), withFilters);
   }, [browse, catalog.preset.mediaType, goTo, t]);

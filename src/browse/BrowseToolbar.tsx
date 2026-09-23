@@ -12,10 +12,10 @@
 
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
-import type { DiscoverMediaType, SortOption, SortOrder } from "../api/types";
+import type { BrowseType, SortOption, SortOrder } from "../api/types";
 import { Segmented } from "../components/ui/Segmented";
 import { FilterButton } from "../components/ui/FilterButton";
-import { ChevronDown, FilmIcon, SortIcon, SparkIcon, TvIcon } from "../components/ui/icons";
+import { ChevronDown, FilmIcon, LayersIcon, SortIcon, SparkIcon, TvIcon } from "../components/ui/icons";
 
 const SORTS: ReadonlyArray<{ id: string; by: SortOption; order: SortOrder; key: string }> = [
   { id: "popularity.desc", by: "popularity", order: "desc", key: "seer:sortOptPopular" },
@@ -26,8 +26,8 @@ const SORTS: ReadonlyArray<{ id: string; by: SortOption; order: SortOrder; key: 
 ];
 
 interface Props {
-  mediaType: DiscoverMediaType;
-  onType: (type: DiscoverMediaType) => void;
+  mediaType: BrowseType;
+  onType: (type: BrowseType) => void;
   sortBy: SortOption;
   sortOrder: SortOrder;
   onSort: (by: SortOption, order: SortOrder) => void;
@@ -51,10 +51,12 @@ export const BrowseToolbar = memo(function BrowseToolbar(props: Props) {
         value={mediaType}
         onChange={onType}
         stretch="mobile"
+        // Quatre segments au téléphone : les icônes n'y tiendraient pas.
         options={[
-          { value: "movies", label: t("seer:filterMovies"), icon: <FilmIcon className="h-4 w-4" /> },
-          { value: "tv", label: t("seer:filterSeries"), icon: <TvIcon className="h-4 w-4" /> },
-          { value: "anime", label: t("seer:filterAnimes"), icon: <SparkIcon className="h-4 w-4" /> },
+          { value: "all", label: t("seer:filterAllTypes"), icon: <LayersIcon className="hidden h-4 w-4 sm:block" /> },
+          { value: "movies", label: t("seer:filterMovies"), icon: <FilmIcon className="hidden h-4 w-4 sm:block" /> },
+          { value: "tv", label: t("seer:filterSeries"), icon: <TvIcon className="hidden h-4 w-4 sm:block" /> },
+          { value: "anime", label: t("seer:filterAnimes"), icon: <SparkIcon className="hidden h-4 w-4 sm:block" /> },
         ]}
       />
       <label className="relative flex min-w-0 flex-1 sm:flex-none">

@@ -7,7 +7,8 @@
  * parcours (films populaires, une plateforme, un genre, tout le catalogue),
  * avec le type, le tri et les filtres à portée de main. Le titre suit le type
  * choisi (« Séries populaires » dès qu'on passe aux séries), et un genre
- * survit au changement de type quand il y a un équivalent.
+ * survit au changement de type quand il y a un équivalent. « Tous » mêle
+ * films et séries, en alternance (cf. mixCatalogs).
  *
  * Le nombre de titres s'affiche d'emblée et l'ascenseur a sa vraie taille :
  * on peut descendre loin, vite — seules les pages regardées se chargent
@@ -16,7 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { DiscoverMediaType } from "../api/types";
+import type { BrowseType, DiscoverMediaType } from "../api/types";
 import { fetchBrowsePage } from "../api/client-browse";
 import { useDiscoverFilters } from "../hooks/useDiscoverFilters";
 import { useHub, type BrowsePreset } from "../hub/HubContext";
@@ -28,6 +29,7 @@ import { EmptyState } from "../components/EmptyState";
 import { CTA_SECONDARY, CTA_SIZE_MD } from "../styles/cta";
 import { getCurrentLanguage } from "../utils/media-helpers";
 import { useSparseCatalog } from "./useSparseCatalog";
+import { useMixedCatalog } from "./mixCatalogs";
 import { VirtualGrid } from "./VirtualGrid";
 import { BrowseToolbar } from "./BrowseToolbar";
 import { mapGenres, presetTitle } from "./presetTitle";
@@ -44,30 +46,47 @@ interface Props {
 export function BrowseView({ preset, active, back, openFilters = false }: Props) {
   const { t, i18n } = useTranslation("seer");
   const hub = useHub();
-  const [mediaType, setMediaType] = useState<DiscoverMediaType>(preset.mediaType);
+  const [mediaType, setMediaType] = useState<BrowseType>(preset.mediaType);
   const [panelOpen, setPanelOpen] = useState(openFilters);
   const f = useDiscoverFilters(preset.filters);
   const { filters } = f;
   const trending = preset.source === "trending";
   const title = presetTitle(preset, mediaType, filters, t);
 
-  const key = useMemo(
-    () => JSON.stringify([preset.id, mediaType, filters, i18n.language]),
-    [preset.id, mediaType, filters, i18n.language],
+  // « Tous » : les films d'un côté, les séries de l'autre — genres traduits ;
+  // un genre sans équivalent en séries (Horreur) ne laisse que les films.
+  const mixed = mediaType === "all";
+  const primary: DiscoverMediaType = mixed ? "movies" : mediaType;
+  const tvFilters = useMemo(
+    () => ({ ...filters, genres: mapGenres(filters.genres, "movies", "tv"), tvStatus: [] }),
+    [filters],
   );
-  const fetchPage = useCallback(
-    (page: number) => fetchBrowsePage({ ...preset, mediaType }, filters, page, false),
-    [preset, mediaType, filters],
-  );
-  const catalog = useSparseCatalog(key, fetchPage);
+  const seriesPossible = tvFilters.genres.length === filters.genres.length;
 
-  // Un autre parcours, un autre filtre : on repart du haut de la grille.
-  useEffect(() => { if (active) window.scrollTo({ top: 0 }); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const key = useMemo(
+    () => JSON.stringify([preset.id, primary, filters, i18n.language]),
+    [preset.id, primary, filters, i18n.language],
+  );
+  const seriesKey = useMemo(() => JSON.stringify([preset.id, "mix:tv", tvFilters, i18n.language]), [preset.id, tvFilters, i18n.language]);
+  const fetchPage = useCallback(
+    (page: number) => fetchBrowsePage({ ...preset, mediaType: primary }, filters, page, false),
+    [preset, primary, filters],
+  );
+  const fetchSeries = useCallback(
+    (page: number) => fetchBrowsePage({ ...preset, mediaType: "tv" }, tvFilters, page, false),
+    [preset, tvFilters],
+  );
+  const first = useSparseCatalog(key, fetchPage);
+  const second = useSparseCatalog(seriesKey, fetchSeries, mixed && seriesPossible);
+  const catalog = useMixedCatalog(first, second, mixed);
+
+  // Un autre parcours, un autre filtre, un autre type : on repart du haut de la grille.
+  useEffect(() => { if (active) window.scrollTo({ top: 0 }); }, [key, mixed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Les genres ne portent pas les mêmes identifiants pour les films et les séries.
-  const changeType = (next: DiscoverMediaType) => {
+  const changeType = (next: BrowseType) => {
     if (next === mediaType) return;
-    f.setGenres(mapGenres(filters.genres, mediaType, next), next !== "movies");
+    f.setGenres(mapGenres(filters.genres, mediaType, next), next === "tv" || next === "anime");
     setMediaType(next);
   };
 
