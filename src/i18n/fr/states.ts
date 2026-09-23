@@ -80,4 +80,5 @@ export default {
   dtRemaining: "Reste {{eta}}",
   dtPartialHere: "Déjà là en partie",
   dtArrivedOn: "Arrivé le {{date}}",
+  backToTab: "Retour à {{tab}}",
 } as const;

@@ -45,17 +45,18 @@ export const CatalogEntrances = memo(function CatalogEntrances() {
   return (
     <nav aria-label={t("seer:browseCatalog")}>
       <SectionHeader title={t("seer:browseCatalog")} subtitle={t("seer:browseCatalogHint")} />
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+      {/* Quatre de front seulement quand chaque tuile garde son libellé entier. */}
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         {tiles.map((tile) => (
           <button
             key={tile.id}
             type="button"
             onClick={tile.run}
-            className="group flex h-14 min-w-0 items-center gap-3 rounded-2xl bg-tentacle-fill-subtle px-3 text-left ring-1 ring-tentacle-border-subtle transition-colors hover:bg-tentacle-fill-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.7)] sm:h-16 sm:px-4"
+            className="group flex h-14 min-w-0 items-center gap-2.5 rounded-2xl bg-tentacle-fill-subtle px-3 text-left ring-1 ring-tentacle-border-subtle transition-colors hover:bg-tentacle-fill-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.7)] sm:h-16 sm:gap-3 sm:px-4"
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--brand-soft)] text-[var(--brand-light)]">{tile.icon}</span>
             <span className="min-w-0 flex-1 truncate text-sm font-bold text-tentacle-text-primary">{tile.label}</span>
-            <ChevronRight className="h-4 w-4 shrink-0 text-tentacle-text-quaternary transition-transform duration-200 group-hover:translate-x-0.5" />
+            <ChevronRight className="hidden h-4 w-4 shrink-0 text-tentacle-text-quaternary transition-transform duration-200 group-hover:translate-x-0.5 min-[420px]:block" />
           </button>
         ))}
       </div>

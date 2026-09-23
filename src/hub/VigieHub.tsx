@@ -9,8 +9,10 @@
  * position de défilement comprise, sans rien recharger — là où l'hôte
  * reconstruisait tout le cadre du plugin à chaque entrée du menu.
  *
- * Le catalogue a son onglet : on n'a plus à descendre au bas de Découvrir pour
- * trouver « Parcourir tout le catalogue ».
+ * Le catalogue a son onglet, et c'est LA grille de Vigie : « Tout voir », un
+ * genre, une plateforme, une pastille de la recherche y mènent, déjà filtrés.
+ * On n'a plus à descendre au bas de Découvrir pour trouver le catalogue, et un
+ * parcours ouvert se retrouve tel quel en revenant sur l'onglet.
  */
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -38,12 +40,18 @@ import { TitleStatesProvider } from "./TitleStates";
 
 const MIN_SEARCH = 2;
 
-/** Ce que l'onglet Catalogue montre : un type, et ses filtres ouverts ou non. */
+const TAB_LABEL: Record<HubTab, string> = {
+  discover: "seer:tabDiscover", catalog: "seer:tabCatalog", requests: "seer:tabRequests", calendar: "seer:tabCalendar",
+};
+
+/** Ce que l'onglet Catalogue montre : un parcours, ses filtres ouverts ou non, et d'où l'on vient. */
 interface CatalogEntry {
   /** Change à chaque ouverture demandée : la grille repart de ce qu'on a demandé. */
   nonce: number;
-  mediaType: DiscoverMediaType;
+  preset: BrowsePreset;
   filters: boolean;
+  /** L'onglet d'où l'on est venu, pour y revenir d'un geste. */
+  from: HubTab | null;
 }
 
 export function VigieHub({ routePath }: { routePath: string }) {
@@ -57,8 +65,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
   const [query, setQueryState] = useState(entry.query);
   const [exact, setExact] = useState(false);
   const [showBlocked, setShowBlocked] = useState(false);
-  const [preset, setPreset] = useState<BrowsePreset | null>(null);
-  const [catalog, setCatalog] = useState<CatalogEntry>({ nonce: 0, mediaType: "movies", filters: false });
+  const [catalog, setCatalog] = useState<CatalogEntry>(() => ({ nonce: 0, preset: catalogPreset(t, "movies"), filters: false, from: null }));
   const [detail, setDetail] = useState<{ item: SeerrSearchResult; options?: OpenMediaOptions } | null>(
     entry.media ? { item: { id: entry.media.id, mediaType: entry.media.mediaType } } : null,
   );
@@ -69,9 +76,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
   const searching = query.trim().length >= MIN_SEARCH;
 
   // Chaque vue garde sa position : on la note en partant, on la rend en revenant.
-  const viewKey = searching ? "search"
-    : tab === "discover" ? (preset ? `browse:${preset.id}` : "home")
-      : tab === "catalog" ? `catalog:${catalog.nonce}` : tab;
+  const viewKey = searching ? "search" : tab === "catalog" ? `catalog:${catalog.nonce}` : tab;
   const positions = useRef(new Map<string, number>());
   const currentView = useRef(viewKey);
   const leave = useCallback(() => { positions.current.set(currentView.current, window.scrollY); }, []);
@@ -97,26 +102,18 @@ export function VigieHub({ routePath }: { routePath: string }) {
     setVisited((v) => (v.has(next) ? v : new Set([...v, next])));
   }, [leave]);
 
-  const setTab = useCallback((next: HubTab) => {
-    // Re-cliquer l'onglet Découvrir ramène à son accueil.
-    if (next === "discover" && tab === "discover") setPreset(null);
-    goTo(next);
+  const setTab = goTo;
+
+  /** Le catalogue, sur un parcours : « Tout voir », un genre, une plateforme… */
+  const browse = useCallback((preset: BrowsePreset, withFilters = false) => {
+    setCatalog((c) => ({ nonce: c.nonce + 1, preset, filters: withFilters, from: tab === "catalog" ? c.from : tab }));
+    goTo("catalog");
   }, [goTo, tab]);
 
   const openCatalog = useCallback((mediaType?: DiscoverMediaType, withFilters = false) => {
-    if (mediaType || withFilters) {
-      setCatalog((c) => ({ nonce: c.nonce + 1, mediaType: mediaType ?? c.mediaType, filters: withFilters }));
-    }
-    goTo("catalog");
-  }, [goTo]);
-
-  const browse = useCallback((next: BrowsePreset) => {
-    leave();
-    setQueryState("");
-    setPreset(next);
-    setTabState("discover");
-    positions.current.delete(`browse:${next.id}`);
-  }, [leave]);
+    if (!mediaType && !withFilters) { goTo("catalog"); return; }
+    browse(catalogPreset(t, mediaType ?? catalog.preset.mediaType), withFilters);
+  }, [browse, catalog.preset.mediaType, goTo, t]);
 
   const openMedia = useCallback((item: SeerrSearchResult, options?: OpenMediaOptions) => {
     setPersonId(null);
@@ -165,18 +162,15 @@ export function VigieHub({ routePath }: { routePath: string }) {
                 onSearchExact={() => setExact(true)}
               />
             )}
-            <div hidden={!show("discover")}>
-              {preset
-                ? <BrowseView key={preset.id} preset={preset} active={show("discover")} onBack={() => { leave(); setPreset(null); }} />
-                : <DiscoverHome data={data} />}
-            </div>
+            <div hidden={!show("discover")}><DiscoverHome data={data} /></div>
             {visited.has("catalog") && (
               <div hidden={!show("catalog")}>
                 <BrowseView
                   key={`catalog:${catalog.nonce}`}
-                  preset={catalogPreset(t, catalog.mediaType)}
+                  preset={catalog.preset}
                   active={show("catalog")}
                   openFilters={catalog.filters}
+                  back={catalog.from ? { label: t("seer:backToTab", { tab: t(TAB_LABEL[catalog.from]) }), run: () => goTo(catalog.from as HubTab) } : undefined}
                 />
               </div>
             )}

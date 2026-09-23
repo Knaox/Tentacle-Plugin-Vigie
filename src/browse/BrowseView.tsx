@@ -35,13 +35,13 @@ import { mapGenres, presetTitle } from "./presetTitle";
 interface Props {
   preset: BrowsePreset;
   active: boolean;
-  /** Absent dans l'onglet Catalogue : on n'en revient pas, on en part. */
-  onBack?: () => void;
+  /** Arrivé d'un autre onglet (« Tout voir » de Découvrir) : le chemin du retour. */
+  back?: { label: string; run: () => void };
   /** Ouvre les filtres avancés à l'arrivée. */
   openFilters?: boolean;
 }
 
-export function BrowseView({ preset, active, onBack, openFilters = false }: Props) {
+export function BrowseView({ preset, active, back, openFilters = false }: Props) {
   const { t, i18n } = useTranslation("seer");
   const hub = useHub();
   const [mediaType, setMediaType] = useState<DiscoverMediaType>(preset.mediaType);
@@ -86,11 +86,12 @@ export function BrowseView({ preset, active, onBack, openFilters = false }: Prop
   return (
     <div>
       <div className="mb-4 flex items-center gap-3">
-        {onBack && (
+        {back && (
           <button
             type="button"
-            onClick={onBack}
-            aria-label={t("seer:backToDiscover")}
+            onClick={back.run}
+            aria-label={back.label}
+            title={back.label}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-tentacle-fill-subtle text-tentacle-text-primary ring-1 ring-tentacle-border-subtle transition-colors hover:bg-tentacle-fill-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)]"
           >
             <ChevronLeft className="h-5 w-5" />

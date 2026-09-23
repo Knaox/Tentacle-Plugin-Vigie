@@ -48,7 +48,8 @@ export interface HubApi {
   openCatalog: (mediaType?: DiscoverMediaType, withFilters?: boolean) => void;
   openMedia: (item: SeerrSearchResult, options?: OpenMediaOptions) => void;
   openPerson: (id: number) => void;
-  browse: (preset: BrowsePreset) => void;
+  /** Le catalogue sur un parcours — « Tout voir », un genre, une plateforme. */
+  browse: (preset: BrowsePreset, withFilters?: boolean) => void;
   /** Remplit la recherche du hub (une pastille, une correction proposée). */
   setQuery: (query: string) => void;
   /** Demande un film d'un geste — les séries passent par la fiche (choix des saisons). */
