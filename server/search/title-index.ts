@@ -230,12 +230,15 @@ export class TitleIndex {
     return out;
   }
 
-  /** Les titres dont les noms contiennent les mots de la requête — le dernier pouvant être un début de mot. */
-  lookup(tokens: readonly string[], limit = 200): IndexLookup {
+  /**
+   * Les titres dont les noms contiennent les mots de la requête — le dernier
+   * pouvant être un début de mot. `allowFix` à faux : pas de correction.
+   */
+  lookup(tokens: readonly string[], limit = 200, allowFix = true): IndexLookup {
     const words = significantTokens(tokens);
     if (words.length === 0) return { hits: [], corrected: null, replacements: [] };
     const direct = this.match(words, limit);
-    if (direct.length > 0 && direct[0].matched === words.length) {
+    if (!allowFix || (direct.length > 0 && direct[0].matched === words.length)) {
       return { hits: direct, corrected: null, replacements: [] };
     }
 

@@ -45,6 +45,8 @@ export interface SearchOptions {
   lang: string;
   page: number;
   showBlocked: boolean;
+  /** « Rechercher X quand même » : aucune correction, la requête telle quelle. */
+  exact?: boolean;
 }
 
 /** Une recherche classée, SANS statuts — c'est ce qui se met en cache. */
@@ -158,7 +160,7 @@ export function instantSearch(ctx: SearchContext, q: string, opts: SearchOptions
   warm(ctx);
   const parsed = parseQuery(q);
   if (parsed.tokens.length === 0) return EMPTY(parsed);
-  const lookup = titleIndex.lookup(parsed.tokens, LOCAL_LIMIT);
+  const lookup = titleIndex.lookup(parsed.tokens, LOCAL_LIMIT, !opts.exact);
   const fixedText = lookup.replacements.length > 0 ? rewrite(parsed, lookup.replacements) : null;
   const { media, fixWon } = score(lookup.hits.map((h) => fromEntry(h.entry, opts.lang)), parsed, fixedText ? tokenize(fixedText) : null);
   const correction = fixWon ? fixedText : null;
@@ -178,7 +180,7 @@ async function tryRemote(ctx: SearchContext, text: string, opts: SearchOptions):
 async function computeFull(ctx: SearchContext, q: string, opts: SearchOptions): Promise<Ranked> {
   const parsed = parseQuery(q);
   if (parsed.tokens.length === 0) return EMPTY(parsed);
-  const lookup = titleIndex.lookup(parsed.tokens, LOCAL_LIMIT);
+  const lookup = titleIndex.lookup(parsed.tokens, LOCAL_LIMIT, !opts.exact);
   const fixedText = lookup.replacements.length > 0 ? rewrite(parsed, lookup.replacements) : null;
 
   // La requête tapée et sa correction partent ensemble : une faute ne double pas l'attente.
@@ -240,7 +242,7 @@ async function computeFull(ctx: SearchContext, q: string, opts: SearchOptions): 
 }
 
 function fullKey(q: string, opts: SearchOptions): string {
-  return `vigie:full:${opts.lang}:${opts.showBlocked ? 1 : 0}:${opts.page}:${foldText(q)}`;
+  return `vigie:full:${opts.lang}:${opts.showBlocked ? 1 : 0}:${opts.exact ? 1 : 0}:${opts.page}:${foldText(q)}`;
 }
 
 /** La réponse complète — mise en commun pour une minute. */

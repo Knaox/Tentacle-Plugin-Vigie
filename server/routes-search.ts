@@ -29,6 +29,7 @@ const MAX_PAGE = 20;
 interface SearchQuery {
   q?: string;
   mode?: string;
+  exact?: string;
   page?: string;
   lang?: string;
   showBlocked?: string;
@@ -67,6 +68,7 @@ export async function registerSearchRoutes(
       lang: readLang(query.lang),
       page: Math.min(Math.max(1, Number(query.page) || 1), MAX_PAGE),
       showBlocked: query.showBlocked === "1",
+      exact: query.exact === "1",
     };
     const instant = query.mode === "instant";
     const ranked = instant ? instantSearch(ctx, q, opts) : await fullSearch(ctx, q, opts);
