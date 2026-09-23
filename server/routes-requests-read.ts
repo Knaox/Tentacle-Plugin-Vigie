@@ -14,6 +14,7 @@ import {
 } from "./requests-list";
 import { resolveTmdbMeta, scheduleTmdbBackfill, pendingBackfillCount } from "./tmdb-resolver";
 import { tmdbKey } from "./tmdb-cache";
+import { arrVerdicts, restat, withArrStatus, type ArrVerdict } from "./arr-truth";
 
 /** Liste brute fraîche 1 min, servable 10 min pendant le rafraîchissement. */
 const ROWS_TTL_MS = 60_000;
@@ -24,22 +25,27 @@ const PAGE_META_BUDGET = 20;
 
 export const rowsCacheKey = (userId: string) => `seer-cache:${userId}:rows`;
 
+/** Les lignes brutes d'un compte — partagées par la liste et le suivi en direct. */
+export function loadMergedRows(
+  prisma: PrismaClient,
+  cfg: WorkerCfg,
+  user: ReturnType<typeof getUser>,
+  log?: (err: unknown, msg: string) => void,
+): Promise<MergedRows> {
+  return cached(rowsCacheKey(user.userId), ROWS_TTL_MS, () => buildMergedRows(prisma, cfg, user, log), { staleMs: ROWS_STALE_MS });
+}
+
 export function registerRequestReadRoutes(
   app: FastifyInstance,
   prisma: PrismaClient,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
 ): void {
 
-  async function loadRows(cfg: WorkerCfg, user: ReturnType<typeof getUser>): Promise<MergedRows> {
-    return cached(
-      rowsCacheKey(user.userId),
-      ROWS_TTL_MS,
-      () => buildMergedRows(prisma, cfg, user, (err, msg) => app.log?.warn?.({ err }, msg)),
-      { staleMs: ROWS_STALE_MS },
-    );
-  }
+  const loadRows = (cfg: WorkerCfg, user: ReturnType<typeof getUser>) =>
+    loadMergedRows(prisma, cfg, user, (err, msg) => app.log?.warn?.({ err }, msg));
 
-  /* ── GET /requests — Jellyseerr (source de vérité) + locales en attente ── */
+  /* ── GET /requests — Jellyseerr + locales en attente ; ce qui attend encore,
+   *    Sonarr et Radarr disent où il en est (cf. arr-truth.ts) ── */
   app.get("/requests", async (request) => {
     const user = getUser(request);
     const query = request.query as {
@@ -69,7 +75,11 @@ export function registerRequestReadRoutes(
 
     // 1) Lecture SQL seule : instantanée, aucun appel réseau.
     const { meta, missing } = await resolveTmdbMeta(prisma, config, refs, { maxFetch: 0 });
-    let items = hydrateRows(rows, meta, user);
+    const hydrated = hydrateRows(rows, meta, user);
+    /* Sonarr et Radarr disent où en sont les demandes qui attendent encore :
+     * en route, arrivées — sans attendre que Jellyseerr le constate. */
+    const verdicts = await arrVerdicts(config, hydrated).catch(() => new Map<string, ArrVerdict>());
+    let items = withArrStatus(hydrated, verdicts);
     let result = filterAndPaginate(items, { page, limit, status: query.status, type: query.type, q: query.q });
 
     /* 2) Seules les fiches VISIBLES sur cette page sont récupérées en direct.
@@ -84,7 +94,7 @@ export function registerRequestReadRoutes(
       if (onPage.length > 0) {
         const filled = await resolveTmdbMeta(prisma, config, onPage, { maxFetch: PAGE_META_BUDGET });
         for (const [k, v] of filled.meta) meta.set(k, v);
-        items = hydrateRows(rows, meta, user);
+        items = withArrStatus(hydrateRows(rows, meta, user), verdicts);
         result = filterAndPaginate(items, { page, limit, status: query.status, type: query.type, q: query.q });
       }
 
@@ -93,7 +103,7 @@ export function registerRequestReadRoutes(
 
     return {
       ...result,
-      stats: rows.stats,
+      stats: restat(rows.stats, hydrated, verdicts),
       // > 0 : des titres manquent encore, le front repasse plus vite.
       metaPending: pendingBackfillCount(),
     };

@@ -15,8 +15,10 @@
 
 import type { WorkerCfg } from "./seerr-unified";
 import { buildArrUrl, getArrServerConfig, type ArrServerConfig } from "./arr-service";
-import { cached } from "./cache";
+import { cached, invalidate } from "./cache";
 import { isStalledStatus, parseTimeSpan } from "./download-progress";
+import { seriesFactsKey } from "./sonarr-episodes";
+import { movieFactsKey } from "./radarr-movies";
 
 /** Au-delà, la liste ne se lit plus ; le total reste annoncé. */
 const MAX_ITEMS = 60;
@@ -43,6 +45,8 @@ export interface QueueEntry {
   tmdbId: number | null;
   percent: number | null;
   size: number | null;
+  /** Ce qu'il reste à recevoir — un pack de saison le partage entre ses épisodes. */
+  sizeLeft: number | null;
   etaSeconds: number | null;
   /** Fichier complet, en attente de vérification et de rangement. */
   validating: boolean;
@@ -155,6 +159,7 @@ function toEntry(r: ArrQueueRecord, source: "sonarr" | "radarr"): QueueEntry | n
     tmdbId: media?.tmdbId ?? null,
     percent,
     size,
+    sizeLeft: size != null ? left : null,
     etaSeconds: parseTimeSpan(r.timeleft),
     validating: isValidating(r) && !stalled,
     paused: r.status === "paused" || r.status === "delay",
@@ -162,6 +167,26 @@ function toEntry(r: ArrQueueRecord, source: "sonarr" | "radarr"): QueueEntry | n
     warning: stalled || r.status === "warning" || r.status === "failed" ? firstMessage(r) : null,
     downloadId: typeof r.downloadId === "string" && r.downloadId !== "" ? r.downloadId : null,
   };
+}
+
+/* Les titres présents dans la file à la lecture précédente. */
+let lastInQueue = new Set<string>();
+
+/**
+ * Un titre qui QUITTE la file vient d'être importé (ou abandonné) : ce qu'on
+ * savait de ses fichiers est périmé. On l'oublie, et la lecture suivante dit
+ * « Disponible » sans attendre la fin d'un cache — ni Jellyseerr.
+ */
+function forgetFilesOfLeavers(items: readonly QueueEntry[], unreachable: ReadonlyArray<"sonarr" | "radarr">): void {
+  const now = new Set(items.filter((e) => e.tmdbId != null).map((e) => `${e.source}:${e.tmdbId}`));
+  for (const key of lastInQueue) {
+    const [source, id] = key.split(":");
+    // Un service muet n'a rien vidé : ses titres ne sont pas partis.
+    if (now.has(key) || unreachable.includes(source as "sonarr" | "radarr")) continue;
+    invalidate(source === "radarr" ? movieFactsKey(Number(id)) : seriesFactsKey(Number(id)));
+  }
+  const kept = [...lastInQueue].filter((key) => unreachable.includes(key.split(":")[0] as "sonarr" | "radarr"));
+  lastInQueue = new Set([...now, ...kept]);
 }
 
 /** Les deux files, normalisées, ENTIÈRES. Un service en panne n'empêche pas l'autre. */
@@ -191,6 +216,7 @@ async function readQueues(cfg: WorkerCfg): Promise<QueueResponse> {
 
   // Les plus avancés d'abord : c'est ce qui va arriver en premier.
   items.sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1) || a.title.localeCompare(b.title));
+  forgetFilesOfLeavers(items, unreachable);
 
   return {
     updatedAt: new Date().toISOString(),
@@ -209,14 +235,4 @@ export function queueSnapshot(cfg: WorkerCfg): Promise<QueueResponse> {
 export async function fetchServerQueue(cfg: WorkerCfg): Promise<QueueResponse> {
   const snapshot = await queueSnapshot(cfg);
   return { ...snapshot, items: snapshot.items.slice(0, MAX_ITEMS) };
-}
-
-/** Les empreintes des téléchargements bloqués — l'avancement des demandes s'y réfère. */
-export async function blockedDownloadIds(cfg: WorkerCfg): Promise<Set<string>> {
-  const snapshot = await queueSnapshot(cfg);
-  const ids = new Set<string>();
-  for (const entry of snapshot.items) {
-    if (entry.stalled && entry.downloadId) ids.add(entry.downloadId);
-  }
-  return ids;
 }

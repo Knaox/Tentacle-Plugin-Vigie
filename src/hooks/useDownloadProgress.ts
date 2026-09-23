@@ -4,12 +4,14 @@ import { getRequestsProgress } from "../api/client-releases";
 import type { DownloadProgress, ProgressItem } from "../api/types-releases";
 
 /**
- * Suivi en direct — mais uniquement quand il y a quelque chose à suivre.
+ * Suivi en direct, lu dans Sonarr et Radarr — mais uniquement quand il y a
+ * quelque chose à suivre.
  *
- * `active` vaut vrai seulement si au moins une demande affichée est en cours de
- * téléchargement. S'y ajoute la visibilité de l'onglet : page en arrière-plan,
- * plus une seule requête n'est émise. Sans téléchargement en cours, ce hook ne
- * contacte jamais le serveur.
+ * `active` vaut vrai dès qu'une demande attend encore Sonarr ou Radarr
+ * (validée, en route, en partie là) : c'est ici qu'on apprend qu'elle
+ * descend, qu'elle s'importe, puis qu'elle est arrivée — sans attendre
+ * Jellyseerr. S'y ajoute la visibilité de l'onglet : page en arrière-plan,
+ * plus une seule requête n'est émise. Rien qui attende : aucun appel.
  */
 export function useRequestsProgress(active: boolean) {
   const [visible, setVisible] = useState(
@@ -26,15 +28,14 @@ export function useRequestsProgress(active: boolean) {
     queryKey: ["seer-requests-progress"],
     queryFn: getRequestsProgress,
     enabled: active && visible,
-    staleTime: 10_000,
+    staleTime: 8_000,
     gcTime: 60_000,
     refetchIntervalInBackground: false,
-    /* La route ne renvoie QUE ce qui descend réellement : une réponse vide
-     * signifie « rien en cours ». On lève alors le pied au lieu de marteler —
-     * le cas d'une série partiellement disponible qui n'a plus rien à
-     * récupérer, désormais incluse dans `active`. */
+    /* Au rythme de la file (relue toutes les huit secondes côté serveur) tant
+     * que quelque chose descend ou s'importe ; sinon, on guette le départ
+     * d'un téléchargement ou une arrivée sans marteler. */
     refetchInterval: (q) =>
-      active && visible ? ((q.state.data?.items.length ?? 0) > 0 ? 15_000 : 60_000) : false,
+      active && visible ? ((q.state.data?.items ?? []).some((i) => i.download) ? 10_000 : 30_000) : false,
     retry: 1,
   });
 

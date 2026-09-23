@@ -86,8 +86,10 @@ export interface ProgressItem {
   id: string;
   tmdbId: number;
   mediaType: MediaType;
+  /** Le statut que lui donnent Sonarr et Radarr — il prime sur celui de la liste. */
   status: RequestStatus;
-  download: DownloadProgress;
+  /** Ce qui descend ou s'importe ; absent quand la demande vient d'arriver. */
+  download?: DownloadProgress;
   downloads?: DownloadProgress[];
 }
 

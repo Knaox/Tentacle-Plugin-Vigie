@@ -18,7 +18,7 @@
 
 import type { WorkerCfg } from "./seerr-unified";
 import { cached } from "./cache";
-import { airTimeKey, arrGet, sonarr, sonarrSeriesIndex } from "./sonarr-schedule";
+import { airTimeKey, arrGet, sonarr, sonarrSeriesId, sonarrSeriesIndex } from "./sonarr-schedule";
 
 const FACTS_TTL_MS = 60_000;
 const SERIES_FACTS_TTL_MS = 45_000;
@@ -47,6 +47,9 @@ export interface WindowFacts {
   /** « tmdbId:2026-09-24 » → faits des épisodes de ce jour (numérotations qui divergent). */
   byDay: Map<string, EpisodeFact[]>;
 }
+
+/** La clé de cache des épisodes d'une série — la file l'oublie quand la série en sort. */
+export const seriesFactsKey = (tmdbId: number) => `seer:sonarr:facts:series:${tmdbId}`;
 
 export function episodeKey(tmdbId: number, season: number, episode: number): string {
   return `${tmdbId}:${airTimeKey(season, episode)}`;
@@ -101,11 +104,11 @@ export async function sonarrWindowFacts(cfg: WorkerCfg, from: string, to: string
  */
 export async function sonarrSeriesFacts(cfg: WorkerCfg, tmdbId: number): Promise<Map<string, EpisodeFact>> {
   return cached(
-    `seer:sonarr:facts:series:${tmdbId}`,
+    seriesFactsKey(tmdbId),
     SERIES_FACTS_TTL_MS,
     async () => {
-      const [server, index] = await Promise.all([sonarr(cfg), sonarrSeriesIndex(cfg)]);
-      const seriesId = index.get(tmdbId);
+      // Une série tout juste ajoutée à Sonarr est retrouvée sans attendre l'index.
+      const [server, seriesId] = await Promise.all([sonarr(cfg), sonarrSeriesId(cfg, tmdbId)]);
       if (!server || !seriesId) return new Map<string, EpisodeFact>();
       const rows = await arrGet<SonarrEpisodeRow[]>(server, `/api/v3/episode?seriesId=${seriesId}`);
       if (rows === null) throw new Error("Sonarr injoignable (épisodes de la série)");

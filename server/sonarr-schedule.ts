@@ -24,7 +24,7 @@
 import type { WorkerCfg } from "./seerr-unified";
 import type { CalendarResponse } from "./calendar-types";
 import { buildArrUrl, getArrServerConfig, type ArrServerConfig } from "./arr-service";
-import { cached } from "./cache";
+import { cached, put } from "./cache";
 
 /** L'index des séries ne bouge qu'à l'ajout d'une série. */
 const SERIES_TTL_MS = 30 * 60_000;
@@ -81,6 +81,26 @@ export async function arrGet<T>(server: ArrServerConfig, path: string): Promise<
   }
 }
 
+const SERIES_INDEX_KEY = "seer:sonarr:series";
+/* Une série absente de l'index ne le fait pas relire plus d'une fois par minute. */
+const INDEX_RETRY_MS = 60_000;
+let indexRereadAt = 0;
+
+async function readSeriesIndex(cfg: WorkerCfg): Promise<Map<number, number>> {
+  // Pas de Sonarr configuré : un vrai vide, cachable sans remords.
+  const server = await sonarr(cfg);
+  if (!server) return new Map<number, number>();
+  const rows = await arrGet<SonarrSeries[]>(server, "/api/v3/series");
+  // Configuré mais muet : LEVER — un index vide gravé en cache ferait
+  // disparaître tous les épisodes en silence, sans rien à réparer.
+  if (rows === null) throw new Error("Sonarr injoignable (index des séries)");
+  const index = new Map<number, number>();
+  for (const s of rows) {
+    if (s.tmdbId && s.id) index.set(s.tmdbId, s.id);
+  }
+  return index;
+}
+
 /**
  * tmdbId → identifiant Sonarr, en UN SEUL appel.
  *
@@ -89,25 +109,23 @@ export async function arrGet<T>(server: ArrServerConfig, path: string): Promise<
  * qui coûterait un appel par média.
  */
 export async function sonarrSeriesIndex(cfg: WorkerCfg): Promise<Map<number, number>> {
-  return cached(
-    "seer:sonarr:series",
-    SERIES_TTL_MS,
-    async () => {
-      // Pas de Sonarr configuré : un vrai vide, cachable sans remords.
-      const server = await sonarr(cfg);
-      if (!server) return new Map<number, number>();
-      const rows = await arrGet<SonarrSeries[]>(server, "/api/v3/series");
-      // Configuré mais muet : LEVER — un index vide gravé en cache ferait
-      // disparaître tous les épisodes en silence, sans rien à réparer.
-      if (rows === null) throw new Error("Sonarr injoignable (index des séries)");
-      const index = new Map<number, number>();
-      for (const s of rows) {
-        if (s.tmdbId && s.id) index.set(s.tmdbId, s.id);
-      }
-      return index;
-    },
-    { staleMs: SERIES_STALE_MS },
-  );
+  return cached(SERIES_INDEX_KEY, SERIES_TTL_MS, () => readSeriesIndex(cfg), { staleMs: SERIES_STALE_MS });
+}
+
+/**
+ * L'identifiant Sonarr d'UNE série. Absente de l'index gardé une demi-heure
+ * — ajoutée depuis, le plus souvent par la demande qu'on suit —, l'index est
+ * relu, au plus une fois par minute ; il ne remplace l'ancien que s'il a pu
+ * être lu : Sonarr muet, on garde ce qu'on savait.
+ */
+export async function sonarrSeriesId(cfg: WorkerCfg, tmdbId: number): Promise<number | null> {
+  const known = (await sonarrSeriesIndex(cfg)).get(tmdbId);
+  if (known || Date.now() - indexRereadAt < INDEX_RETRY_MS) return known ?? null;
+  indexRereadAt = Date.now();
+  const fresh = await readSeriesIndex(cfg).catch(() => null);
+  if (!fresh) return null;
+  put(SERIES_INDEX_KEY, fresh, SERIES_TTL_MS, SERIES_STALE_MS);
+  return fresh.get(tmdbId) ?? null;
 }
 
 /**

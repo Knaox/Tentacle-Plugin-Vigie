@@ -21,7 +21,7 @@ import { applyLocalDays } from "../utils/calendar-localtime";
 import { episodeLabel } from "../utils/calendar-kind";
 import { shortDayLabel } from "../utils/day-label";
 import { useHub } from "../hub/HubContext";
-import type { HubData } from "../hub/useHubData";
+import { withLiveStatus, type HubData } from "../hub/useHubData";
 import { EmptyState } from "../components/EmptyState";
 import { DownloadsPanel } from "../components/DownloadsPanel";
 import { RequestsBulkBar, BulkRetryModal } from "../components/RequestsBulkUI";
@@ -60,13 +60,17 @@ export function RequestsView({ data, active }: { data: HubData; active: boolean 
   const [shownPages, setShownPages] = useState(1);
   const wantAll = query.trim() !== "" || filter !== "all" || type !== "all";
   const more = useMoreRequests(wantAll ? pages : shownPages);
-  const all = useMemo(() => [...data.list, ...more.requests], [data.list, more.requests]);
+  const all = useMemo(
+    () => [...data.list, ...withLiveStatus(more.requests, data.progress.byId)],
+    [data.list, more.requests, data.progress.byId],
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLocaleLowerCase();
     return all.filter((r) => (type === "all" || r.mediaType === type) && (q === "" || r.title.toLocaleLowerCase().includes(q)));
   }, [all, type, query]);
-  const isArriving = useCallback((id: string) => data.progress.byId.has(id), [data.progress.byId]);
+  // Arrive encore : quelque chose descend ou s'importe — pas seulement un statut qui vient de changer.
+  const isArriving = useCallback((id: string) => Boolean(data.progress.byId.get(id)?.download), [data.progress.byId]);
   const groups = useMemo(() => groupRequests(filtered, isArriving), [filtered, isArriving]);
 
   // Le prochain épisode de chaque série suivie, sur un mois.
