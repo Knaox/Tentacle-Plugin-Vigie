@@ -44,7 +44,7 @@ export default {
   // The file is complete but not yet filed into the library.
   // Short in the chip, which shares its line with a truncated title.
   statusValidating: "Validating",
-  progressValidating: "Arrived — checking and importing",
+  progressValidating: "Complete — importing into the library",
 
   // Server download queue (administrators)
   downloadsTab: "Server queue",

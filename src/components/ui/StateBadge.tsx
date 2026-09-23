@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  Vigie — Le badge d'état : demandé, en route, bloqué, disponible     */
+/*  Vigie — Le badge d'état : demandé, en route, importation, bloqué… */
 /* ------------------------------------------------------------------ */
 
 /*
@@ -20,11 +20,12 @@ import { memo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TitleState, TitleStatus } from "../../utils/title-state";
 import { stateLabel } from "../../utils/state-labels";
-import { AlertIcon, ArrowDownIcon, CheckIcon, ClockIcon, HalfCircleIcon } from "./icons";
+import { AlertIcon, ArrowDownIcon, CheckIcon, ClockIcon, HalfCircleIcon, InboxInIcon } from "./icons";
 
 const ICON: Record<TitleState, (p: { className?: string }) => ReactNode> = {
   requested: ClockIcon,
   downloading: ArrowDownIcon,
+  importing: InboxInIcon,
   stalled: AlertIcon,
   available: CheckIcon,
   partial: HalfCircleIcon,

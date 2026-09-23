@@ -64,6 +64,10 @@ export const EyeOffIcon = (p: IconProps) => <Svg {...p}><path d="M3.5 3.5l17 17M
 export const InboxIcon = (p: IconProps) => <Svg {...p}><path d="M3.5 13.5l2.8-8h11.4l2.8 8v5a1.5 1.5 0 01-1.5 1.5h-14a1.5 1.5 0 01-1.5-1.5z" /><path d="M3.5 13.5H8l1.5 2.5h5l1.5-2.5h4.5" /></Svg>;
 /* États et canaux de sortie : une forme par sens, la couleur ne dit que l'état. */
 export const ArrowDownIcon = (p: IconProps) => <Svg {...p}><path d="M12 4.5v12M6.5 11.5l5.5 5.5 5.5-5.5M5 20h14" /></Svg>;
+/** Ce qui entre dans la bibliothèque : une flèche dans un bac ouvert. */
+export const InboxInIcon = (p: IconProps) => (
+  <Svg {...p}><path d="M12 3.5V11M9 8l3 3 3-3" /><path d="M4 13.5h4.5l1.5 2.5h4l1.5-2.5H20" /><path d="M4 13.5v5A1.5 1.5 0 005.5 20h13a1.5 1.5 0 001.5-1.5v-5" /></Svg>
+);
 export const HalfCircleIcon = (p: IconProps) => (
   <Svg {...p}><circle cx="12" cy="12" r="8" /><path d="M12 4a8 8 0 010 16z" fill="currentColor" stroke="none" /></Svg>
 );

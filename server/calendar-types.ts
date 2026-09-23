@@ -20,7 +20,7 @@ import type { RequestStatus } from "./types";
  * téléchargement qui coince est BLOQUÉ. « partial » ne vaut que pour une
  * sortie de niveau SÉRIE (une première) : un épisode est là ou pas.
  */
-export type ItemState = "requested" | "downloading" | "stalled" | "available" | "partial";
+export type ItemState = "requested" | "downloading" | "importing" | "stalled" | "available" | "partial";
 
 export type CalendarKind =
   | "digital"

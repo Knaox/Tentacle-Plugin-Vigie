@@ -70,10 +70,11 @@ test("une première de série en partie là se dit « en partie », pas « deman
   assert.equal(stateOfItem(asked, facts([]), indexQueue([]), TODAY).state, "requested");
 });
 
-test("un film : là, en route, bloqué, demandé", () => {
-  assert.equal(movieState(5, { stalled: false, percent: 10 }, null), "available");
-  assert.equal(movieState(3, { stalled: false, percent: 10 }, null), "downloading");
-  assert.equal(movieState(3, { stalled: true, percent: 10 }, null), "stalled");
+test("un film : là, en route, en cours d'importation, bloqué, demandé", () => {
+  assert.equal(movieState(5, { stalled: false, percent: 10, validating: false }, null), "available");
+  assert.equal(movieState(3, { stalled: false, percent: 10, validating: false }, null), "downloading");
+  assert.equal(movieState(3, { stalled: false, percent: 100, validating: true }, null), "importing");
+  assert.equal(movieState(3, { stalled: true, percent: 10, validating: false }, null), "stalled");
   assert.equal(movieState(2, undefined, null), "requested");
   assert.equal(movieState(undefined, undefined, "requested"), "requested");
   assert.equal(movieState(undefined, undefined, null), null);
@@ -87,7 +88,8 @@ test("plusieurs entrées pour un même film : bloqué seulement si toutes le son
 
 test("la fiche d'une série : l'état de chaque épisode, pas de sa saison", async () => {
   // Pure : la même règle que le calendrier, appliquée aux faits d'une série.
-  assert.equal(episodeState({ hasFile: false, monitored: true }, { stalled: false, percent: 12 }, null), "downloading");
+  assert.equal(episodeState({ hasFile: false, monitored: true }, { stalled: false, percent: 12, validating: false }, null), "downloading");
+  assert.equal(episodeState({ hasFile: false, monitored: true }, { stalled: false, percent: 100, validating: true }, null), "importing");
   assert.equal(episodeState({ hasFile: false, monitored: true }, undefined, null), "requested");
-  assert.equal(episodeState({ hasFile: true, monitored: true }, { stalled: true, percent: 99 }, null), "available");
+  assert.equal(episodeState({ hasFile: true, monitored: true }, { stalled: true, percent: 99, validating: false }, null), "available");
 });

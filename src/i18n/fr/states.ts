@@ -1,5 +1,5 @@
 /*
- * Les cinq états d'un titre, et les nuances qui les précisent.
+ * Les six états d'un titre, et les nuances qui les précisent.
  *
  * « Téléchargement » n'apparaît QUE dans les clés `*Web` : `stateLabel` ne
  * les lit jamais dans l'application mobile, qui prend les clés `*App`.
@@ -15,6 +15,8 @@ export default {
   stDownloadingApp: "En route",
   stDownloadingShortWeb: "Téléchargement",
   stDownloadingShortApp: "En route",
+  stImporting: "En cours d'importation",
+  stImportingShort: "Importation",
   stStalled: "Bloqué",
   stAvailable: "Disponible",
   stPartial: "Disponible en partie",
@@ -75,7 +77,6 @@ export default {
   dtSearching: "Recherche d'une source",
   dtNotFound: "Pas encore trouvé — il arrivera dès qu'une source existe",
   dtRetrySoon: "Nouvel essai bientôt ({{count}}/{{max}})",
-  dtFinishing: "Presque là — vérification",
   dtStalled: "N'avance plus pour l'instant",
   dtRemaining: "Reste {{eta}}",
   dtPartialHere: "Déjà là en partie",

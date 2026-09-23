@@ -92,3 +92,14 @@ test("une saison publiée d'un coup : l'état du groupe dit l'essentiel", () => 
   assert.equal(groupStatus([ep("downloading", 20), ep("stalled")])?.state, "stalled");
   assert.equal(groupStatus([ep(null), ep(null)]), null);
 });
+
+test("téléchargement terminé : la demande s'importe, puis Sonarr la dit disponible", () => {
+  assert.deepEqual(stateFromRequest({ status: "downloading" }, progress({ validating: true, percent: 100 })), { state: "importing", percent: null });
+  assert.equal(stateFromRequest({ status: "partially_available" }, progress({ validating: true }))?.state, "importing");
+  // Sur l'affiche, ce qui s'importe arrive encore : il passe devant « en partie ».
+  const importing = { state: "importing" as const, percent: null };
+  assert.deepEqual(mergeStatus({ state: "partial", percent: null }, importing), importing);
+  assert.deepEqual(strongest({ state: "available", percent: null }, importing), importing);
+  const release = (state: "importing" | "available") => ({ state, percent: null, requestStatus: null });
+  assert.equal(groupStatus([release("importing"), release("available")])?.state, "importing");
+});

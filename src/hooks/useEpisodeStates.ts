@@ -15,7 +15,7 @@ export function useEpisodeStates(tmdbId: number, enabled: boolean) {
     staleTime: 20_000,
     refetchOnWindowFocus: false,
     refetchInterval: (q) =>
-      Object.values(q.state.data?.states ?? {}).some((s) => s === "downloading") ? 20_000 : false,
+      Object.values(q.state.data?.states ?? {}).some((s) => s === "downloading" || s === "importing") ? 20_000 : false,
     retry: 1,
   });
 }

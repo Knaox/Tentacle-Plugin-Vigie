@@ -45,7 +45,7 @@ export default {
   // Le fichier est complet mais pas encore rangé dans la bibliothèque.
   // Court dans la puce, qui partage sa ligne avec un titre tronqué.
   statusValidating: "En cours de validation",
-  progressValidating: "Arrivé — vérification et rangement en cours",
+  progressValidating: "Complet — import dans la bibliothèque",
 
   // File de téléchargement du serveur (administrateurs)
   downloadsTab: "File du serveur",

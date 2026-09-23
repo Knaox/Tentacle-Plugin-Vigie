@@ -4,9 +4,13 @@
 
 /*
  * Treize statuts techniques côté serveur, quatre statuts Jellyseerr — et, pour
- * qui regarde une affiche, cinq réponses seulement :
+ * qui regarde une affiche, six réponses seulement :
  *
- *   demandé · en route · bloqué · disponible · en partie
+ *   demandé · en route · en cours d'importation · bloqué · disponible · en partie
+ *
+ * L'importation est la fin du trajet : le fichier est complet, Sonarr ou
+ * Radarr le range. Elle garde la teinte d'« en route » — elle n'est pas
+ * encore « là » — avec son icône et son mot.
  *
  * « Bloqué » n'est JAMAIS un échec : un téléchargement qui coince (source
  * morte, import refusé, pause) reste un téléchargement qui attend. Les
@@ -61,8 +65,13 @@ export function stateFromMedia(info: MediaInfoLike | undefined): TitleStatus | n
 
 function arriving(download: DownloadProgress): TitleStatus {
   if (download.stalled) return { state: "stalled", percent: download.percent };
-  return { state: "downloading", percent: download.validating ? 100 : download.percent };
+  // Complet : Sonarr ou Radarr le range dans la bibliothèque.
+  if (download.validating) return { state: "importing", percent: null };
+  return { state: "downloading", percent: download.percent };
 }
+
+/** Ce qui arrive encore : en route, en cours d'importation, ou bloqué en chemin. */
+const moving = (s: TitleStatus) => s.state === "downloading" || s.state === "importing" || s.state === "stalled";
 
 const WAITING: ReadonlySet<RequestStatus> = new Set([
   "queued", "processing", "sent_to_seer", "approved", "unavailable", "retry_pending",
@@ -94,7 +103,7 @@ export function stateFromRequest(
   }
 }
 
-const RANK: Record<TitleState, number> = { requested: 1, partial: 2, downloading: 3, stalled: 3, available: 4 };
+const RANK: Record<TitleState, number> = { requested: 1, partial: 2, downloading: 3, importing: 3, stalled: 3, available: 4 };
 
 /**
  * L'état d'un titre sur une affiche : celui de Jellyseerr, précisé par ce
@@ -107,8 +116,8 @@ export function mergeStatus(media: TitleStatus | null, mine: TitleStatus | null 
   if (!mine) return media;
   if (!media) return mine;
   if (media.state === "available") return media;
-  if (mine.state === "downloading" || mine.state === "stalled") return mine;
-  if (media.state === "partial" || media.state === "downloading" || media.state === "stalled") return media;
+  if (moving(mine)) return mine;
+  if (media.state === "partial" || moving(media)) return media;
   return RANK[mine.state] >= RANK[media.state] ? mine : media;
 }
 
@@ -120,7 +129,6 @@ export function mergeStatus(media: TitleStatus | null, mine: TitleStatus | null 
 export function strongest(a: TitleStatus | null, b: TitleStatus | null): TitleStatus | null {
   if (!a) return b;
   if (!b) return a;
-  const moving = (s: TitleStatus) => s.state === "downloading" || s.state === "stalled";
   if (moving(a) !== moving(b)) return moving(a) ? a : b;
   if (moving(a)) return a;
   const here = (s: TitleStatus) => s.state === "available" || s.state === "partial";
@@ -150,12 +158,14 @@ export function groupStatus(items: ReadonlyArray<Pick<CalendarItem, "state" | "p
   if (known.length === 0) return null;
   const stalled = known.find((s) => s.state === "stalled");
   if (stalled) return stalled;
-  const moving = known.filter((s) => s.state === "downloading");
-  if (moving.length > 0) {
-    const measured = moving.filter((s) => s.percent !== null);
+  const down = known.filter((s) => s.state === "downloading");
+  if (down.length > 0) {
+    const measured = down.filter((s) => s.percent !== null);
     const percent = measured.length > 0 ? measured.reduce((n, s) => n + (s.percent as number), 0) / measured.length : null;
     return { state: "downloading", percent };
   }
+  const importing = known.find((s) => s.state === "importing");
+  if (importing) return importing;
   const here = known.filter((s) => s.state === "available").length;
   if (here === all.length) return { state: "available", percent: null };
   if (here > 0) return { state: "partial", percent: null };

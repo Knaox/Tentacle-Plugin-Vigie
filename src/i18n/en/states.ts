@@ -1,5 +1,5 @@
 /*
- * The five states of a title, and the details that refine them.
+ * The six states of a title, and the details that refine them.
  *
  * "Download" only appears in the `*Web` keys: `stateLabel` never reads them in
  * the mobile app, which takes the `*App` keys instead — the word is banned
@@ -14,6 +14,8 @@ export default {
   stDownloadingApp: "On its way",
   stDownloadingShortWeb: "Downloading",
   stDownloadingShortApp: "On its way",
+  stImporting: "Importing",
+  stImportingShort: "Importing",
   stStalled: "Stuck",
   stAvailable: "Available",
   stPartial: "Partially available",
@@ -70,7 +72,6 @@ export default {
   dtSearching: "Looking for a source",
   dtNotFound: "Not found yet — it arrives as soon as a source exists",
   dtRetrySoon: "Retrying soon ({{count}}/{{max}})",
-  dtFinishing: "Almost there — checking",
   dtStalled: "Not moving for now",
   dtRemaining: "{{eta}} left",
   dtPartialHere: "Partly here already",

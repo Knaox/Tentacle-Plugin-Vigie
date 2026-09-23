@@ -3,9 +3,10 @@
 /* ------------------------------------------------------------------ */
 
 /*
- * Quatre états — ceux qu'on se demande devant un calendrier :
+ * Cinq états — ceux qu'on se demande devant un calendrier :
  *   - disponible : le fichier est là (Sonarr `hasFile`, Jellyseerr 5) ;
  *   - en route   : dans la file de téléchargement ;
+ *   - en cours d'importation : complet, Sonarr ou Radarr le range ;
  *   - bloqué     : dans la file, mais rien n'avance — JAMAIS « échec » ;
  *   - demandé    : suivi, il arrivera dès sa sortie.
  * Rien : personne ne l'a demandé.
@@ -28,6 +29,8 @@ import { statusOf } from "./search/status-map";
 export interface Queued {
   stalled: boolean;
   percent: number | null;
+  /** Complet : Sonarr ou Radarr le range dans la bibliothèque. */
+  validating: boolean;
 }
 
 export interface QueueIndex {
@@ -41,8 +44,8 @@ const NO_QUEUE: QueueIndex = { episodes: new Map(), movies: new Map() };
 
 /** Plusieurs entrées pour un même titre (un film réessayé) : bloqué seulement si toutes le sont. */
 function merge(prev: Queued | undefined, next: QueueEntry): Queued {
-  if (!prev) return { stalled: next.stalled, percent: next.percent };
-  return { stalled: prev.stalled && next.stalled, percent: prev.percent ?? next.percent };
+  if (!prev) return { stalled: next.stalled, percent: next.percent, validating: next.validating };
+  return { stalled: prev.stalled && next.stalled, percent: prev.percent ?? next.percent, validating: prev.validating && next.validating };
 }
 
 export function indexQueue(entries: readonly QueueEntry[]): QueueIndex {
@@ -66,7 +69,8 @@ const WAITING: ReadonlySet<RequestStatus> = new Set([
 ]);
 
 function fromQueue(q: Queued | undefined): ItemState | null {
-  return q ? (q.stalled ? "stalled" : "downloading") : null;
+  if (!q) return null;
+  return q.stalled ? "stalled" : q.validating ? "importing" : "downloading";
 }
 
 /** Une série en partie là se dit « en partie » ; un épisode, lui, est demandé. */

@@ -63,6 +63,8 @@ export function seasonStatus(
     const percent = measured.length > 0 ? measured.reduce((a, b) => a + b, 0) / measured.length : null;
     return { state: "downloading", percent };
   }
+  // Plus rien ne descend, mais tout n'est pas rangé : la saison s'importe.
+  if (states.some((s) => s.state === "importing")) return { state: "importing", percent: null };
   const here = states.filter((s) => s.state === "available").length;
   if (here > 0 && here >= episodeCount) return { state: "available", percent: null };
   if (here > 0) return { state: "partial", percent: null };

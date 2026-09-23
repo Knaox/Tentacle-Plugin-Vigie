@@ -24,6 +24,8 @@ export function stateLabel(state: TitleState, t: Translate, variant: "long" | "s
     case "downloading":
       if (variant === "short") return t(inApp() ? "seer:stDownloadingShortApp" : "seer:stDownloadingShortWeb");
       return t(inApp() ? "seer:stDownloadingApp" : "seer:stDownloadingWeb");
+    case "importing":
+      return t(variant === "short" ? "seer:stImportingShort" : "seer:stImporting");
     case "stalled":
       return t("seer:stStalled");
     case "available":

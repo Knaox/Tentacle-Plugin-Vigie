@@ -60,7 +60,8 @@ export function requestView(request: LocalRequest, progress?: ProgressItem): Req
     case "downloading":
     case "partially_available": {
       if (download?.stalled) return { status, detail: { key: "seer:dtStalled", tone: "warning" } };
-      if (download?.validating) return { status, detail: muted("seer:dtFinishing") };
+      // Le badge dit « En cours d'importation », la barre ce qui se range : rien à ajouter.
+      if (download?.validating) return { status, detail: null };
       const eta = formatEta(download?.etaSeconds);
       if (download && (download.stalledCount ?? 0) > 0) {
         return { status, detail: { key: "seer:stStalledSome", tone: "warning", params: { count: download.stalledCount } } };
