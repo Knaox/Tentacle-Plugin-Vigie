@@ -54,7 +54,8 @@ export const RequestRow = memo(function RequestRow(props: Props) {
       : null;
 
   return (
-    <li className={`flex items-center gap-3 rounded-2xl p-2.5 transition-colors sm:gap-4 sm:p-3 ${selected ? "bg-[var(--brand-soft)] ring-1 ring-[rgba(var(--brand-rgb),0.5)]" : "hover:bg-tentacle-fill-subtle"}`}>
+    <li className={`rounded-2xl p-2.5 transition-colors sm:p-3 ${selected ? "bg-[var(--brand-soft)] ring-1 ring-[rgba(var(--brand-rgb),0.5)]" : "hover:bg-tentacle-fill-subtle"}`}>
+      <div className="flex items-center gap-3 sm:gap-4">
       {selectable && (
         <button
           type="button"
@@ -99,14 +100,7 @@ export const RequestRow = memo(function RequestRow(props: Props) {
           {request.status === "failed" && request.lastError && (
             <span className="mt-1 block truncate text-xs text-tentacle-text-quaternary" title={request.lastError}>{request.lastError}</span>
           )}
-          {nextRelease ? (
-            // Au téléphone, pas de place pour la pastille de droite : la date se lit ici.
-            <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-tentacle-text-secondary md:hidden">
-              <CalendarIcon className="h-3.5 w-3.5 text-[var(--brand-light)]" />{nextRelease}
-            </span>
-          ) : (
-            <span className="mt-1 block text-[11px] text-tentacle-text-quaternary">{t("seer:requestedOn", { date })}</span>
-          )}
+          {!nextRelease && <span className="mt-1 block text-[11px] text-tentacle-text-quaternary">{t("seer:requestedOn", { date })}</span>}
         </span>
       </button>
       {nextRelease && !selectable && (
@@ -127,6 +121,18 @@ export const RequestRow = memo(function RequestRow(props: Props) {
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-tentacle-text-secondary transition-colors hover:bg-tentacle-fill-soft hover:text-tentacle-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)]"
         >
           <DotsIcon className="h-5 w-5" />
+        </button>
+      )}
+      </div>
+      {/* Au téléphone, la pastille de droite n'a pas la place : la date de la
+          prochaine sortie passe dessous — et mène, comme elle, à sa semaine. */}
+      {nextRelease && !selectable && (
+        <button
+          type="button"
+          onClick={onNextRelease}
+          className="ml-[68px] mt-1.5 inline-flex min-h-[32px] items-center gap-1.5 rounded-full bg-tentacle-fill-subtle px-3 text-xs font-semibold text-tentacle-text-secondary ring-1 ring-tentacle-border-subtle transition-colors hover:bg-tentacle-fill-medium md:hidden"
+        >
+          <CalendarIcon className="h-3.5 w-3.5 text-[var(--brand-light)]" />{nextRelease}
         </button>
       )}
     </li>

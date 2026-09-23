@@ -30,7 +30,7 @@ import { DiscoverHome } from "../discover/DiscoverHome";
 import { BrowseView } from "../browse/BrowseView";
 import { catalogPreset } from "../browse/presets";
 import { RequestsView } from "../requests/RequestsView";
-import { CalendarView } from "../calendar/CalendarView";
+import { CalendarView, type CalendarFocus, type CalendarScope } from "../calendar/CalendarView";
 import { PersonSheet } from "../person/PersonSheet";
 import { QuickSeasonsSheet } from "../components/QuickSeasonsSheet";
 import { HubContext, type BrowsePreset, type HubApi, type HubTab, type OpenMediaOptions } from "./HubContext";
@@ -72,6 +72,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
   );
   const [personId, setPersonId] = useState<number | null>(entry.person);
   const [quickSeasons, setQuickSeasons] = useState<SeerrSearchResult | null>(null);
+  const [calendarFocus, setCalendarFocus] = useState<CalendarFocus | null>(null);
 
   const data = useHubData();
   const search = useVigieSearch(query, { showBlocked, exact });
@@ -123,6 +124,11 @@ export function VigieHub({ routePath }: { routePath: string }) {
     browse(catalogPreset(t, mediaType ?? catalog.preset.mediaType), withFilters);
   }, [browse, catalog.preset.mediaType, goTo, t]);
 
+  const openCalendar = useCallback((date?: string, scope?: CalendarScope) => {
+    if (date) setCalendarFocus((f) => ({ date, scope, nonce: (f?.nonce ?? 0) + 1 }));
+    goTo("calendar");
+  }, [goTo]);
+
   const openMedia = useCallback((item: SeerrSearchResult, options?: OpenMediaOptions) => {
     setPersonId(null);
     setDetail({ item, options });
@@ -143,8 +149,8 @@ export function VigieHub({ routePath }: { routePath: string }) {
   }, [openMedia, requestMedia, toast, t]);
 
   const api = useMemo<HubApi>(() => ({
-    tab, setTab, openCatalog, openMedia, openPerson: setPersonId, browse, setQuery, quickRequest,
-  }), [tab, setTab, openCatalog, openMedia, browse, setQuery, quickRequest]);
+    tab, setTab, openCalendar, openCatalog, openMedia, openPerson: setPersonId, browse, setQuery, quickRequest,
+  }), [tab, setTab, openCalendar, openCatalog, openMedia, browse, setQuery, quickRequest]);
 
   const show = (view: HubTab) => !searching && tab === view;
 
@@ -191,7 +197,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
               <div hidden={!show("requests")}><RequestsView data={data} active={show("requests")} /></div>
             )}
             {visited.has("calendar") && (
-              <div hidden={!show("calendar")}><CalendarView active={show("calendar")} /></div>
+              <div hidden={!show("calendar")}><CalendarView active={show("calendar")} focus={calendarFocus} /></div>
             )}
           </main>
         </div>

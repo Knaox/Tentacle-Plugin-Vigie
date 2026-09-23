@@ -75,6 +75,8 @@ export function useReleasesRange(view: ReleasesView) {
       setWeekAnchor((a) => addDays(a, delta * 7));
     }, []),
     goThisWeek: useCallback(() => setWeekAnchor(startOfWeek(today())), []),
+    /** La semaine d'une sortie précise (« jeu. 25 · S2E4 » depuis Mes demandes). */
+    goToWeekOf: useCallback((date: string) => setWeekAnchor(startOfWeek(date)), []),
     goMonth: useCallback((delta: number) => {
       setMonthCursor((c) => {
         const d = new Date(c.year, c.month + delta, 1);

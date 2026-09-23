@@ -12,6 +12,7 @@
 
 import { createContext, useContext } from "react";
 import type { BrowseType, DiscoverFilters, SeerrSearchResult } from "../api/types";
+import type { CalendarScope } from "../calendar/CalendarView";
 
 export type HubTab = "discover" | "catalog" | "requests" | "calendar";
 
@@ -44,6 +45,8 @@ export interface OpenMediaOptions {
 export interface HubApi {
   tab: HubTab;
   setTab: (tab: HubTab) => void;
+  /** Le calendrier, sur la semaine d'une date (sinon la semaine en cours), dans une portée. */
+  openCalendar: (date?: string, scope?: CalendarScope) => void;
   /** Le catalogue entier, dans un type — et, au besoin, ses filtres ouverts. */
   openCatalog: (mediaType?: BrowseType, withFilters?: boolean) => void;
   openMedia: (item: SeerrSearchResult, options?: OpenMediaOptions) => void;

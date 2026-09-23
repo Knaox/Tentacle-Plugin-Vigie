@@ -67,6 +67,8 @@ export function MediaDetailBody(props: Props) {
   const tv = mediaType === "tv" ? (detail as SeerrTvDetail | undefined) : undefined;
   const tagline = (detail as { tagline?: string } | undefined)?.tagline;
   const next = tv?.nextEpisodeToAir;
+  // Suivie par le serveur (quelqu'un l'a demandée) : son épisode est au calendrier du serveur.
+  const requested = (tv?.mediaInfo?.requests?.length ?? 0) > 0 || seasonLocks.size > 0;
 
   return (
     <div className="px-4 pb-10 pt-7 md:px-8">
@@ -90,7 +92,11 @@ export function MediaDetailBody(props: Props) {
           )}
 
           {next?.airDate && (
-            <NextEpisodeBanner episode={next} airDateUtc={airTimes.get(airTimeKey(next.seasonNumber ?? null, next.episodeNumber ?? null))} />
+            <NextEpisodeBanner
+              episode={next}
+              airDateUtc={airTimes.get(airTimeKey(next.seasonNumber ?? null, next.episodeNumber ?? null))}
+              scope={requested ? "everyone" : "all"}
+            />
           )}
 
           {mediaType === "tv" && tvSeasons.length > 0 && (

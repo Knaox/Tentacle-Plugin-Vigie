@@ -10,7 +10,7 @@
  * jour après jour, le mois.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { CalendarItem } from "../api/types-releases";
 import { useGlobalCalendar, usePersonalCalendar } from "../hooks/useReleases";
@@ -36,7 +36,16 @@ export type CalendarLayout = "week" | "list" | "month";
 
 const LIST_DAYS = 60;
 
-export function CalendarView({ active }: { active: boolean }) {
+/** Une semaine à montrer, demandée d'ailleurs (la date de sortie d'une demande). */
+export interface CalendarFocus {
+  date: string;
+  /** Où la chercher : ses demandes (défaut), celles du serveur, toutes les sorties. */
+  scope?: CalendarScope;
+  /** Change à chaque demande : la même date redemandée se remontre. */
+  nonce: number;
+}
+
+export function CalendarView({ active, focus }: { active: boolean; focus?: CalendarFocus | null }) {
   const { t } = useTranslation("seer");
   const hub = useHub();
   const [scope, setScope] = useState<CalendarScope>("mine");
@@ -45,6 +54,16 @@ export function CalendarView({ active }: { active: boolean }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const releasesFilters = useReleasesFilters();
   const nav = useReleasesRange(layout === "month" ? "month" : "week");
+  const { goToWeekOf } = nav;
+
+  // Arrivé depuis la date d'une demande (ou d'un épisode) : la semaine de celle-ci,
+  // dans la portée où le titre figure.
+  useEffect(() => {
+    if (!focus) return;
+    setScope(focus.scope ?? "mine");
+    setLayout("week");
+    goToWeekOf(focus.date);
+  }, [focus, goToWeekOf]);
 
   // La liste part d'une semaine en arrière (les sorties récentes, repliées) ;
   // la semaine et le mois suivent leur curseur.

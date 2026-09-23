@@ -2,6 +2,7 @@ import { useContext } from "react";
 import { useTranslation } from "react-i18next";
 import { HubContext } from "../hub/HubContext";
 import type { SeerrEpisode } from "../api/types";
+import type { CalendarScope } from "../calendar/CalendarView";
 import {
   formatAirDateLong, formatAirTime, localDayFromUtc, relativeAirLabel, daysUntil,
 } from "../utils/episode-dates";
@@ -16,10 +17,15 @@ import { STATUS_STYLE } from "../styles/status";
  * devient la vraie : celle de TMDB est celle du fuseau de la chaîne d'origine.
  */
 export function NextEpisodeBanner({
-  episode, airDateUtc,
-}: { episode: SeerrEpisode; airDateUtc?: string | null }) {
+  episode, airDateUtc, scope,
+}: {
+  episode: SeerrEpisode;
+  airDateUtc?: string | null;
+  /** Le calendrier où l'épisode figure : celui du serveur s'il est suivi. */
+  scope?: CalendarScope;
+}) {
   const { t } = useTranslation("seer");
-  // Dans le hub : le calendrier est à un clic — c'est là qu'on suit la suite.
+  // Dans le hub : le calendrier, sur la semaine de cet épisode, est à un clic.
   const hub = useContext(HubContext);
   if (!episode.airDate) return null;
 
@@ -83,7 +89,7 @@ export function NextEpisodeBanner({
           {hub && (
             <button
               type="button"
-              onClick={() => hub.setTab("calendar")}
+              onClick={() => hub.openCalendar(airDate, scope)}
               className="min-h-[32px] rounded-full px-2 text-xs font-semibold text-[var(--brand-light)] underline-offset-2 hover:underline"
             >
               {t("seer:openCalendar")}

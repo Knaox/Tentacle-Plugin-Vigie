@@ -72,11 +72,11 @@ export function RequestsView({ data, active }: { data: HubData; active: boolean 
   const from = today();
   const month = usePersonalCalendar(from, addDays(from, 30), active, true, false);
   const nextRelease = useMemo(() => {
-    const map = new Map<number, string>();
+    const map = new Map<number, { label: string; date: string }>();
     for (const item of applyLocalDays(month.data?.items ?? []).sort((a, b) => a.date.localeCompare(b.date))) {
       if (item.date < from || map.has(item.tmdbId)) continue;
       const what = item.kind === "episode" ? episodeLabel(item.seasonNumber, item.episodeNumber) : "";
-      map.set(item.tmdbId, [shortDayLabel(item.date, t), what].filter(Boolean).join(" · "));
+      map.set(item.tmdbId, { label: [shortDayLabel(item.date, t), what].filter(Boolean).join(" · "), date: item.date });
     }
     return map;
   }, [month.data, from, t]);
@@ -90,21 +90,25 @@ export function RequestsView({ data, active }: { data: HubData; active: boolean 
   const noRequests = !data.requests.isPending && data.list.length === 0;
   const visibleGroups = filter === "all" || filter === "server" ? GROUP_ORDER : [filter];
 
-  const renderRow = (request: LocalRequest) => (
+  const renderRow = (request: LocalRequest) => {
+    const next = request.mediaType === "tv" ? nextRelease.get(request.tmdbId) ?? null : null;
+    return (
     <RequestRow
       key={request.id}
       request={request}
       progress={data.progress.byId.get(request.id)}
       receivedAt={data.progress.updatedAt}
-      nextRelease={request.mediaType === "tv" ? nextRelease.get(request.tmdbId) ?? null : null}
+      nextRelease={next?.label ?? null}
       onAction={actions.run}
       onMenu={actions.openMenu}
-      onNextRelease={() => hub.setTab("calendar")}
+      // La semaine de CETTE sortie, pas la semaine en cours.
+      onNextRelease={() => hub.openCalendar(next?.date, "mine")}
       selectable={selecting}
       selected={selected.has(request.id)}
       onToggleSelect={toggle}
     />
-  );
+    );
+  };
 
   if (noRequests) {
     return (
