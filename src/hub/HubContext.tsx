@@ -13,7 +13,7 @@
 import { createContext, useContext } from "react";
 import type { DiscoverFilters, DiscoverMediaType, SeerrSearchResult } from "../api/types";
 
-export type HubTab = "discover" | "requests" | "calendar";
+export type HubTab = "discover" | "catalog" | "requests" | "calendar";
 
 export type BrowseKind = "all" | "popular" | "top" | "upcoming" | "genre" | "provider" | "trending";
 
@@ -44,6 +44,8 @@ export interface OpenMediaOptions {
 export interface HubApi {
   tab: HubTab;
   setTab: (tab: HubTab) => void;
+  /** Le catalogue entier, dans un type — et, au besoin, ses filtres ouverts. */
+  openCatalog: (mediaType?: DiscoverMediaType, withFilters?: boolean) => void;
   openMedia: (item: SeerrSearchResult, options?: OpenMediaOptions) => void;
   openPerson: (id: number) => void;
   browse: (preset: BrowsePreset) => void;

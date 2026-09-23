@@ -15,6 +15,7 @@ import { MOVIE_GENRES } from "../constants/genres";
 import { genrePreset, providerPreset } from "../browse/presets";
 import { useHub } from "../hub/HubContext";
 import { SectionHeader } from "../components/ui/Rail";
+import { ChevronRight, FilmIcon, FilterIcon, SparkIcon, TvIcon } from "../components/ui/icons";
 
 const TMDB_LOGO = "https://image.tmdb.org/t/p/w154";
 const PLATFORMS_SHOWN = 12;
@@ -26,6 +27,41 @@ const TONES = [
   "linear-gradient(135deg, rgba(var(--brand-rgb),0.30), rgba(var(--brand-accent-rgb, var(--brand-rgb)),0.22))",
   "linear-gradient(135deg, var(--fill-strong), var(--fill-soft))",
 ];
+
+/**
+ * L'entrée du catalogue, juste sous la vitrine : trois types et les filtres
+ * avancés. Il fallait descendre au bas de Découvrir pour trouver « Parcourir
+ * tout le catalogue » — chaque tuile ouvre désormais l'onglet Catalogue.
+ */
+export const CatalogEntrances = memo(function CatalogEntrances() {
+  const { t } = useTranslation("seer");
+  const hub = useHub();
+  const tiles = [
+    { id: "movies", label: t("seer:filterMovies"), icon: <FilmIcon className="h-5 w-5" />, run: () => hub.openCatalog("movies") },
+    { id: "tv", label: t("seer:filterSeries"), icon: <TvIcon className="h-5 w-5" />, run: () => hub.openCatalog("tv") },
+    { id: "anime", label: t("seer:filterAnimes"), icon: <SparkIcon className="h-5 w-5" />, run: () => hub.openCatalog("anime") },
+    { id: "filters", label: t("seer:filtersAdvanced"), icon: <FilterIcon className="h-5 w-5" />, run: () => hub.openCatalog(undefined, true) },
+  ] as const;
+  return (
+    <nav aria-label={t("seer:browseCatalog")}>
+      <SectionHeader title={t("seer:browseCatalog")} subtitle={t("seer:browseCatalogHint")} />
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        {tiles.map((tile) => (
+          <button
+            key={tile.id}
+            type="button"
+            onClick={tile.run}
+            className="group flex h-14 min-w-0 items-center gap-3 rounded-2xl bg-tentacle-fill-subtle px-3 text-left ring-1 ring-tentacle-border-subtle transition-colors hover:bg-tentacle-fill-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.7)] sm:h-16 sm:px-4"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--brand-soft)] text-[var(--brand-light)]">{tile.icon}</span>
+            <span className="min-w-0 flex-1 truncate text-sm font-bold text-tentacle-text-primary">{tile.label}</span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-tentacle-text-quaternary transition-transform duration-200 group-hover:translate-x-0.5" />
+          </button>
+        ))}
+      </div>
+    </nav>
+  );
+});
 
 export const PlatformShortcuts = memo(function PlatformShortcuts() {
   const { t } = useTranslation("seer");

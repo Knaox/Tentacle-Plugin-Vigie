@@ -24,6 +24,7 @@ export interface HubEntry {
 
 const TABS: Record<string, HubTab> = {
   discover: "discover",
+  catalog: "catalog",
   requests: "requests",
   calendar: "calendar",
   releases: "calendar",

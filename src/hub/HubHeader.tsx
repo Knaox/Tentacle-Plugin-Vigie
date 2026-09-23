@@ -14,7 +14,7 @@ import { memo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { searchShortcutLabel, showsKeyboardHints } from "../utils/host-env";
 import { useSearchHotkey } from "../hooks/useSearchHotkey";
-import { CalendarIcon, CloseIcon, CompassIcon, ListIcon, SearchIcon } from "../components/ui/icons";
+import { CalendarIcon, CloseIcon, CompassIcon, LayersIcon, ListIcon, SearchIcon } from "../components/ui/icons";
 import type { HubTab } from "./HubContext";
 
 interface HubHeaderProps {
@@ -37,11 +37,12 @@ export const HubHeader = memo(function HubHeader(props: HubHeaderProps) {
   const input = useRef<HTMLInputElement>(null);
   useSearchHotkey(input, () => onQuery(""));
 
-  /* Au téléphone, les trois onglets se partagent la largeur, sans icône et
-   * avec un libellé court : « Mes demandes » en entier poussait « Calendrier »
-   * hors de l'écran. */
+  /* Au téléphone, les quatre onglets se partagent la largeur, sans icône et
+   * avec un libellé court ; le compteur y devient un exposant pour ne rien
+   * pousser hors de l'écran. */
   const tabs: Array<{ id: HubTab; label: string; short: string; icon: React.ReactNode; badge: number }> = [
     { id: "discover", label: t("seer:tabDiscover"), short: t("seer:tabDiscover"), icon: <CompassIcon className="h-[18px] w-[18px]" />, badge: 0 },
+    { id: "catalog", label: t("seer:tabCatalog"), short: t("seer:tabCatalog"), icon: <LayersIcon className="h-[18px] w-[18px]" />, badge: 0 },
     { id: "requests", label: t("seer:tabRequests"), short: t("seer:tabRequestsShort"), icon: <ListIcon className="h-[18px] w-[18px]" />, badge: activeRequests },
     { id: "calendar", label: t("seer:tabCalendar"), short: t("seer:tabCalendar"), icon: <CalendarIcon className="h-[18px] w-[18px]" />, badge: weekReleases },
   ];
@@ -105,16 +106,20 @@ export const HubHeader = memo(function HubHeader(props: HubHeaderProps) {
                 type="button"
                 role="tab"
                 aria-selected={selected}
+                aria-label={item.badge > 0 ? `${item.label} (${item.badge})` : item.label}
                 onClick={() => onTab(item.id)}
-                className={`relative flex min-h-[48px] min-w-0 flex-1 items-center justify-center gap-1.5 px-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgba(var(--brand-rgb),0.6)] sm:flex-none sm:shrink-0 sm:justify-start sm:gap-2 sm:px-4 ${
+                className={`relative flex min-h-[48px] min-w-0 flex-1 items-center justify-center gap-1.5 px-1 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgba(var(--brand-rgb),0.6)] min-[400px]:text-sm sm:flex-none sm:shrink-0 sm:justify-start sm:gap-2 sm:px-4 ${
                   selected ? "text-tentacle-text-primary" : "text-tentacle-text-tertiary hover:text-tentacle-text-primary"
                 }`}
               >
                 <span className={`hidden sm:inline ${selected ? "text-[var(--brand-light)]" : ""}`}>{item.icon}</span>
-                <span className="truncate sm:hidden">{item.short}</span>
+                <span className="flex min-w-0 items-center sm:hidden">
+                  <span className="truncate">{item.short}</span>
+                  {item.badge > 0 && <span aria-hidden className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--brand-light)]" />}
+                </span>
                 <span className="hidden sm:inline">{item.label}</span>
                 {item.badge > 0 && (
-                  <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[var(--brand-soft)] px-1.5 text-[11px] font-bold tabular-nums text-[var(--brand-light)]">
+                  <span className="hidden h-5 min-w-[20px] items-center justify-center rounded-full bg-[var(--brand-soft)] px-1.5 text-[11px] font-bold tabular-nums text-[var(--brand-light)] sm:flex">
                     {item.badge > 99 ? "99+" : item.badge}
                   </span>
                 )}

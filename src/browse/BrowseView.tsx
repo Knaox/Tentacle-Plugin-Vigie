@@ -3,12 +3,15 @@
 /* ------------------------------------------------------------------ */
 
 /*
- * Ce qu'ouvre un « Tout voir » : la grille entière d'un parcours (films
- * populaires, une plateforme, un genre…), avec le type, le tri et les filtres
- * à portée de main. Le nombre de titres s'affiche d'emblée et l'ascenseur a sa
- * vraie taille : on peut descendre loin, vite — seules les pages regardées se
- * chargent (`useSparseCatalog`), seules les rangées visibles existent
- * (`VirtualGrid`).
+ * Ce qu'ouvre un « Tout voir », et l'onglet Catalogue : la grille entière d'un
+ * parcours (films populaires, une plateforme, un genre, tout le catalogue),
+ * avec le type, le tri et les filtres à portée de main. Le titre suit le type
+ * choisi (« Séries populaires » dès qu'on passe aux séries), et un genre
+ * survit au changement de type quand il y a un équivalent.
+ *
+ * Le nombre de titres s'affiche d'emblée et l'ascenseur a sa vraie taille :
+ * on peut descendre loin, vite — seules les pages regardées se chargent
+ * (`useSparseCatalog`), seules les rangées visibles existent (`VirtualGrid`).
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -18,32 +21,34 @@ import { fetchBrowsePage } from "../api/client-browse";
 import { useDiscoverFilters } from "../hooks/useDiscoverFilters";
 import { useHub, type BrowsePreset } from "../hub/HubContext";
 import { PosterCard, PosterCardSkeleton } from "../components/ui/PosterCard";
-import { ChevronLeft, FilterIcon } from "../components/ui/icons";
+import { ChevronLeft } from "../components/ui/icons";
 import { FilterPanel } from "../components/FilterPanel";
 import { ActiveFilterPills } from "../components/ActiveFilterPills";
 import { EmptyState } from "../components/EmptyState";
-import { segment, SEGMENT_GROUP } from "../styles/pills";
 import { CTA_SECONDARY, CTA_SIZE_MD } from "../styles/cta";
 import { getCurrentLanguage } from "../utils/media-helpers";
 import { useSparseCatalog } from "./useSparseCatalog";
 import { VirtualGrid } from "./VirtualGrid";
+import { BrowseToolbar } from "./BrowseToolbar";
 import { mapGenres, presetTitle } from "./presetTitle";
 
-const TYPES: Array<{ value: DiscoverMediaType; key: string }> = [
-  { value: "movies", key: "seer:filterMovies" },
-  { value: "tv", key: "seer:filterSeries" },
-  { value: "anime", key: "seer:filterAnimes" },
-];
+interface Props {
+  preset: BrowsePreset;
+  active: boolean;
+  /** Absent dans l'onglet Catalogue : on n'en revient pas, on en part. */
+  onBack?: () => void;
+  /** Ouvre les filtres avancés à l'arrivée. */
+  openFilters?: boolean;
+}
 
-export function BrowseView({ preset, active, onBack }: { preset: BrowsePreset; active: boolean; onBack: () => void }) {
+export function BrowseView({ preset, active, onBack, openFilters = false }: Props) {
   const { t, i18n } = useTranslation("seer");
   const hub = useHub();
   const [mediaType, setMediaType] = useState<DiscoverMediaType>(preset.mediaType);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(openFilters);
   const f = useDiscoverFilters(preset.filters);
   const { filters } = f;
   const trending = preset.source === "trending";
-  // « Films populaires » passé aux séries s'appelle « Séries populaires ».
   const title = presetTitle(preset, mediaType, filters, t);
 
   const key = useMemo(
@@ -57,10 +62,9 @@ export function BrowseView({ preset, active, onBack }: { preset: BrowsePreset; a
   const catalog = useSparseCatalog(key, fetchPage);
 
   // Un autre parcours, un autre filtre : on repart du haut de la grille.
-  useEffect(() => { window.scrollTo({ top: 0 }); }, [key]);
+  useEffect(() => { if (active) window.scrollTo({ top: 0 }); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Les genres ne portent pas les mêmes identifiants pour les films et les
-  // séries : on les traduit, et seul un genre sans équivalent disparaît.
+  // Les genres ne portent pas les mêmes identifiants pour les films et les séries.
   const changeType = (next: DiscoverMediaType) => {
     if (next === mediaType) return;
     f.setGenres(mapGenres(filters.genres, mediaType, next), next !== "movies");
@@ -82,60 +86,53 @@ export function BrowseView({ preset, active, onBack }: { preset: BrowsePreset; a
   return (
     <div>
       <div className="mb-4 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label={t("seer:backToDiscover")}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-tentacle-fill-subtle text-tentacle-text-primary ring-1 ring-tentacle-border-subtle transition-colors hover:bg-tentacle-fill-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)]"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </button>
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label={t("seer:backToDiscover")}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-tentacle-fill-subtle text-tentacle-text-primary ring-1 ring-tentacle-border-subtle transition-colors hover:bg-tentacle-fill-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)]"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+        )}
         <div className="min-w-0">
-          <h2 className="truncate text-xl font-bold tracking-tight text-tentacle-text-primary sm:text-2xl">{title}</h2>
-          {catalog.total !== null && (
-            <p className="text-xs tabular-nums text-tentacle-text-tertiary">
-              {t(catalog.capped ? "seer:titlesCountCapped" : "seer:titlesCount", {
+          <h2 className="truncate text-2xl font-extrabold tracking-tight text-tentacle-text-primary sm:text-3xl">{title}</h2>
+          <p className="mt-0.5 text-xs tabular-nums text-tentacle-text-tertiary sm:text-sm">
+            {catalog.total !== null
+              ? t(catalog.capped ? "seer:titlesCountCapped" : "seer:titlesCount", {
                 count: catalog.total,
                 n: new Intl.NumberFormat(getCurrentLanguage()).format(catalog.total),
-              })}
-            </p>
-          )}
+              })
+              : " "}
+          </p>
         </div>
       </div>
 
       {!trending && (
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <div className={SEGMENT_GROUP} role="tablist" aria-label={t("seer:mediaType")}>
-            {TYPES.map((type) => (
-              <button key={type.value} type="button" role="tab" aria-selected={mediaType === type.value} onClick={() => changeType(type.value)} className={`${segment(mediaType === type.value)} min-h-[32px]`}>
-                {t(type.key)}
-              </button>
-            ))}
-          </div>
-          <button type="button" onClick={() => setPanelOpen(true)} className={`${CTA_SECONDARY} h-9 gap-1.5 px-3 text-xs`}>
-            <FilterIcon className="h-4 w-4" />
-            {t("seer:filterTitle")}
-            {f.activeFilterCount > 0 && (
-              <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-tentacle-brand px-1 text-[10px] font-bold text-tentacle-cta-brand-fg">{f.activeFilterCount}</span>
-            )}
-          </button>
+        <div className="-mx-4 mb-4 space-y-3 bg-tentacle-surface-0 px-4 py-2 sm:sticky sm:top-[49px] sm:z-20 md:-mx-8 md:px-8">
+          <BrowseToolbar
+            mediaType={mediaType}
+            onType={changeType}
+            sortBy={filters.sortBy}
+            sortOrder={filters.sortOrder}
+            onSort={f.setSort}
+            filterCount={f.activeFilterCount}
+            onOpenFilters={() => setPanelOpen(true)}
+          />
+          <ActiveFilterPills
+            mediaType={mediaType}
+            filters={filters}
+            onRemoveGenre={f.toggleGenre}
+            onRemoveWatchProvider={f.toggleWatchProvider}
+            onClearYears={() => { f.setYearFrom(null); f.setYearTo(null); }}
+            onClearRating={() => f.setRatingMin(null)}
+            onClearLanguage={() => f.setOriginalLanguage(null)}
+            onRemoveTvStatus={f.toggleTvStatus}
+            onReset={f.resetFilters}
+            hasActiveFilters={f.hasActiveFilters}
+          />
         </div>
-      )}
-
-      {!trending && (
-        <ActiveFilterPills
-          mediaType={mediaType}
-          filters={filters}
-          totalResults={undefined}
-          onRemoveGenre={f.toggleGenre}
-          onRemoveWatchProvider={f.toggleWatchProvider}
-          onClearYears={() => { f.setYearFrom(null); f.setYearTo(null); }}
-          onClearRating={() => f.setRatingMin(null)}
-          onClearLanguage={() => f.setOriginalLanguage(null)}
-          onRemoveTvStatus={f.toggleTvStatus}
-          onReset={f.resetFilters}
-          hasActiveFilters={f.hasActiveFilters}
-        />
       )}
 
       {catalog.error && catalog.total === null ? (

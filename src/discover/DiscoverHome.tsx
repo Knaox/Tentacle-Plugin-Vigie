@@ -4,9 +4,10 @@
 
 /*
  * De haut en bas, du plus personnel au plus large : la vitrine du moment,
- * ses demandes, ses sorties de la semaine, puis les rangées du catalogue et
- * les raccourcis par plateforme et par genre. Chaque rangée s'ouvre en grille
- * complète (« Tout voir »), avec filtres.
+ * l'entrée du catalogue (films, séries, animés, filtres — tout de suite, pas
+ * au bas de la page), ses demandes, ses sorties de la semaine, puis les
+ * rangées et les raccourcis par plateforme et par genre. Chaque rangée
+ * s'ouvre en grille complète (« Tout voir »), avec filtres.
  */
 
 import { memo } from "react";
@@ -16,10 +17,10 @@ import type { HubData } from "../hub/useHubData";
 import { Rail } from "../components/ui/Rail";
 import { PosterCard, PosterCardSkeleton } from "../components/ui/PosterCard";
 import { CTA_SECONDARY, CTA_SIZE_LG } from "../styles/cta";
-import { catalogPreset, popularPreset, topRatedPreset, trendingPreset, upcomingPreset } from "../browse/presets";
+import { popularPreset, topRatedPreset, trendingPreset, upcomingPreset } from "../browse/presets";
 import { HeroSpotlight } from "./HeroSpotlight";
 import { MyRequestsStrip, ThisWeekStrip } from "./HomeStrips";
-import { GenreShortcuts, PlatformShortcuts } from "./BrowseShortcuts";
+import { CatalogEntrances, GenreShortcuts, PlatformShortcuts } from "./BrowseShortcuts";
 import { useRail, type RailId } from "./useRails";
 
 function CatalogRail({ id, title, preset }: {
@@ -57,6 +58,7 @@ export const DiscoverHome = memo(function DiscoverHome({ data }: { data: HubData
   return (
     <div className="space-y-10">
       <HeroSpotlight items={trending.data?.results ?? []} />
+      <CatalogEntrances />
       <MyRequestsStrip data={data} />
       <ThisWeekStrip data={data} />
       <CatalogRail id="trending" title={t("seer:railTrending")} preset={trendingPreset(t)} />
@@ -68,7 +70,7 @@ export const DiscoverHome = memo(function DiscoverHome({ data }: { data: HubData
       <CatalogRail id="top" title={t("seer:railTopMovies")} preset={topRatedPreset(t, "movies")} />
       <GenreShortcuts />
       <div className="flex justify-center pb-4">
-        <button type="button" onClick={() => hub.browse(catalogPreset(t))} className={`${CTA_SECONDARY} ${CTA_SIZE_LG}`}>
+        <button type="button" onClick={() => hub.openCatalog()} className={`${CTA_SECONDARY} ${CTA_SIZE_LG}`}>
           {t("seer:browseEverything")}
         </button>
       </div>

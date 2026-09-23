@@ -78,6 +78,10 @@ export function useDiscoverFilters(initial?: Partial<DiscoverFilters>) {
     setFilters((f) => ({ ...f, genres, tvStatus: keepTvStatus ? f.tvStatus : [] }));
   }, []);
 
+  const setSort = useCallback((sortBy: SortOption, sortOrder: SortOrder) => {
+    setFilters((f) => ({ ...f, sortBy, sortOrder }));
+  }, []);
+
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (filters.genres.length > 0) count++;
@@ -105,6 +109,7 @@ export function useDiscoverFilters(initial?: Partial<DiscoverFilters>) {
     resetFilters,
     resetGenres,
     setGenres,
+    setSort,
     activeFilterCount,
     hasActiveFilters,
   };

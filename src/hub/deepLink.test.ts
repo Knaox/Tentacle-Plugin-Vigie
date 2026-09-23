@@ -14,6 +14,7 @@ test("la recherche de Tentacle passe la main avec sa requête", () => {
 
 test("un onglet se choisit par la requête, ou par les anciens chemins", () => {
   assert.equal(readHubEntry("/discover", "?tab=requests").tab, "requests");
+  assert.equal(readHubEntry("/discover", "?tab=catalog").tab, "catalog");
   assert.equal(readHubEntry("/requests", undefined).tab, "requests");
   assert.equal(readHubEntry("/releases", "").tab, "calendar");
   assert.equal(readHubEntry("/discover", "?tab=inconnu").tab, "discover");
