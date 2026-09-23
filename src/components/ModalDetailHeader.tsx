@@ -42,8 +42,9 @@ export function ModalDetailHeader({ item, detail, mediaType, navStack, onBack, o
 
   return (
     <>
-      {/* Backdrop */}
-      <div className="relative h-48 w-full overflow-hidden rounded-t-2xl sm:h-72">
+      {/* Backdrop — sans image, juste de quoi loger les boutons au-dessus de
+          l'affiche : un grand aplat vide repoussait tout le contenu. */}
+      <div className={`relative w-full overflow-hidden rounded-t-2xl ${backdrop ? "h-48 sm:h-72" : "h-32"}`}>
         {backdrop ? (
           <img
             src={backdrop}

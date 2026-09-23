@@ -19,6 +19,9 @@ import type {
 } from "../api/types";
 import type { RichTrailer } from "../utils/trailers";
 
+/** Là où mène le bouton « Choisir les saisons » du haut de la fiche d'une série. */
+const REQUEST_ANCHOR = "vigie-request";
+
 interface WatchProviderEntry {
   logo_path: string;
   provider_id: number;
@@ -59,11 +62,10 @@ interface MediaDetailBodyProps {
 }
 
 /**
- * Corps de la fiche détail (sous le header) : action bar, prochain épisode,
- * synopsis, extras, saisons/épisodes ou picker de demande, film, providers,
- * casting, fiche technique, médias similaires. Extrait de MediaDetailModal
- * pour rester sous 300 lignes — extraction pure, aucun changement de
- * comportement.
+ * Corps de la fiche détail (sous le header) : action bar, demande d'un film,
+ * prochain épisode, synopsis, extras, saisons/épisodes ou picker de demande,
+ * providers, casting, fiche technique, médias similaires. Extrait de
+ * MediaDetailModal pour rester sous 300 lignes.
  */
 export function MediaDetailBody({
   currentItem, detail, mediaType, mediaStatus, trailers, isLoading,
@@ -82,16 +84,52 @@ export function MediaDetailBody({
   /* Plateformes d'abonnement uniquement : « je peux le voir maintenant » n'a
    * pas le même sens qu'« il est en vente ». */
   const streamingIds = (providers ?? []).map((p) => p.provider_id).filter((id) => id > 0);
+  const isMovie = currentItem.mediaType === "movie";
+  /* Par où ce titre est sorti, et ce qu'une demande peut espérer. */
+  const availabilityPill = hasSignal(availability) ? (
+    <div className="flex justify-center">
+      <AvailabilityPill verdict={availability} variant="detail" inLibrary={mediaStatus >= 4} />
+    </div>
+  ) : null;
+
+  /* Film : la demande se fait sous l'en-tête — un seul bouton, visible sans
+   * défiler (plus bas, elle doublait le bouton qui y menait). Tant que le film
+   * n'est pas là, elle passe avant la bande-annonce : c'est l'action principale. */
+  const movieRequest = isMovie ? (
+    <div className="space-y-3">
+      {availabilityPill}
+      <MovieRequestSection
+        mediaStatus={mediaStatus}
+        isAnime={isAnime}
+        requesting={requestingSeasons}
+        requestSuccess={requestSuccess}
+        profileId={movieProfileId}
+        onProfileChange={onMovieProfileChange}
+        onRequest={onMovieRequest}
+        obtainable={availability?.obtainable ?? true}
+      />
+    </div>
+  ) : null;
+  const requestFirst = isMovie && mediaStatus < 4;
 
   return (
     <div className="space-y-6 px-4 pb-6 sm:px-6">
+      {requestFirst && movieRequest}
       <DetailActionBar
         mediaType={mediaType}
         tmdbId={currentItem.id}
         mediaStatus={mediaStatus}
         trailers={trailers}
         onOpenTrailer={() => onOpenTrailer(0)}
+        requestLabel={
+          isTv && !tvFullyAvailable && !isLoading && tvSeasons.length > 0
+            ? (mediaStatus === 4 ? t("seer:requestMoreSeasons") : t("seer:chooseSeasons"))
+            : null
+        }
+        onJumpToRequest={() => document.getElementById(REQUEST_ANCHOR)?.scrollIntoView({ behavior: "smooth", block: "center" })}
       />
+
+      {!requestFirst && movieRequest}
 
       {/* Prochain épisode (séries en cours) */}
       {isTv && tvDetail?.nextEpisodeToAir?.airDate && (
@@ -148,6 +186,7 @@ export function MediaDetailBody({
 
       {/* Série incomplète → sélection de saisons à demander */}
       {isTv && !tvFullyAvailable && !isLoading && tvSeasons.length > 0 && (
+        <div id={REQUEST_ANCHOR} className="scroll-mt-24">
         <SeriesSeasonPicker
           tvId={currentItem.id}
           seasons={tvSeasons}
@@ -158,6 +197,7 @@ export function MediaDetailBody({
           lockedSeasons={lockedSeasons}
           defaultProfileId={defaultProfileId}
         />
+        </div>
       )}
 
       {isLoading && isTv && (
@@ -166,16 +206,7 @@ export function MediaDetailBody({
         </div>
       )}
 
-      {/* Par où ce titre est sorti, et ce qu'une demande peut espérer. */}
-      {hasSignal(availability) && (
-        <div className="flex justify-center">
-          <AvailabilityPill
-            verdict={availability}
-            variant="detail"
-            inLibrary={mediaStatus >= 4}
-          />
-        </div>
-      )}
+      {!isMovie && availabilityPill}
 
       {/* Où le regarder tout de suite, si c'est déjà quelque part. */}
       {streamingIds.length > 0 && (
@@ -183,20 +214,6 @@ export function MediaDetailBody({
           <span className="text-xs text-tentacle-text-tertiary">{t("seer:streamingLabel")}</span>
           <PlatformBadges providerIds={streamingIds} max={5} />
         </div>
-      )}
-
-      {/* Film → demande (profil + CTA) ou badge déjà demandé */}
-      {currentItem.mediaType === "movie" && (
-        <MovieRequestSection
-          mediaStatus={mediaStatus}
-          isAnime={isAnime}
-          requesting={requestingSeasons}
-          requestSuccess={requestSuccess}
-          profileId={movieProfileId}
-          onProfileChange={onMovieProfileChange}
-          onRequest={onMovieRequest}
-          obtainable={availability?.obtainable ?? true}
-        />
       )}
 
       {providers && providers.length > 0 && <WatchProviders providers={providers} />}

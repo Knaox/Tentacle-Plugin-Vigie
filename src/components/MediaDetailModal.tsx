@@ -44,6 +44,19 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
   const [trailerIndex, setTrailerIndex] = useState(0);
   const [expandedSeason, setExpandedSeason] = useState<number | null>(null);
 
+  /* Une autre fiche demandée pendant que celle-ci est ouverte (un film de la
+   * filmographie d'un acteur du casting) : elle s'empile, et « retour »
+   * ramène à celle-ci. Sans quoi la fiche restait sur l'ancien titre. */
+  const [shownProp, setShownProp] = useState(item);
+  if (item !== shownProp) {
+    setShownProp(item);
+    setNavStack((stack) => [...stack, currentItem]);
+    setCurrentItem(item);
+    setSynopsisExpanded(false);
+    setExpandedSeason(null);
+  }
+  useEffect(() => { scrollRef.current?.scrollTo({ top: 0 }); }, [shownProp]);
+
   const mediaType = currentItem.mediaType === "movie" ? "movie" as const : "tv" as const;
   const { data: detail, isLoading } = useMediaDetail(mediaType, currentItem.id);
   const { data: localSeasons } = useLocalRequestedSeasons(mediaType, currentItem.id);

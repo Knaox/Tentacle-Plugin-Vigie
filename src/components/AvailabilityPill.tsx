@@ -51,6 +51,9 @@ export const AvailabilityPill = memo(function AvailabilityPill({
   }
 
   if (variant === "detail") {
+    // « La demande a de bonnes chances d'aboutir » n'a pas de sens pour un
+    // titre qui est déjà sur le serveur.
+    const outlook = inLibrary ? null : outlookLabel(verdict, t);
     return (
       <div className="flex flex-col items-center gap-1.5">
         <div className="flex flex-wrap items-center justify-center gap-1.5">
@@ -58,10 +61,8 @@ export const AvailabilityPill = memo(function AvailabilityPill({
             ? channels.map((c) => <Chip key={c.id} channel={c} t={t} long />)
             : <NotAired verdict={verdict} t={t} long />}
         </div>
-        {outlookLabel(verdict, t) && (
-          <p className="text-center text-[11px] leading-relaxed text-tentacle-text-quaternary">
-            {outlookLabel(verdict, t)}
-          </p>
+        {outlook && (
+          <p className="text-center text-[11px] leading-relaxed text-tentacle-text-quaternary">{outlook}</p>
         )}
       </div>
     );

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { navigateToMedia } from "../utils/navigate-media";
 import { shouldOpenYouTubeExternally, openExternal } from "../utils/external";
-import { CTA_SECONDARY, CTA_SIZE_LG } from "../styles/cta";
+import { CTA_PRIMARY, CTA_SECONDARY, CTA_SIZE_LG } from "../styles/cta";
 import type { MediaType } from "../api/types";
 import type { RichTrailer } from "../utils/trailers";
 
@@ -13,6 +13,9 @@ interface DetailActionBarProps {
   mediaStatus: number;
   trailers: RichTrailer[];
   onOpenTrailer: () => void;
+  /** Le titre se demande encore : un bouton mène à la section de demande, plus bas. */
+  requestLabel?: string | null;
+  onJumpToRequest?: () => void;
 }
 
 /**
@@ -21,13 +24,16 @@ interface DetailActionBarProps {
  *  - « Bande-annonce » → même comportement que TrailerButton du core : macOS DMG
  *    ouvre le navigateur système, sinon modale d'embed (masqué si aucun trailer).
  */
-export function DetailActionBar({ mediaType, tmdbId, mediaStatus, trailers, onOpenTrailer }: DetailActionBarProps) {
+export function DetailActionBar({
+  mediaType, tmdbId, mediaStatus, trailers, onOpenTrailer, requestLabel, onJumpToRequest,
+}: DetailActionBarProps) {
   const { t } = useTranslation("seer");
   const [navigating, setNavigating] = useState(false);
   const inLibrary = mediaStatus >= 4;
   const hasTrailers = trailers.length > 0;
 
-  if (!inLibrary && !hasTrailers) return null;
+  const canJump = !!requestLabel && !!onJumpToRequest;
+  if (!inLibrary && !hasTrailers && !canJump) return null;
 
   const handleWatch = async () => {
     if (navigating) return;
@@ -68,6 +74,21 @@ export function DetailActionBar({ mediaType, tmdbId, mediaStatus, trailers, onOp
             </svg>
           )}
           {mediaType === "tv" ? t("seer:libraryGoSeries") : t("seer:libraryGoMovie")}
+        </button>
+      )}
+
+      {/* L'action qu'on vient chercher, visible sans défiler : la section de
+          demande (profil, saisons) est plus bas, ce bouton y mène. */}
+      {canJump && (
+        <button
+          type="button"
+          onClick={onJumpToRequest}
+          className={`${CTA_PRIMARY} ${CTA_SIZE_LG} flex-1 gap-2 sm:flex-initial`}
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+          </svg>
+          {requestLabel}
         </button>
       )}
 
