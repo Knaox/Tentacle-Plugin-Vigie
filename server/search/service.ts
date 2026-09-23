@@ -26,7 +26,7 @@ import type { WorkerCfg } from "../seerr-unified";
 import { foldText, nameForms, onlyThroughElision, tokenize } from "./fold";
 import { parseQuery, type ParsedQuery } from "./query";
 import { TitleIndex, type TitleEntry, type TitleRecord } from "./title-index";
-import { ensureTitleIndex } from "./title-crawl";
+import { ensureTitleIndex, titleIndexBuilding } from "./title-crawl";
 import { queueTitles } from "./title-store";
 import { refreshStatusMap } from "./status-map";
 import { refreshLocalPending } from "./pending";
@@ -63,6 +63,7 @@ export interface Ranked {
 }
 
 const FULL_TTL_MS = 60_000;
+const PARTIAL_TTL_MS = 5_000;
 const LOCAL_LIMIT = 80;
 
 function fromEntry(e: TitleEntry, lang: string): Candidate {
@@ -143,7 +144,8 @@ function score(candidates: Iterable<Candidate>, parsed: ParsedQuery, fixed: read
   return { media, fixWon };
 }
 
-function warm(ctx: SearchContext): void {
+/** Charge l'index et les statuts — dès le démarrage, et à chaque recherche (sans jamais attendre). */
+export function warmSearch(ctx: SearchContext): void {
   ensureTitleIndex(ctx.prisma, ctx.cfg, titleIndex);
   refreshStatusMap(ctx.cfg);
   refreshLocalPending(ctx.prisma);
@@ -156,7 +158,7 @@ const EMPTY = (parsed: ParsedQuery): Ranked => ({
 
 /** La réponse de l'index seul — synchrone, quelques millisecondes. */
 export function instantSearch(ctx: SearchContext, q: string, opts: SearchOptions): Ranked {
-  warm(ctx);
+  warmSearch(ctx);
   const parsed = parseQuery(q);
   if (parsed.tokens.length === 0) return EMPTY(parsed);
   const lookup = titleIndex.lookup(parsed.tokens, LOCAL_LIMIT, !opts.exact);
@@ -246,8 +248,11 @@ function fullKey(q: string, opts: SearchOptions): string {
 
 /** La réponse complète — mise en commun pour une minute. */
 export function fullSearch(ctx: SearchContext, q: string, opts: SearchOptions): Promise<Ranked> {
-  warm(ctx);
-  return cached(fullKey(q, opts), FULL_TTL_MS, () => computeFull(ctx, q, opts));
+  warmSearch(ctx);
+  // Index encore en lecture (juste après un démarrage) : sans lui, pas de
+  // correction — une réponse moins bonne qu'on ne garde que quelques secondes.
+  const ttl = titleIndexBuilding() && titleIndex.size() === 0 ? PARTIAL_TTL_MS : FULL_TTL_MS;
+  return cached(fullKey(q, opts), ttl, () => computeFull(ctx, q, opts));
 }
 
 /** La réponse complète si elle est déjà là, sinon `undefined` (et elle se prépare). */

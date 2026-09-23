@@ -17,7 +17,7 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import type { WorkerCfg } from "./seerr-unified";
-import { fullIfReady, fullSearch, instantSearch, type SearchContext, type SearchOptions } from "./search/service";
+import { fullIfReady, fullSearch, instantSearch, warmSearch, type SearchContext, type SearchOptions } from "./search/service";
 import { presentHub, presentProvider } from "./search/respond";
 import { genreFacets, providerFacets } from "./search/facets";
 import { titleIndexBuilding } from "./search/title-crawl";
@@ -57,6 +57,10 @@ export async function registerSearchRoutes(
     const cfg = await getWorkerConfig();
     return cfg ? { prisma, cfg } : null;
   }
+
+  // L'index et les statuts se chargent dès le démarrage : la première recherche
+  // après un redémarrage n'a pas à les attendre, ni à se passer de correction.
+  void context().then((ctx) => { if (ctx) warmSearch(ctx); }).catch(() => undefined);
 
   app.get("/search", async (request, reply) => {
     const startedAt = Date.now();
