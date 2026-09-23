@@ -68,3 +68,26 @@ export function seasonStatus(
   if (here > 0) return { state: "partial", percent: null };
   return { state: "requested", percent: null };
 }
+
+/**
+ * TMDB numérote parfois le prochain épisode d'un animé en absolu — « S1E84 »
+ * — quand ses saisons, elles, le découpent : c'est l'épisode 18 de la
+ * saison 4. On le replace dans sa saison, d'après le nombre d'épisodes de
+ * chacune ; un numéro qui tient dans sa saison reste tel quel.
+ */
+export function placeEpisode(
+  season: number,
+  episode: number,
+  seasons: ReadonlyArray<{ seasonNumber: number; episodeCount: number }>,
+): { season: number; episode: number } {
+  const regular = seasons.filter((s) => s.seasonNumber > 0).sort((a, b) => a.seasonNumber - b.seasonNumber);
+  const own = regular.find((s) => s.seasonNumber === season);
+  if (!own || episode <= own.episodeCount) return { season, episode };
+  let left = episode;
+  for (const s of regular) {
+    if (s.seasonNumber < season) continue;
+    if (left <= s.episodeCount) return { season: s.seasonNumber, episode: left };
+    left -= s.episodeCount;
+  }
+  return { season, episode };
+}

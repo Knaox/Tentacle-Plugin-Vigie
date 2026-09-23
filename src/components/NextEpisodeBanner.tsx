@@ -3,11 +3,12 @@ import { useTranslation } from "react-i18next";
 import { HubContext } from "../hub/HubContext";
 import type { SeerrEpisode } from "../api/types";
 import type { CalendarScope } from "../calendar/CalendarView";
+import type { TitleStatus } from "../utils/title-state";
 import {
   formatAirDateLong, formatAirTime, localDayFromUtc, relativeAirLabel, daysUntil,
 } from "../utils/episode-dates";
 import { backdropUrl } from "../utils/media-helpers";
-import { STATUS_STYLE } from "../styles/status";
+import { StateBadge } from "./ui/StateBadge";
 
 /**
  * Bannière « Prochain épisode » : SxEy + titre + date complète localisée
@@ -15,12 +16,15 @@ import { STATUS_STYLE } from "../styles/status";
  *
  * Quand Sonarr suit la série, l'heure exacte s'ajoute — et la date affichée
  * devient la vraie : celle de TMDB est celle du fuseau de la chaîne d'origine.
+ * L'épisode dit aussi où IL en est (demandé, en route, là) : « aujourd'hui »
+ * ne dit pas s'il est déjà arrivé.
  */
 export function NextEpisodeBanner({
-  episode, airDateUtc, scope,
+  episode, airDateUtc, status, scope,
 }: {
   episode: SeerrEpisode;
   airDateUtc?: string | null;
+  status?: TitleStatus | null;
   /** Le calendrier où l'épisode figure : celui du serveur s'il est suivi. */
   scope?: CalendarScope;
 }) {
@@ -75,17 +79,17 @@ export function NextEpisodeBanner({
 
         {/* Countdown */}
         <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
-          {relative && (
-            <span
-              className={`rounded-full px-3 py-1.5 text-xs font-bold ${
-                days != null && days <= 1
-                  ? STATUS_STYLE.available.chip
-                  : STATUS_STYLE.approved.chip
-              }`}
-            >
-              {relative}
-            </span>
-          )}
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            {/* Le vert est réservé à « Disponible » : un compte à rebours reste neutre. */}
+            {relative && (
+              <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${
+                days != null && days <= 1 ? "bg-[var(--brand-soft)] text-[var(--brand-light)]" : "bg-tentacle-fill-soft text-tentacle-text-secondary"
+              }`}>
+                {relative}
+              </span>
+            )}
+            {status && <StateBadge status={status} variant="chip" />}
+          </div>
           {hub && (
             <button
               type="button"

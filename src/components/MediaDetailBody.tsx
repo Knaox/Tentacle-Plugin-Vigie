@@ -10,7 +10,7 @@
  * largeur.
  */
 
-import { useContext } from "react";
+import { useContext, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   SeerrCastMember, SeerrMovieDetail, SeerrSearchResult, SeerrSeason, SeerrTvDetail,
@@ -18,6 +18,7 @@ import type {
 import type { AvailabilityVerdict, SeriesEpisodeStates } from "../api/types-releases";
 import type { RichTrailer } from "../utils/trailers";
 import { airTimeKey } from "../hooks/useAirTimes";
+import { episodeStatus, numberingMatches, placeEpisode } from "../utils/season-status";
 import { HubContext } from "../hub/HubContext";
 import { NextEpisodeBanner } from "./NextEpisodeBanner";
 import { ExtrasRow } from "./ExtrasRow";
@@ -66,7 +67,8 @@ export function MediaDetailBody(props: Props) {
   const hub = useContext(HubContext);
   const tv = mediaType === "tv" ? (detail as SeerrTvDetail | undefined) : undefined;
   const tagline = (detail as { tagline?: string } | undefined)?.tagline;
-  const next = tv?.nextEpisodeToAir;
+  const next = useNextEpisode(tv?.nextEpisodeToAir, tvSeasons);
+  const sameNumbering = numberingMatches(episodeStates, tvSeasons.filter((s) => s.seasonNumber > 0).length);
   // Suivie par le serveur (quelqu'un l'a demandée) : son épisode est au calendrier du serveur.
   const requested = (tv?.mediaInfo?.requests?.length ?? 0) > 0 || seasonLocks.size > 0;
 
@@ -95,6 +97,7 @@ export function MediaDetailBody(props: Props) {
             <NextEpisodeBanner
               episode={next}
               airDateUtc={airTimes.get(airTimeKey(next.seasonNumber ?? null, next.episodeNumber ?? null))}
+              status={episodeStatus(episodeStates, next.seasonNumber ?? 0, next.episodeNumber ?? 0, next.airDate, sameNumbering)}
               scope={requested ? "everyone" : "all"}
             />
           )}
@@ -141,4 +144,24 @@ export function MediaDetailBody(props: Props) {
       )}
     </div>
   );
+}
+
+/**
+ * Le prochain épisode, replacé dans sa saison : TMDB annonce parfois « S1E84 »
+ * pour ce qui est l'épisode 18 de la saison 4 — et le nomme « Épisode 84 ».
+ */
+function useNextEpisode(next: SeerrTvDetail["nextEpisodeToAir"] | undefined, seasons: SeerrSeason[]) {
+  const { t } = useTranslation("seer");
+  return useMemo(() => {
+    if (!next || next.seasonNumber == null || next.episodeNumber == null) return next;
+    const placed = placeEpisode(next.seasonNumber, next.episodeNumber, seasons);
+    if (placed.season === next.seasonNumber && placed.episode === next.episodeNumber) return next;
+    const generic = !next.name || /^[ée]pisode\s*\d+$/i.test(next.name.trim());
+    return {
+      ...next,
+      seasonNumber: placed.season,
+      episodeNumber: placed.episode,
+      name: generic ? t("seer:episodeFallback", { number: placed.episode }) : next.name,
+    };
+  }, [next, seasons, t]);
 }

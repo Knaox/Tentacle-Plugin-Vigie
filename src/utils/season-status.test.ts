@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { episodeStatus, seasonStatus } from "./season-status";
+import { episodeStatus, placeEpisode, seasonStatus } from "./season-status";
 import type { SeriesEpisodeStates } from "../api/types-releases";
 
 const eps: SeriesEpisodeStates = {
@@ -42,4 +42,19 @@ test("numérotations qui divergent : l'épisode du même jour fait foi, la saiso
   // TMDB : S1E66 diffusé le 23 septembre = S4E18 chez Sonarr.
   assert.deepEqual(episodeStatus(mixed, 1, 66, "2026-09-23", false), { state: "downloading", percent: 30 });
   assert.equal(seasonStatus(1, 66, 4, mixed, false)?.state, "partial");
+});
+
+test("« S1E84 » de TMDB se replace dans sa saison : S4E18 (Re:Zero)", () => {
+  const seasons = [
+    { seasonNumber: 0, episodeCount: 70 },
+    { seasonNumber: 1, episodeCount: 25 },
+    { seasonNumber: 2, episodeCount: 25 },
+    { seasonNumber: 3, episodeCount: 16 },
+    { seasonNumber: 4, episodeCount: 19 },
+  ];
+  assert.deepEqual(placeEpisode(1, 84, seasons), { season: 4, episode: 18 });
+  // Un numéro qui tient dans sa saison ne bouge pas.
+  assert.deepEqual(placeEpisode(4, 18, seasons), { season: 4, episode: 18 });
+  // Au-delà de tout ce qu'on connaît : on garde ce que dit TMDB.
+  assert.deepEqual(placeEpisode(1, 200, seasons), { season: 1, episode: 200 });
 });
