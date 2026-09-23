@@ -22,34 +22,8 @@
         "mobile"
       ],
       "labels": {
-        "en": "Catalog",
-        "fr": "Catalogue"
-      }
-    },
-    {
-      "path": "/requests",
-      "icon": "list",
-      "platforms": [
-        "web",
-        "desktop",
-        "mobile"
-      ],
-      "labels": {
-        "en": "My Requests",
-        "fr": "Mes demandes"
-      }
-    },
-    {
-      "path": "/releases",
-      "icon": "calendar",
-      "platforms": [
-        "web",
-        "desktop",
-        "mobile"
-      ],
-      "labels": {
-        "en": "Calendar",
-        "fr": "Calendrier"
+        "en": "Vigie",
+        "fr": "Vigie"
       }
     },
     {
@@ -65,6 +39,9 @@
       }
     }
   ],
+  "tab": {
+    "icon": "compass"
+  },
   "search": {
     "path": "/search/provider",
     "types": [

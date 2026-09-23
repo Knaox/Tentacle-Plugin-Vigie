@@ -1,0 +1,26 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readHubEntry } from "./deepLink";
+
+test("une recommandation ouvre la fiche du titre", () => {
+  assert.deepEqual(readHubEntry("/discover", "?media=movie:603"), {
+    tab: "discover", media: { mediaType: "movie", id: 603 }, query: "",
+  });
+});
+
+test("la recherche de Tentacle passe la main avec sa requête", () => {
+  assert.equal(readHubEntry("/discover", "?q=dune%202021").query, "dune 2021");
+});
+
+test("un onglet se choisit par la requête, ou par les anciens chemins", () => {
+  assert.equal(readHubEntry("/discover", "?tab=requests").tab, "requests");
+  assert.equal(readHubEntry("/requests", undefined).tab, "requests");
+  assert.equal(readHubEntry("/releases", "").tab, "calendar");
+  assert.equal(readHubEntry("/discover", "?tab=inconnu").tab, "discover");
+});
+
+test("un identifiant de fiche mal formé est ignoré", () => {
+  assert.equal(readHubEntry("/discover", "?media=movie:abc").media, null);
+  assert.equal(readHubEntry("/discover", "?media=person:12").media, null);
+  assert.equal(readHubEntry("/discover", "?media=tv:0").media, null);
+});

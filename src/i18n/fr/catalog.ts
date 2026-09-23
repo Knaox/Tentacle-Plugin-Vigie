@@ -28,7 +28,7 @@ export default {
   filterProcessing: "En cours",
   filterSent: "Envoyées",
   filterApproved: "Approuvées",
-  filterDownloading: "Téléchargement",
+  filterDownloading: "En route",
   filterAvailable: "Disponibles",
   filterFailed: "Échecs",
   filterDeleting: "En suppression",

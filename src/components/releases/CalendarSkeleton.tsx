@@ -1,5 +1,5 @@
 import { Shimmer } from "../SkeletonCard";
-import type { ReleasesView } from "./ReleasesTabs";
+import type { ReleasesView } from "../../hooks/useReleasesRange";
 
 /**
  * Le squelette EN FORME de calendrier.

@@ -28,7 +28,7 @@ export default {
   filterProcessing: "Processing",
   filterSent: "Sent",
   filterApproved: "Approved",
-  filterDownloading: "Downloading",
+  filterDownloading: "On its way",
   filterAvailable: "Available",
   filterFailed: "Failed",
   filterDeleting: "Deleting",

@@ -1,4 +1,6 @@
+import { useContext } from "react";
 import { useTranslation } from "react-i18next";
+import { HubContext } from "../hub/HubContext";
 import type { SeerrEpisode } from "../api/types";
 import {
   formatAirDateLong, formatAirTime, localDayFromUtc, relativeAirLabel, daysUntil,
@@ -17,6 +19,8 @@ export function NextEpisodeBanner({
   episode, airDateUtc,
 }: { episode: SeerrEpisode; airDateUtc?: string | null }) {
   const { t } = useTranslation("seer");
+  // Dans le hub : le calendrier est à un clic — c'est là qu'on suit la suite.
+  const hub = useContext(HubContext);
   if (!episode.airDate) return null;
 
   const airDate = localDayFromUtc(airDateUtc) ?? episode.airDate;
@@ -64,17 +68,28 @@ export function NextEpisodeBanner({
         </div>
 
         {/* Countdown */}
-        {relative && (
-          <span
-            className={`flex-shrink-0 rounded-full px-3 py-1.5 text-xs font-bold ${
-              days != null && days <= 1
-                ? STATUS_STYLE.available.chip
-                : STATUS_STYLE.approved.chip
-            }`}
-          >
-            {relative}
-          </span>
-        )}
+        <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
+          {relative && (
+            <span
+              className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                days != null && days <= 1
+                  ? STATUS_STYLE.available.chip
+                  : STATUS_STYLE.approved.chip
+              }`}
+            >
+              {relative}
+            </span>
+          )}
+          {hub && (
+            <button
+              type="button"
+              onClick={() => hub.setTab("calendar")}
+              className="min-h-[32px] rounded-full px-2 text-xs font-semibold text-[var(--brand-light)] underline-offset-2 hover:underline"
+            >
+              {t("seer:openCalendar")}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

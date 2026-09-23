@@ -37,7 +37,7 @@ export default {
   availOutlookNotYet: "Rien n'est encore sorti : la demande restera en attente jusque-là.",
   availRequestAnyway: "Demander quand même",
   availRequestAnywayHint:
-    "Le téléchargement ne pourra pas démarrer avant la sortie. La demande restera en attente jusque-là.",
+    "Rien ne pourra arriver avant la sortie. La demande restera en attente jusque-là.",
 
   // Progression réelle des téléchargements
   progressRemaining: "≈ {{eta}} restantes",
@@ -45,10 +45,10 @@ export default {
   // Le fichier est complet mais pas encore rangé dans la bibliothèque.
   // Court dans la puce, qui partage sa ligne avec un titre tronqué.
   statusValidating: "En cours de validation",
-  progressValidating: "Téléchargement terminé — vérification et rangement en cours",
+  progressValidating: "Arrivé — vérification et rangement en cours",
 
   // File de téléchargement du serveur (administrateurs)
-  downloadsTab: "Téléchargements du serveur",
+  downloadsTab: "File du serveur",
   downloadsSubtitle:
     "La file de Sonarr et Radarr : tout ce que le serveur récupère, demandes de tout le monde comprises.",
   downloadsEmpty: "Rien ne descend en ce moment",

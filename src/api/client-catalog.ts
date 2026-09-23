@@ -47,6 +47,8 @@ export async function discoverMedia(
   page: number,
   filters: DiscoverFilters,
   showBlocked = false,
+  /** Seulement ce qui sort à partir de cette date ('YYYY-MM-DD') — « À venir ». */
+  releasedFrom?: string,
 ): Promise<SeerrPagedResponse> {
   // Anime utilise l'endpoint TV avec le keyword TMDB "anime" (210024)
   const seerrType = mediaType === "anime" ? "tv" : mediaType;
@@ -84,6 +86,12 @@ export async function discoverMedia(
   if (filters.yearTo != null) {
     const key = seerrType === "movies" ? "primaryReleaseDateLte" : "firstAirDateLte";
     params[key] = `${filters.yearTo}-12-31`;
+  }
+
+  // « À venir » : prime sur l'année de début, qui n'a plus de sens.
+  if (releasedFrom) {
+    const key = seerrType === "movies" ? "primaryReleaseDateGte" : "firstAirDateGte";
+    params[key] = releasedFrom;
   }
 
   // Rating minimum

@@ -13,6 +13,7 @@ import catalog from "./en/catalog";
 import requests from "./en/requests";
 import releases from "./en/releases";
 import admin from "./en/admin";
+import hub from "./en/hub";
 
 export default {
   ...common,
@@ -20,4 +21,5 @@ export default {
   ...requests,
   ...releases,
   ...admin,
+  ...hub,
 } as const;

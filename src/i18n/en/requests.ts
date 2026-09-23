@@ -66,7 +66,7 @@ export default {
   seasonActionAll: "Entire series",
   seasonActionSelected: "Selected seasons",
   seasonActionConfirm: "Confirm",
-  seasonActionDeleteWarn: "Downloaded files will be deleted (for all users). The series/movie stays in Sonarr/Radarr.",
+  seasonActionDeleteWarn: "Files will be deleted (for all users). The series/movie stays in Sonarr/Radarr.",
   seasonActionRetryWarn: "Sonarr/Radarr data will be deleted",
 
   // Permissions / quotas (business errors returned by the backend)

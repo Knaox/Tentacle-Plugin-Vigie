@@ -1,7 +1,8 @@
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, useContext } from "react";
 import { useTranslation } from "react-i18next";
 import { profileUrl } from "../utils/media-helpers";
 import type { SeerrCastMember } from "../api/types";
+import { HubContext } from "../hub/HubContext";
 
 interface CastRowProps {
   cast: SeerrCastMember[];
@@ -17,6 +18,8 @@ function AvatarFallback({ name }: { name: string }) {
 
 export function CastRow({ cast }: CastRowProps) {
   const { t } = useTranslation("seer");
+  // Dans le hub : un portrait ouvre la filmographie. Ailleurs, rien ne se passe.
+  const hub = useContext(HubContext);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -81,12 +84,19 @@ export function CastRow({ cast }: CastRowProps) {
         onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.cursor = "grab"; }}
       >
         {members.map((person) => (
-          <div key={person.id} className="flex w-[60px] flex-shrink-0 flex-col items-center">
+          <button
+            key={person.id}
+            type="button"
+            onClick={() => hub?.openPerson(person.id)}
+            disabled={!hub}
+            aria-label={person.name}
+            className="group flex w-[60px] flex-shrink-0 flex-col items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)] disabled:cursor-default"
+          >
             {person.profilePath ? (
               <img
                 src={profileUrl(person.profilePath)}
-                alt={person.name}
-                className="h-[60px] w-[60px] rounded-full object-cover"
+                alt=""
+                className="h-[60px] w-[60px] rounded-full object-cover ring-2 ring-transparent transition-shadow group-hover:ring-[rgba(var(--brand-rgb),0.6)]"
                 loading="lazy"
               />
             ) : (
@@ -98,7 +108,7 @@ export function CastRow({ cast }: CastRowProps) {
             <span className="w-full truncate text-center text-[10px] text-tentacle-text-quaternary">
               {person.character}
             </span>
-          </div>
+          </button>
         ))}
       </div>
     </div>

@@ -8,21 +8,19 @@ import { ToastProvider } from "./components/ToastProvider";
 import enTranslations from "./i18n/en";
 import frTranslations from "./i18n/fr";
 
-const DiscoverPage = lazy(() =>
-  import("./components/DiscoverPage").then((m) => ({
-    default: () => <ToastProvider><m.DiscoverPage /></ToastProvider>,
-  }))
-);
-const RequestsPage = lazy(() =>
-  import("./components/RequestsPage").then((m) => ({
-    default: () => <ToastProvider><m.RequestsPage /></ToastProvider>,
-  }))
-);
-const ReleasesPage = lazy(() =>
-  import("./components/releases/ReleasesPage").then((m) => ({
-    default: () => <ToastProvider><m.ReleasesPage /></ToastProvider>,
-  }))
-);
+/* Le hub, sous les trois chemins historiques : `/discover` (le seul que
+ * publie le manifeste), et `/requests` / `/releases`, que des liens anciens
+ * peuvent encore viser — chacun ouvre l'onglet correspondant. */
+function hubRoute(routePath: string) {
+  return lazy(() =>
+    import("./hub/VigieHub").then((m) => ({
+      default: () => <ToastProvider><m.VigieHub routePath={routePath} /></ToastProvider>,
+    }))
+  );
+}
+const DiscoverHub = hubRoute("/discover");
+const RequestsHub = hubRoute("/requests");
+const ReleasesHub = hubRoute("/releases");
 const SeerConfigPage = lazy(() =>
   import("./components/admin/SeerConfigPage").then((m) => ({ default: m.SeerConfigPage }))
 );
@@ -73,8 +71,8 @@ export const seerPlugin: TentaclePlugin = {
   routes: [
     {
       path: "/discover",
-      component: DiscoverPage,
-      label: "seer:navDiscover",
+      component: DiscoverHub,
+      label: "seer:navHub",
       icon: DiscoverIcon,
       showInMobileNav: true,
       showInSidebar: true,
@@ -82,43 +80,31 @@ export const seerPlugin: TentaclePlugin = {
     },
     {
       path: "/requests",
-      component: RequestsPage,
+      component: RequestsHub,
       label: "seer:navMyRequests",
       icon: RequestsIcon,
-      showInMobileNav: true,
-      showInSidebar: true,
+      showInMobileNav: false,
+      showInSidebar: false,
       requiresAuth: true,
     },
     {
       path: "/releases",
-      component: ReleasesPage,
+      component: ReleasesHub,
       label: "seer:navReleases",
       icon: ReleasesIcon,
-      showInMobileNav: true,
-      showInSidebar: true,
+      showInMobileNav: false,
+      showInSidebar: false,
       requiresAuth: true,
     },
   ],
 
-  /* Libellés alignés sur ceux des routes : le même écran portait jusqu'ici
-   * trois noms différents selon l'endroit d'où on le regardait. */
+  /* UNE entrée : le hub. Découvrir, Mes demandes et le Calendrier en sont les
+   * onglets — passer de l'un à l'autre ne recharge plus rien. */
   navItems: [
     {
-      label: "seer:navDiscover",
+      label: "seer:navHub",
       path: "/discover",
       icon: DiscoverIcon,
-      platforms: ["web", "desktop", "mobile"],
-    },
-    {
-      label: "seer:navMyRequests",
-      path: "/requests",
-      icon: RequestsIcon,
-      platforms: ["web", "desktop", "mobile"],
-    },
-    {
-      label: "seer:navReleases",
-      path: "/releases",
-      icon: ReleasesIcon,
       platforms: ["web", "desktop", "mobile"],
     },
   ],

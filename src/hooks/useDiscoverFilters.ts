@@ -1,8 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import type { DiscoverFilters, SortOption, SortOrder, TvStatus } from "../api/types";
-import type { ChannelChoice } from "../utils/channel-filter";
 
-const DEFAULT_FILTERS: DiscoverFilters = {
+export const DEFAULT_FILTERS: DiscoverFilters = {
   genres: [],
   watchProviders: [],
   yearFrom: null,
@@ -10,13 +9,13 @@ const DEFAULT_FILTERS: DiscoverFilters = {
   ratingMin: null,
   originalLanguage: null,
   tvStatus: [],
-  channels: [],
   sortBy: "popularity",
   sortOrder: "desc",
 };
 
-export function useDiscoverFilters() {
-  const [filters, setFilters] = useState<DiscoverFilters>({ ...DEFAULT_FILTERS });
+/** `initial` : le préréglage d'un parcours (genre, plateforme, tri…). */
+export function useDiscoverFilters(initial?: Partial<DiscoverFilters>) {
+  const [filters, setFilters] = useState<DiscoverFilters>(() => ({ ...DEFAULT_FILTERS, ...initial }));
 
   const toggleGenre = useCallback((id: number) => {
     setFilters((f) => ({
@@ -57,13 +56,6 @@ export function useDiscoverFilters() {
     }));
   }, []);
 
-  const toggleChannel = useCallback((c: ChannelChoice) => {
-    setFilters((f) => ({
-      ...f,
-      channels: f.channels.includes(c) ? f.channels.filter((x) => x !== c) : [...f.channels, c],
-    }));
-  }, []);
-
   const setSortBy = useCallback((v: SortOption) => {
     setFilters((f) => ({ ...f, sortBy: v }));
   }, []);
@@ -88,7 +80,6 @@ export function useDiscoverFilters() {
     if (filters.ratingMin != null) count++;
     if (filters.originalLanguage != null) count++;
     if (filters.tvStatus.length > 0) count++;
-    if (filters.channels.length > 0) count++;
     return count;
   }, [filters]);
 
@@ -103,7 +94,6 @@ export function useDiscoverFilters() {
     setRatingMin,
     setOriginalLanguage,
     toggleTvStatus,
-    toggleChannel,
     setSortBy,
     setSortOrder,
     resetFilters,

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import {
   today, addDays, startOfWeek, startOfMonth, endOfMonth, monthGridBounds,
 } from "../utils/calendar-groups";
-import type { ReleasesView } from "../components/releases/ReleasesTabs";
 
 /*
  * La navigation de l'agenda appartient à la PAGE, plus aux vues.
@@ -17,6 +16,9 @@ import type { ReleasesView } from "../components/releases/ReleasesTabs";
  * démarrait à aujourd'hui : un samedi, le lundi au vendredi de la semaine en
  * cours n'avaient jamais été demandés au serveur.
  */
+
+/** La semaine ou le mois : les deux vues qui ont un curseur. */
+export type ReleasesView = "week" | "month";
 
 export interface MonthCursor {
   year: number;

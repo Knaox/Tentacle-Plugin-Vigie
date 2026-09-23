@@ -36,7 +36,7 @@ export default {
   availOutlookNotYet: "Nothing is out yet: the request will stay pending until then.",
   availRequestAnyway: "Request anyway",
   availRequestAnywayHint:
-    "Downloading cannot start before release. The request will stay pending until then.",
+    "Nothing can arrive before release. The request will stay pending until then.",
 
   // Real download progress
   progressRemaining: "≈ {{eta}} left",
@@ -44,10 +44,10 @@ export default {
   // The file is complete but not yet filed into the library.
   // Short in the chip, which shares its line with a truncated title.
   statusValidating: "Validating",
-  progressValidating: "Download finished — checking and importing",
+  progressValidating: "Arrived — checking and importing",
 
   // Server download queue (administrators)
-  downloadsTab: "Server downloads",
+  downloadsTab: "Server queue",
   downloadsSubtitle:
     "The Sonarr and Radarr queue: everything the server is fetching, everyone's requests included.",
   downloadsEmpty: "Nothing coming down right now",

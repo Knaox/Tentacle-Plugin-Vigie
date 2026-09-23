@@ -52,7 +52,7 @@ export default {
 
   // Destructive options on delete/retry
   deleteAlsoFiles: "Also delete content (Sonarr/Radarr)",
-  deleteAlsoFilesHint: "Unchecked: monitoring is turned off (Sonarr/Radarr won't re-download), downloaded content is kept. Checked: files are deleted too. The series/movie is never removed from Sonarr/Radarr.",
-  forceRedownload: "Force re-download",
+  deleteAlsoFilesHint: "Unchecked: monitoring is turned off (Sonarr/Radarr stop fetching it), content already there is kept. Checked: files are deleted too. The series/movie is never removed from Sonarr/Radarr.",
+  forceRedownload: "Force a fresh fetch",
   forceRedownloadHint: "Unchecked: simply re-trigger the request in Jellyseerr. Checked: delete existing media and re-request.",
 } as const;
