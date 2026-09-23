@@ -36,6 +36,10 @@ export interface RankInput {
 export const TEXT_ALL_WORDS = 650;
 /** Les mots qui comptent seulement. */
 export const TEXT_KEY_WORDS = 560;
+/* Ce que coûte une correction : à texte égal, ce qui a été tapé l'emporte. */
+export const FIX_PENALTY = 80;
+/** Le titre exact, tapé (1000) ou atteint par correction (1000 − la pénalité). */
+export const TEXT_EXACT_TITLE = 1000 - FIX_PENALTY;
 
 function covered(words: readonly string[], wanted: readonly string[], lastIsPrefix: boolean): number {
   let found = 0;

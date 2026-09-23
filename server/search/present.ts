@@ -154,6 +154,11 @@ const LABELS = {
   en: { movie: "Movie", series: "Series", requested: "Requested", processing: "In progress", release: "out" },
 };
 
+/** Sur le serveur, en tout ou en partie. */
+export function inLibrary(status: number | undefined): boolean {
+  return status === MEDIA_STATUS.PARTIALLY_AVAILABLE || status === MEDIA_STATUS.AVAILABLE;
+}
+
 /** Déjà dans la bibliothèque, ou bloqué : rien à proposer hors bibliothèque. */
 export function inLibraryOrBlocked(status: number | undefined): boolean {
   return status === MEDIA_STATUS.PARTIALLY_AVAILABLE

@@ -31,7 +31,7 @@ import { queueTitles } from "./title-store";
 import { refreshStatusMap } from "./status-map";
 import { refreshLocalPending } from "./pending";
 import { remoteSearch, type RemoteMedia, type RemotePage } from "./remote";
-import { TEXT_KEY_WORDS, scoreMediaWithText, scorePerson, textScore } from "./rank";
+import { FIX_PENALTY, TEXT_KEY_WORDS, scoreMediaWithText, scorePerson, textScore } from "./rank";
 import type { Candidate, PersonCandidate } from "./present";
 
 export const titleIndex = new TitleIndex();
@@ -64,8 +64,6 @@ export interface Ranked {
 
 const FULL_TTL_MS = 60_000;
 const LOCAL_LIMIT = 80;
-/* Ce que coûte une correction : à texte égal, ce qui a été tapé l'emporte. */
-const FIX_PENALTY = 80;
 
 function fromEntry(e: TitleEntry, lang: string): Candidate {
   const title = e.titles.get(lang) ?? e.titles.get("en") ?? e.originalTitle ?? [...e.titles.values()][0] ?? "";

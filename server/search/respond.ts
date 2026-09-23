@@ -9,13 +9,13 @@
  */
 
 import { foldText, significantTokens, tokenize } from "./fold";
-import { TEXT_ALL_WORDS, TEXT_KEY_WORDS, textScore } from "./rank";
-import { MEDIA_STATUS, statusOf } from "./status-map";
+import { TEXT_ALL_WORDS, TEXT_EXACT_TITLE, TEXT_KEY_WORDS, textScore } from "./rank";
+import { MEDIA_STATUS, statusMapReady, statusOf } from "./status-map";
 import { isLocallyPending } from "./pending";
 import type { Facet } from "./facets";
 import type { Ranked } from "./service";
 import {
-  inLibraryOrBlocked, toProviderItem, toSearchItem,
+  inLibrary, inLibraryOrBlocked, toProviderItem, toSearchItem,
   type Candidate, type HubSearchResponse, type ProviderResponse, type SearchPerson,
 } from "./present";
 
@@ -25,6 +25,9 @@ import {
 const TOP_SINGLE_WORD = 800;
 const GROUP_LIMIT = 40;
 const PEOPLE_LIMIT = 10;
+/* Ce qui mérite d'être proposé à côté d'un titre que la bibliothèque a déjà. */
+const NOTABLE_VOTES = 30;
+const NOTABLE_POPULARITY = 3;
 
 export function statusFor(c: Pick<Candidate, "key" | "mediaType" | "tmdbId" | "remoteStatus">): number | undefined {
   const known = statusOf(c.mediaType, c.tmdbId) ?? c.remoteStatus;
@@ -127,8 +130,21 @@ export function presentProvider(
   const media = visible(ranked.media);
   const best = media.reduce((m, c) => Math.max(m, c.text), 0);
   const threshold = best >= 1000 ? TOP_SINGLE_WORD : TEXT_ALL_WORDS;
+  // La requête nomme exactement un titre que la bibliothèque a DÉJÀ : c'est lui
+  // qu'on cherchait, et Tentacle le montre. Ne restent que les homonymes et les
+  // suites qui comptent (« Dune » de 1984, « Dune : Troisième partie ») — pas
+  // « Breaking Bad Wolf », un court sans date, ni « Interstelar », homonyme
+  // obscur d'une faute de frappe sur « Interstellar ».
+  const libraryHasIt = media.some((c) => c.text >= TEXT_EXACT_TITLE && inLibrary(statusFor(c)));
+  // Quelques secondes après le démarrage, la carte des statuts n'est pas encore
+  // chargée : un titre venu de l'index seul pourrait être sur le serveur. Seul
+  // TMDB (via Jellyseerr, qui joint le statut) le dit alors — et le client
+  // redemande tant que la réponse n'est pas complète.
+  const statusesKnown = statusMapReady();
   const items = media
+    .filter((c) => statusesKnown || c.remoteRank !== null)
     .filter((c) => c.text >= threshold)
+    .filter((c) => !libraryHasIt || c.voteCount >= NOTABLE_VOTES || c.popularity >= NOTABLE_POPULARITY)
     .filter((c) => type === null || (type === "movie") === (c.mediaType === "movie"))
     .filter((c) => !inLibraryOrBlocked(statusFor(c)))
     .slice(0, limit)
@@ -137,7 +153,7 @@ export function presentProvider(
   return {
     query: q,
     correction: ranked.correction,
-    complete: ranked.complete,
+    complete: ranked.complete && statusesKnown,
     items,
     moreHref: q ? `/discover?q=${encodeURIComponent(q)}` : null,
   };
