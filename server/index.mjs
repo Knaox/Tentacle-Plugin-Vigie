@@ -2931,20 +2931,478 @@ function filterAndPaginate(items, query) {
   };
 }
 
+// server/sonarr-schedule.ts
+var SERIES_TTL_MS = 30 * 6e4;
+var SERIES_STALE_MS = 6 * 36e5;
+var CALENDAR_TTL_MS = 30 * 6e4;
+var CALENDAR_STALE_MS = 6 * 36e5;
+var EPISODES_TTL_MS = 36e5;
+var EPISODES_STALE_MS = 12 * 36e5;
+function airTimeKey(season, episode) {
+  return `S${season}E${episode}`;
+}
+async function sonarr(cfg) {
+  return getArrServerConfig(cfg.seerrUrl, cfg.seerrApiKey, "sonarr");
+}
+async function arrGet(server, path) {
+  try {
+    const res = await fetch(`${buildArrUrl(server)}${path}`, {
+      headers: { "X-Api-Key": server.apiKey },
+      signal: AbortSignal.timeout(15e3)
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+var SERIES_INDEX_KEY = "seer:sonarr:series";
+var INDEX_RETRY_MS = 6e4;
+var indexRereadAt = 0;
+async function readSeriesIndex(cfg) {
+  const server = await sonarr(cfg);
+  if (!server) return /* @__PURE__ */ new Map();
+  const rows = await arrGet(server, "/api/v3/series");
+  if (rows === null) throw new Error("Sonarr injoignable (index des s\xE9ries)");
+  const index = /* @__PURE__ */ new Map();
+  for (const s of rows) {
+    if (s.tmdbId && s.id) index.set(s.tmdbId, s.id);
+  }
+  return index;
+}
+async function sonarrSeriesIndex(cfg) {
+  return cached(SERIES_INDEX_KEY, SERIES_TTL_MS, () => readSeriesIndex(cfg), { staleMs: SERIES_STALE_MS });
+}
+async function sonarrSeriesId(cfg, tmdbId) {
+  const known = (await sonarrSeriesIndex(cfg)).get(tmdbId);
+  if (known || Date.now() - indexRereadAt < INDEX_RETRY_MS) return known ?? null;
+  indexRereadAt = Date.now();
+  const fresh = await readSeriesIndex(cfg).catch(() => null);
+  if (!fresh) return null;
+  put(SERIES_INDEX_KEY, fresh, SERIES_TTL_MS, SERIES_STALE_MS);
+  return fresh.get(tmdbId) ?? null;
+}
+async function sonarrCalendarRaw(cfg, from, to) {
+  return cached(
+    `seer:sonarr:calraw:${from}:${to}`,
+    CALENDAR_TTL_MS,
+    async () => {
+      const server = await sonarr(cfg);
+      if (!server) return [];
+      const rows = await arrGet(
+        server,
+        `/api/v3/calendar?start=${from}&end=${to}&includeSeries=false`
+      );
+      if (rows === null) throw new Error("Sonarr injoignable (calendrier)");
+      return rows;
+    },
+    { staleMs: CALENDAR_STALE_MS }
+  );
+}
+async function sonarrWindowAirTimes(cfg, from, to) {
+  const rows = await sonarrCalendarRaw(cfg, from, to);
+  const times = /* @__PURE__ */ new Map();
+  for (const e of rows) {
+    if (!e.airDateUtc || e.seriesId == null || e.seasonNumber == null || e.episodeNumber == null) continue;
+    times.set(`${e.seriesId}:${airTimeKey(e.seasonNumber, e.episodeNumber)}`, e.airDateUtc);
+  }
+  return times;
+}
+async function sonarrWindowEpisodes(cfg, from, to) {
+  const [rows, index] = await Promise.all([
+    sonarrCalendarRaw(cfg, from, to),
+    sonarrSeriesIndex(cfg)
+  ]);
+  if (rows.length === 0 || index.size === 0) return [];
+  const tmdbBySeriesId = /* @__PURE__ */ new Map();
+  for (const [tmdbId, seriesId] of index) tmdbBySeriesId.set(seriesId, tmdbId);
+  const out = [];
+  for (const e of rows) {
+    if (!e.airDateUtc || e.seriesId == null || e.seasonNumber == null || e.episodeNumber == null) continue;
+    const tmdbId = tmdbBySeriesId.get(e.seriesId);
+    if (!tmdbId) continue;
+    out.push({
+      tmdbId,
+      seasonNumber: e.seasonNumber,
+      episodeNumber: e.episodeNumber,
+      airDateUtc: e.airDateUtc,
+      airDate: e.airDate && /^\d{4}-\d{2}-\d{2}$/.test(e.airDate) ? e.airDate : null
+    });
+  }
+  return out;
+}
+async function attachAirTimes(cfg, res) {
+  const episodes = res.items.filter((i) => i.kind === "episode");
+  if (episodes.length === 0) return res;
+  try {
+    const [index, times] = await Promise.all([
+      sonarrSeriesIndex(cfg),
+      // Fenêtre élargie d'un jour : un épisode peut basculer d'une journée à
+      // l'autre une fois ramené à l'heure locale, dans un sens comme dans l'autre.
+      sonarrWindowAirTimes(cfg, shiftDay(res.from, -1), shiftDay(res.to, 1))
+    ]);
+    if (index.size === 0 || times.size === 0) return res;
+    for (const item of episodes) {
+      const seriesId = index.get(item.tmdbId);
+      if (!seriesId || item.seasonNumber == null || item.episodeNumber == null) continue;
+      const at = times.get(`${seriesId}:${airTimeKey(item.seasonNumber, item.episodeNumber)}`);
+      if (at) item.airDateUtc = at;
+    }
+  } catch {
+  }
+  return res;
+}
+function shiftDay(day, delta) {
+  const [y, m, d] = day.split("-").map(Number);
+  const date = new Date(y, m - 1, d + delta);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+async function sonarrSeriesAirTimes(cfg, tmdbId) {
+  return cached(
+    `seer:sonarr:eps:${tmdbId}`,
+    EPISODES_TTL_MS,
+    async () => {
+      const [server, index] = await Promise.all([sonarr(cfg), sonarrSeriesIndex(cfg)]);
+      const seriesId = index.get(tmdbId);
+      if (!server || !seriesId) return /* @__PURE__ */ new Map();
+      const rows = await arrGet(server, `/api/v3/episode?seriesId=${seriesId}`);
+      if (rows === null) throw new Error("Sonarr injoignable (\xE9pisodes)");
+      const times = /* @__PURE__ */ new Map();
+      for (const e of rows) {
+        if (!e.airDateUtc || e.seasonNumber == null || e.episodeNumber == null) continue;
+        times.set(airTimeKey(e.seasonNumber, e.episodeNumber), e.airDateUtc);
+      }
+      return times;
+    },
+    { staleMs: EPISODES_STALE_MS }
+  );
+}
+
+// server/sonarr-episodes.ts
+var FACTS_TTL_MS = 6e4;
+var SERIES_FACTS_TTL_MS = 45e3;
+var FACTS_STALE_MS = 10 * 6e4;
+var seriesFactsKey = (tmdbId) => `seer:sonarr:facts:series:${tmdbId}`;
+function episodeKey(tmdbId, season, episode) {
+  return `${tmdbId}:${airTimeKey(season, episode)}`;
+}
+function factOf(row) {
+  const fact = { hasFile: row.hasFile === true, monitored: row.monitored === true };
+  if (row.airDate && /^\d{4}-\d{2}-\d{2}$/.test(row.airDate)) fact.airDate = row.airDate;
+  return fact;
+}
+async function sonarrWindowFacts(cfg, from, to) {
+  return cached(
+    `seer:sonarr:facts:${from}:${to}`,
+    FACTS_TTL_MS,
+    async () => {
+      const facts = { byEpisode: /* @__PURE__ */ new Map(), byDay: /* @__PURE__ */ new Map() };
+      const [server, index] = await Promise.all([sonarr(cfg), sonarrSeriesIndex(cfg)]);
+      if (!server || index.size === 0) return facts;
+      const rows = await arrGet(
+        server,
+        `/api/v3/calendar?start=${from}&end=${to}&unmonitored=true&includeSeries=false`
+      );
+      if (rows === null) throw new Error("Sonarr injoignable (\xE9tat des \xE9pisodes)");
+      const tmdbBySeries = /* @__PURE__ */ new Map();
+      for (const [tmdbId, seriesId] of index) tmdbBySeries.set(seriesId, tmdbId);
+      for (const row of rows) {
+        const tmdbId = row.seriesId != null ? tmdbBySeries.get(row.seriesId) : void 0;
+        if (!tmdbId || row.seasonNumber == null || row.episodeNumber == null) continue;
+        const fact = factOf(row);
+        facts.byEpisode.set(episodeKey(tmdbId, row.seasonNumber, row.episodeNumber), fact);
+        if (row.airDate) {
+          const day = `${tmdbId}:${row.airDate}`;
+          facts.byDay.set(day, [...facts.byDay.get(day) ?? [], fact]);
+        }
+      }
+      return facts;
+    },
+    { staleMs: FACTS_STALE_MS }
+  );
+}
+async function sonarrSeriesFacts(cfg, tmdbId) {
+  return cached(
+    seriesFactsKey(tmdbId),
+    SERIES_FACTS_TTL_MS,
+    async () => {
+      const [server, seriesId] = await Promise.all([sonarr(cfg), sonarrSeriesId(cfg, tmdbId)]);
+      if (!server || !seriesId) return /* @__PURE__ */ new Map();
+      const rows = await arrGet(server, `/api/v3/episode?seriesId=${seriesId}`);
+      if (rows === null) throw new Error("Sonarr injoignable (\xE9pisodes de la s\xE9rie)");
+      const facts = /* @__PURE__ */ new Map();
+      for (const row of rows) {
+        if (row.seasonNumber == null || row.episodeNumber == null) continue;
+        facts.set(airTimeKey(row.seasonNumber, row.episodeNumber), factOf(row));
+      }
+      return facts;
+    },
+    { staleMs: FACTS_STALE_MS }
+  );
+}
+
+// server/radarr-movies.ts
+var MOVIE_TTL_MS = 3e4;
+var movieFactsKey = (tmdbId) => `seer:radarr:movie:${tmdbId}`;
+async function radarrHasFile(cfg, tmdbId) {
+  const server = await getArrServerConfig(cfg.seerrUrl, cfg.seerrApiKey, "radarr");
+  if (!server) return null;
+  return cached(movieFactsKey(tmdbId), MOVIE_TTL_MS, async () => {
+    const movies = await arrGet(server, `/api/v3/movie?tmdbId=${tmdbId}`);
+    if (movies === null) throw new Error("Radarr injoignable (fichier d'un film)");
+    return movies.some((m) => m.hasFile === true);
+  }).catch(() => null);
+}
+
+// server/arr-queue.ts
+var MAX_ITEMS = 60;
+var QUEUE_TTL_MS = 8e3;
+var PAGE_SIZE = 250;
+async function fetchQueue(server, path) {
+  try {
+    const res = await fetch(`${buildArrUrl(server)}${path}`, {
+      headers: { "X-Api-Key": server.apiKey },
+      signal: AbortSignal.timeout(15e3)
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return { records: data.records ?? [], total: data.totalRecords ?? 0 };
+  } catch {
+    return null;
+  }
+}
+function isValidating2(r) {
+  const state2 = r.trackedDownloadState ?? "";
+  if (state2 === "importPending" || state2 === "importing") return true;
+  if (r.status === "completed") return true;
+  return r.sizeleft === 0 && typeof r.size === "number" && r.size > 0;
+}
+var BLOCKED_STATES = /* @__PURE__ */ new Set(["importBlocked", "importFailed", "failedPending", "failed"]);
+function isStalledRecord(r) {
+  return isStalledStatus(r.status) || BLOCKED_STATES.has(r.trackedDownloadState ?? "") || r.trackedDownloadStatus === "error";
+}
+function firstMessage(r) {
+  if (r.errorMessage) return r.errorMessage;
+  for (const m of r.statusMessages ?? []) {
+    const text = m.messages?.[0] ?? m.title;
+    if (text) return text;
+  }
+  return null;
+}
+function toEntry(r, source) {
+  if (r.id == null) return null;
+  const size = typeof r.size === "number" && r.size > 0 ? r.size : null;
+  const left = typeof r.sizeleft === "number" ? Math.max(0, r.sizeleft) : null;
+  const percent = size != null && left != null ? Math.min(100, Math.max(0, (size - left) / size * 100)) : null;
+  const media = source === "sonarr" ? r.series : r.movie;
+  const stalled = isStalledRecord(r);
+  return {
+    id: `${source}-${r.id}`,
+    source,
+    mediaType: source === "sonarr" ? "tv" : "movie",
+    title: media?.title ?? r.title ?? "",
+    seasonNumber: r.seasonNumber ?? null,
+    episodeNumber: r.episode?.episodeNumber ?? null,
+    episodeTitle: r.episode?.title ?? null,
+    tmdbId: media?.tmdbId ?? null,
+    percent,
+    size,
+    sizeLeft: size != null ? left : null,
+    etaSeconds: parseTimeSpan(r.timeleft),
+    validating: isValidating2(r) && !stalled,
+    paused: r.status === "paused" || r.status === "delay",
+    stalled,
+    warning: stalled || r.status === "warning" || r.status === "failed" ? firstMessage(r) : null,
+    downloadId: typeof r.downloadId === "string" && r.downloadId !== "" ? r.downloadId : null
+  };
+}
+var lastInQueue = /* @__PURE__ */ new Set();
+function forgetFilesOfLeavers(items, unreachable) {
+  const now = new Set(items.filter((e) => e.tmdbId != null).map((e) => `${e.source}:${e.tmdbId}`));
+  for (const key of lastInQueue) {
+    const [source, id] = key.split(":");
+    if (now.has(key) || unreachable.includes(source)) continue;
+    invalidate(source === "radarr" ? movieFactsKey(Number(id)) : seriesFactsKey(Number(id)));
+  }
+  const kept = [...lastInQueue].filter((key) => unreachable.includes(key.split(":")[0]));
+  lastInQueue = /* @__PURE__ */ new Set([...now, ...kept]);
+}
+async function readQueues(cfg) {
+  const [sonarr2, radarr] = await Promise.all([
+    getArrServerConfig(cfg.seerrUrl, cfg.seerrApiKey, "sonarr"),
+    getArrServerConfig(cfg.seerrUrl, cfg.seerrApiKey, "radarr")
+  ]);
+  const [sq, rq] = await Promise.all([
+    sonarr2 ? fetchQueue(sonarr2, `/api/v3/queue?pageSize=${PAGE_SIZE}&includeSeries=true&includeEpisode=true`) : Promise.resolve(null),
+    radarr ? fetchQueue(radarr, `/api/v3/queue?pageSize=${PAGE_SIZE}&includeMovie=true`) : Promise.resolve(null)
+  ]);
+  const unreachable = [];
+  if (!sq) unreachable.push("sonarr");
+  if (!rq) unreachable.push("radarr");
+  const items = [
+    ...(sq?.records ?? []).map((r) => toEntry(r, "sonarr")),
+    ...(rq?.records ?? []).map((r) => toEntry(r, "radarr"))
+  ].filter((e) => e !== null);
+  items.sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1) || a.title.localeCompare(b.title));
+  forgetFilesOfLeavers(items, unreachable);
+  return {
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    items,
+    total: (sq?.total ?? 0) + (rq?.total ?? 0),
+    unreachable
+  };
+}
+function queueSnapshot(cfg) {
+  return cached("seer:arr:queue:all", QUEUE_TTL_MS, () => readQueues(cfg));
+}
+async function fetchServerQueue(cfg) {
+  const snapshot = await queueSnapshot(cfg);
+  return { ...snapshot, items: snapshot.items.slice(0, MAX_ITEMS) };
+}
+
+// server/arr-truth.ts
+var IN_FLIGHT = /* @__PURE__ */ new Set([
+  "approved",
+  "unavailable",
+  "downloading",
+  "partially_available"
+]);
+var MAX_DETAIL = 24;
+var CONCURRENCY = 4;
+function matchQueue(req, items) {
+  const source = req.mediaType === "movie" ? "radarr" : "sonarr";
+  return items.filter((e) => e.source === source && e.tmdbId === req.tmdbId && (req.mediaType === "movie" || !req.seasons?.length || e.seasonNumber != null && req.seasons.includes(e.seasonNumber)));
+}
+function entryProgress(e) {
+  return {
+    percent: e.validating ? 100 : e.percent,
+    size: e.size,
+    sizeLeft: e.sizeLeft,
+    etaSeconds: e.validating ? null : e.etaSeconds,
+    estimatedCompletionAt: null,
+    status: e.validating ? "completed" : e.paused ? "paused" : e.stalled ? "warning" : "downloading",
+    validating: e.validating,
+    stalled: e.stalled,
+    title: e.episodeTitle,
+    seasonNumber: e.seasonNumber,
+    episodeNumber: e.episodeNumber
+  };
+}
+function summarizeQueue(entries) {
+  if (entries.length === 0) return null;
+  const downloads = /* @__PURE__ */ new Map();
+  for (const e of entries) downloads.set(e.downloadId ?? e.id, e);
+  let size = 0;
+  let left = 0;
+  let sized = 0;
+  let eta = null;
+  for (const e of downloads.values()) {
+    if (e.size != null && e.sizeLeft != null) {
+      size += e.size;
+      left += e.sizeLeft;
+      sized++;
+    }
+    if (!e.validating && e.etaSeconds != null && (eta === null || e.etaSeconds > eta)) eta = e.etaSeconds;
+  }
+  const importing = entries.every((e) => e.validating);
+  const stalledCount = entries.filter((e) => e.stalled).length;
+  const moving = entries.some((e) => !e.validating && !e.stalled && !e.paused);
+  const single = entries.length === 1 ? entries[0] : null;
+  const summary = {
+    percent: importing ? 100 : sized > 0 && size > 0 ? Math.min(100, Math.max(0, (size - left) / size * 100)) : null,
+    size: sized > 0 ? size : null,
+    sizeLeft: sized > 0 ? left : null,
+    etaSeconds: importing ? null : eta,
+    estimatedCompletionAt: null,
+    status: importing ? "completed" : moving ? "downloading" : entries.some((e) => e.paused) ? "paused" : "warning",
+    validating: importing,
+    // Bloquée : tout ce qui n'est pas arrivé est bloqué (même règle que Jellyseerr).
+    stalled: stalledCount > 0 && entries.every((e) => e.stalled || e.validating),
+    stalledCount,
+    title: single?.episodeTitle ?? null,
+    seasonNumber: single?.seasonNumber ?? null,
+    episodeNumber: single?.episodeNumber ?? null
+  };
+  const items = entries.map(entryProgress).sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1)).slice(0, MAX_DETAIL);
+  return { summary, items };
+}
+function seriesFiles(seasons, facts) {
+  if (!seasons?.length || facts.size === 0) return null;
+  let total = 0;
+  let here = 0;
+  for (const [key, fact] of facts) {
+    const season = Number(/^S(\d+)E/.exec(key)?.[1]);
+    if (!seasons.includes(season)) continue;
+    total++;
+    if (fact.hasFile) here++;
+  }
+  if (total === 0) return null;
+  return here === total ? "all" : here > 0 ? "some" : "none";
+}
+function verdictFor(req, queue, files) {
+  const source = req.mediaType === "movie" ? "radarr" : "sonarr";
+  if (queue.unreachable.includes(source)) return null;
+  const arriving = summarizeQueue(matchQueue(req, queue.items));
+  if (arriving) {
+    const status = req.status === "partially_available" ? "partially_available" : "downloading";
+    return { status, download: arriving.summary, downloads: arriving.items.length > 1 ? arriving.items : void 0 };
+  }
+  if (files === "all") return { status: "available", download: null };
+  if (files === "some" && req.status !== "partially_available") return { status: "partially_available", download: null };
+  if (files === "none" && req.status === "downloading") return { status: "unavailable", download: null };
+  return null;
+}
+async function filesOf(cfg, req) {
+  if (req.mediaType === "movie") {
+    const hasFile = await radarrHasFile(cfg, req.tmdbId);
+    return hasFile === null ? null : hasFile ? "all" : "none";
+  }
+  const facts = await sonarrSeriesFacts(cfg, req.tmdbId).catch(() => null);
+  return facts ? seriesFiles(req.seasons, facts) : null;
+}
+async function arrVerdicts(cfg, requests) {
+  const out = /* @__PURE__ */ new Map();
+  const waiting = requests.filter((r) => IN_FLIGHT.has(r.status) && r.tmdbId > 0);
+  if (waiting.length === 0) return out;
+  const queue = await queueSnapshot(cfg).catch(() => null);
+  if (!queue) return out;
+  await mapLimit(waiting, CONCURRENCY, async (req) => {
+    const files = matchQueue(req, queue.items).length > 0 ? null : await filesOf(cfg, req);
+    const verdict = verdictFor(req, queue, files);
+    if (verdict) out.set(req.id, verdict);
+  });
+  return out;
+}
+function withArrStatus(items, verdicts) {
+  if (verdicts.size === 0) return items;
+  return items.map((i) => {
+    const v = verdicts.get(i.id);
+    return v && v.status !== i.status ? { ...i, status: v.status } : i;
+  });
+}
+function restat(stats, items, verdicts) {
+  if (verdicts.size === 0) return stats;
+  const byStatus = { ...stats.byStatus };
+  for (const i of items) {
+    const v = verdicts.get(i.id);
+    if (!v || v.status === i.status) continue;
+    byStatus[i.status] = Math.max(0, (byStatus[i.status] ?? 0) - 1);
+    byStatus[v.status] = (byStatus[v.status] ?? 0) + 1;
+  }
+  return { ...stats, byStatus };
+}
+
 // server/routes-requests-read.ts
 var ROWS_TTL_MS = 6e4;
 var ROWS_STALE_MS = 6e5;
 var PAGE_META_BUDGET = 20;
 var rowsCacheKey = (userId) => `seer-cache:${userId}:rows`;
+function loadMergedRows(prisma, cfg, user, log) {
+  return cached(rowsCacheKey(user.userId), ROWS_TTL_MS, () => buildMergedRows(prisma, cfg, user, log), { staleMs: ROWS_STALE_MS });
+}
 function registerRequestReadRoutes(app, prisma, getWorkerConfig2) {
-  async function loadRows(cfg, user) {
-    return cached(
-      rowsCacheKey(user.userId),
-      ROWS_TTL_MS,
-      () => buildMergedRows(prisma, cfg, user, (err, msg) => app.log?.warn?.({ err }, msg)),
-      { staleMs: ROWS_STALE_MS }
-    );
-  }
+  const loadRows = (cfg, user) => loadMergedRows(prisma, cfg, user, (err, msg) => app.log?.warn?.({ err }, msg));
   app.get("/requests", async (request) => {
     const user = getUser(request);
     const query = request.query;
@@ -2966,7 +3424,9 @@ function registerRequestReadRoutes(app, prisma, getWorkerConfig2) {
     const rows = await loadRows(config, user);
     const refs = collectTmdbRefs(rows);
     const { meta, missing } = await resolveTmdbMeta(prisma, config, refs, { maxFetch: 0 });
-    let items = hydrateRows(rows, meta, user);
+    const hydrated = hydrateRows(rows, meta, user);
+    const verdicts = await arrVerdicts(config, hydrated).catch(() => /* @__PURE__ */ new Map());
+    let items = withArrStatus(hydrated, verdicts);
     let result = filterAndPaginate(items, { page, limit, status: query.status, type: query.type, q: query.q });
     if (missing.length > 0) {
       const visible2 = new Set(
@@ -2976,14 +3436,14 @@ function registerRequestReadRoutes(app, prisma, getWorkerConfig2) {
       if (onPage.length > 0) {
         const filled = await resolveTmdbMeta(prisma, config, onPage, { maxFetch: PAGE_META_BUDGET });
         for (const [k, v] of filled.meta) meta.set(k, v);
-        items = hydrateRows(rows, meta, user);
+        items = withArrStatus(hydrateRows(rows, meta, user), verdicts);
         result = filterAndPaginate(items, { page, limit, status: query.status, type: query.type, q: query.q });
       }
       scheduleTmdbBackfill(prisma, config, missing);
     }
     return {
       ...result,
-      stats: rows.stats,
+      stats: restat(rows.stats, hydrated, verdicts),
       // > 0 : des titres manquent encore, le front repasse plus vite.
       metaPending: pendingBackfillCount()
     };
@@ -4156,15 +4616,15 @@ function isPlanned(tmdbStatus) {
 }
 
 // server/routes-availability.ts
-var MAX_ITEMS = 120;
+var MAX_ITEMS2 = 120;
 var FETCH_BUDGET = 12;
 function registerAvailabilityRoutes(app, prisma, getWorkerConfig2) {
   app.post("/availability", async (request) => {
     const body = request.body ?? {};
     const asked = Array.isArray(body.items) ? body.items : [];
-    const raw = asked.slice(0, MAX_ITEMS);
-    if (asked.length > MAX_ITEMS) {
-      console.warn(`[Seer] /availability : ${asked.length} titres demand\xE9s, ${MAX_ITEMS} trait\xE9s`);
+    const raw = asked.slice(0, MAX_ITEMS2);
+    if (asked.length > MAX_ITEMS2) {
+      console.warn(`[Seer] /availability : ${asked.length} titres demand\xE9s, ${MAX_ITEMS2} trait\xE9s`);
     }
     const refs = [];
     for (const it of raw) {
@@ -4199,107 +4659,6 @@ function registerAvailabilityRoutes(app, prisma, getWorkerConfig2) {
   });
 }
 
-// server/arr-queue.ts
-var MAX_ITEMS2 = 60;
-var QUEUE_TTL_MS = 8e3;
-var PAGE_SIZE = 250;
-async function fetchQueue(server, path) {
-  try {
-    const res = await fetch(`${buildArrUrl(server)}${path}`, {
-      headers: { "X-Api-Key": server.apiKey },
-      signal: AbortSignal.timeout(15e3)
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return { records: data.records ?? [], total: data.totalRecords ?? 0 };
-  } catch {
-    return null;
-  }
-}
-function isValidating2(r) {
-  const state2 = r.trackedDownloadState ?? "";
-  if (state2 === "importPending" || state2 === "importing") return true;
-  if (r.status === "completed") return true;
-  return r.sizeleft === 0 && typeof r.size === "number" && r.size > 0;
-}
-var BLOCKED_STATES = /* @__PURE__ */ new Set(["importBlocked", "importFailed", "failedPending", "failed"]);
-function isStalledRecord(r) {
-  return isStalledStatus(r.status) || BLOCKED_STATES.has(r.trackedDownloadState ?? "") || r.trackedDownloadStatus === "error";
-}
-function firstMessage(r) {
-  if (r.errorMessage) return r.errorMessage;
-  for (const m of r.statusMessages ?? []) {
-    const text = m.messages?.[0] ?? m.title;
-    if (text) return text;
-  }
-  return null;
-}
-function toEntry(r, source) {
-  if (r.id == null) return null;
-  const size = typeof r.size === "number" && r.size > 0 ? r.size : null;
-  const left = typeof r.sizeleft === "number" ? Math.max(0, r.sizeleft) : null;
-  const percent = size != null && left != null ? Math.min(100, Math.max(0, (size - left) / size * 100)) : null;
-  const media = source === "sonarr" ? r.series : r.movie;
-  const stalled = isStalledRecord(r);
-  return {
-    id: `${source}-${r.id}`,
-    source,
-    mediaType: source === "sonarr" ? "tv" : "movie",
-    title: media?.title ?? r.title ?? "",
-    seasonNumber: r.seasonNumber ?? null,
-    episodeNumber: r.episode?.episodeNumber ?? null,
-    episodeTitle: r.episode?.title ?? null,
-    tmdbId: media?.tmdbId ?? null,
-    percent,
-    size,
-    etaSeconds: parseTimeSpan(r.timeleft),
-    validating: isValidating2(r) && !stalled,
-    paused: r.status === "paused" || r.status === "delay",
-    stalled,
-    warning: stalled || r.status === "warning" || r.status === "failed" ? firstMessage(r) : null,
-    downloadId: typeof r.downloadId === "string" && r.downloadId !== "" ? r.downloadId : null
-  };
-}
-async function readQueues(cfg) {
-  const [sonarr2, radarr] = await Promise.all([
-    getArrServerConfig(cfg.seerrUrl, cfg.seerrApiKey, "sonarr"),
-    getArrServerConfig(cfg.seerrUrl, cfg.seerrApiKey, "radarr")
-  ]);
-  const [sq, rq] = await Promise.all([
-    sonarr2 ? fetchQueue(sonarr2, `/api/v3/queue?pageSize=${PAGE_SIZE}&includeSeries=true&includeEpisode=true`) : Promise.resolve(null),
-    radarr ? fetchQueue(radarr, `/api/v3/queue?pageSize=${PAGE_SIZE}&includeMovie=true`) : Promise.resolve(null)
-  ]);
-  const unreachable = [];
-  if (!sq) unreachable.push("sonarr");
-  if (!rq) unreachable.push("radarr");
-  const items = [
-    ...(sq?.records ?? []).map((r) => toEntry(r, "sonarr")),
-    ...(rq?.records ?? []).map((r) => toEntry(r, "radarr"))
-  ].filter((e) => e !== null);
-  items.sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1) || a.title.localeCompare(b.title));
-  return {
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    items,
-    total: (sq?.total ?? 0) + (rq?.total ?? 0),
-    unreachable
-  };
-}
-function queueSnapshot(cfg) {
-  return cached("seer:arr:queue:all", QUEUE_TTL_MS, () => readQueues(cfg));
-}
-async function fetchServerQueue(cfg) {
-  const snapshot = await queueSnapshot(cfg);
-  return { ...snapshot, items: snapshot.items.slice(0, MAX_ITEMS2) };
-}
-async function blockedDownloadIds(cfg) {
-  const snapshot = await queueSnapshot(cfg);
-  const ids = /* @__PURE__ */ new Set();
-  for (const entry of snapshot.items) {
-    if (entry.stalled && entry.downloadId) ids.add(entry.downloadId);
-  }
-  return ids;
-}
-
 // server/routes-progress.ts
 var PROGRESS_TTL_MS = 1e4;
 function registerProgressRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
@@ -4319,196 +4678,25 @@ function registerProgressRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
     const config = await getWorkerConfig2();
     if (!config) return { updatedAt: (/* @__PURE__ */ new Date()).toISOString(), items: [] };
     return cached(`seer-cache:${user.userId}:progress`, PROGRESS_TTL_MS, async () => {
-      const rows = await collectActiveRows(prisma, config, user.userId, user.username);
-      const localIds = /* @__PURE__ */ new Map();
-      const seerrIds = rows.map((r) => r.id).filter((n) => Number.isFinite(n));
-      if (seerrIds.length > 0) {
-        const placeholders = seerrIds.map(() => "?").join(",");
-        const found = await prisma.$queryRawUnsafe(
-          `SELECT id, seerr_request_id FROM seer_requests
-           WHERE jellyfin_user_id = ? AND seerr_request_id IN (${placeholders})`,
-          user.userId,
-          ...seerrIds
-        ).catch(() => []);
-        for (const f of found) localIds.set(Number(f.seerr_request_id), f.id);
-      }
-      const blocked = await blockedDownloadIds(config).catch(() => /* @__PURE__ */ new Set());
-      const seasonStates = await partialSeriesSeasons(config);
+      const rows = await loadMergedRows(prisma, config, user, (err, msg) => app.log?.warn?.({ err }, msg));
+      const requests = hydrateRows(rows, /* @__PURE__ */ new Map(), user).filter((r) => IN_FLIGHT.has(r.status));
+      const verdicts = await arrVerdicts(config, requests);
       const items = [];
-      for (const sr of rows) {
-        const { summary, items: detail } = aggregateDownloads(sr.media?.downloadStatus, (id) => blocked.has(id));
-        if (!summary) continue;
-        const status = resolveRequestStatus(sr, null, seasonStates.get(sr.media?.tmdbId ?? 0));
-        if (status === "available" && (summary.percent ?? 0) >= 100) continue;
+      for (const r of requests) {
+        const verdict = verdicts.get(r.id);
+        if (!verdict || !verdict.download && verdict.status === r.status) continue;
         items.push({
-          id: localIds.get(sr.id) ?? `seerr-${sr.id}`,
-          tmdbId: sr.media?.tmdbId ?? 0,
-          mediaType: sr.media?.mediaType ?? "movie",
-          status,
-          download: summary,
-          downloads: detail.length > 1 ? detail : void 0
+          id: r.id,
+          tmdbId: r.tmdbId,
+          mediaType: r.mediaType,
+          status: verdict.status,
+          download: verdict.download ?? void 0,
+          downloads: verdict.downloads
         });
       }
       return { updatedAt: (/* @__PURE__ */ new Date()).toISOString(), items };
     });
   });
-}
-async function collectActiveRows(prisma, config, userId, username) {
-  const out = /* @__PURE__ */ new Map();
-  try {
-    const seerUserId = await resolveJellyseerrUserId(config, prisma, userId, username);
-    const page = await fetchSeerrRequestsPage(config, seerUserId, 100, 0, "processing");
-    for (const r of page.rows) out.set(r.id, r);
-  } catch {
-  }
-  const hit = peek(rowsCacheKey(userId), true);
-  if (hit) {
-    for (const r of hit.seerrRows) {
-      if (out.has(r.id)) continue;
-      if ((r.media?.downloadStatus?.length ?? 0) > 0) out.set(r.id, r);
-    }
-  }
-  return Array.from(out.values());
-}
-
-// server/sonarr-schedule.ts
-var SERIES_TTL_MS = 30 * 6e4;
-var SERIES_STALE_MS = 6 * 36e5;
-var CALENDAR_TTL_MS = 30 * 6e4;
-var CALENDAR_STALE_MS = 6 * 36e5;
-var EPISODES_TTL_MS = 36e5;
-var EPISODES_STALE_MS = 12 * 36e5;
-function airTimeKey(season, episode) {
-  return `S${season}E${episode}`;
-}
-async function sonarr(cfg) {
-  return getArrServerConfig(cfg.seerrUrl, cfg.seerrApiKey, "sonarr");
-}
-async function arrGet(server, path) {
-  try {
-    const res = await fetch(`${buildArrUrl(server)}${path}`, {
-      headers: { "X-Api-Key": server.apiKey },
-      signal: AbortSignal.timeout(15e3)
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-async function sonarrSeriesIndex(cfg) {
-  return cached(
-    "seer:sonarr:series",
-    SERIES_TTL_MS,
-    async () => {
-      const server = await sonarr(cfg);
-      if (!server) return /* @__PURE__ */ new Map();
-      const rows = await arrGet(server, "/api/v3/series");
-      if (rows === null) throw new Error("Sonarr injoignable (index des s\xE9ries)");
-      const index = /* @__PURE__ */ new Map();
-      for (const s of rows) {
-        if (s.tmdbId && s.id) index.set(s.tmdbId, s.id);
-      }
-      return index;
-    },
-    { staleMs: SERIES_STALE_MS }
-  );
-}
-async function sonarrCalendarRaw(cfg, from, to) {
-  return cached(
-    `seer:sonarr:calraw:${from}:${to}`,
-    CALENDAR_TTL_MS,
-    async () => {
-      const server = await sonarr(cfg);
-      if (!server) return [];
-      const rows = await arrGet(
-        server,
-        `/api/v3/calendar?start=${from}&end=${to}&includeSeries=false`
-      );
-      if (rows === null) throw new Error("Sonarr injoignable (calendrier)");
-      return rows;
-    },
-    { staleMs: CALENDAR_STALE_MS }
-  );
-}
-async function sonarrWindowAirTimes(cfg, from, to) {
-  const rows = await sonarrCalendarRaw(cfg, from, to);
-  const times = /* @__PURE__ */ new Map();
-  for (const e of rows) {
-    if (!e.airDateUtc || e.seriesId == null || e.seasonNumber == null || e.episodeNumber == null) continue;
-    times.set(`${e.seriesId}:${airTimeKey(e.seasonNumber, e.episodeNumber)}`, e.airDateUtc);
-  }
-  return times;
-}
-async function sonarrWindowEpisodes(cfg, from, to) {
-  const [rows, index] = await Promise.all([
-    sonarrCalendarRaw(cfg, from, to),
-    sonarrSeriesIndex(cfg)
-  ]);
-  if (rows.length === 0 || index.size === 0) return [];
-  const tmdbBySeriesId = /* @__PURE__ */ new Map();
-  for (const [tmdbId, seriesId] of index) tmdbBySeriesId.set(seriesId, tmdbId);
-  const out = [];
-  for (const e of rows) {
-    if (!e.airDateUtc || e.seriesId == null || e.seasonNumber == null || e.episodeNumber == null) continue;
-    const tmdbId = tmdbBySeriesId.get(e.seriesId);
-    if (!tmdbId) continue;
-    out.push({
-      tmdbId,
-      seasonNumber: e.seasonNumber,
-      episodeNumber: e.episodeNumber,
-      airDateUtc: e.airDateUtc,
-      airDate: e.airDate && /^\d{4}-\d{2}-\d{2}$/.test(e.airDate) ? e.airDate : null
-    });
-  }
-  return out;
-}
-async function attachAirTimes(cfg, res) {
-  const episodes = res.items.filter((i) => i.kind === "episode");
-  if (episodes.length === 0) return res;
-  try {
-    const [index, times] = await Promise.all([
-      sonarrSeriesIndex(cfg),
-      // Fenêtre élargie d'un jour : un épisode peut basculer d'une journée à
-      // l'autre une fois ramené à l'heure locale, dans un sens comme dans l'autre.
-      sonarrWindowAirTimes(cfg, shiftDay(res.from, -1), shiftDay(res.to, 1))
-    ]);
-    if (index.size === 0 || times.size === 0) return res;
-    for (const item of episodes) {
-      const seriesId = index.get(item.tmdbId);
-      if (!seriesId || item.seasonNumber == null || item.episodeNumber == null) continue;
-      const at = times.get(`${seriesId}:${airTimeKey(item.seasonNumber, item.episodeNumber)}`);
-      if (at) item.airDateUtc = at;
-    }
-  } catch {
-  }
-  return res;
-}
-function shiftDay(day, delta) {
-  const [y, m, d] = day.split("-").map(Number);
-  const date = new Date(y, m - 1, d + delta);
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-async function sonarrSeriesAirTimes(cfg, tmdbId) {
-  return cached(
-    `seer:sonarr:eps:${tmdbId}`,
-    EPISODES_TTL_MS,
-    async () => {
-      const [server, index] = await Promise.all([sonarr(cfg), sonarrSeriesIndex(cfg)]);
-      const seriesId = index.get(tmdbId);
-      if (!server || !seriesId) return /* @__PURE__ */ new Map();
-      const rows = await arrGet(server, `/api/v3/episode?seriesId=${seriesId}`);
-      if (rows === null) throw new Error("Sonarr injoignable (\xE9pisodes)");
-      const times = /* @__PURE__ */ new Map();
-      for (const e of rows) {
-        if (!e.airDateUtc || e.seasonNumber == null || e.episodeNumber == null) continue;
-        times.set(airTimeKey(e.seasonNumber, e.episodeNumber), e.airDateUtc);
-      }
-      return times;
-    },
-    { staleMs: EPISODES_STALE_MS }
-  );
 }
 
 // server/calendar-types.ts
@@ -5260,69 +5448,6 @@ function rowsSubset(rows, keep) {
   };
 }
 
-// server/sonarr-episodes.ts
-var FACTS_TTL_MS = 6e4;
-var SERIES_FACTS_TTL_MS = 45e3;
-var FACTS_STALE_MS = 10 * 6e4;
-function episodeKey(tmdbId, season, episode) {
-  return `${tmdbId}:${airTimeKey(season, episode)}`;
-}
-function factOf(row) {
-  const fact = { hasFile: row.hasFile === true, monitored: row.monitored === true };
-  if (row.airDate && /^\d{4}-\d{2}-\d{2}$/.test(row.airDate)) fact.airDate = row.airDate;
-  return fact;
-}
-async function sonarrWindowFacts(cfg, from, to) {
-  return cached(
-    `seer:sonarr:facts:${from}:${to}`,
-    FACTS_TTL_MS,
-    async () => {
-      const facts = { byEpisode: /* @__PURE__ */ new Map(), byDay: /* @__PURE__ */ new Map() };
-      const [server, index] = await Promise.all([sonarr(cfg), sonarrSeriesIndex(cfg)]);
-      if (!server || index.size === 0) return facts;
-      const rows = await arrGet(
-        server,
-        `/api/v3/calendar?start=${from}&end=${to}&unmonitored=true&includeSeries=false`
-      );
-      if (rows === null) throw new Error("Sonarr injoignable (\xE9tat des \xE9pisodes)");
-      const tmdbBySeries = /* @__PURE__ */ new Map();
-      for (const [tmdbId, seriesId] of index) tmdbBySeries.set(seriesId, tmdbId);
-      for (const row of rows) {
-        const tmdbId = row.seriesId != null ? tmdbBySeries.get(row.seriesId) : void 0;
-        if (!tmdbId || row.seasonNumber == null || row.episodeNumber == null) continue;
-        const fact = factOf(row);
-        facts.byEpisode.set(episodeKey(tmdbId, row.seasonNumber, row.episodeNumber), fact);
-        if (row.airDate) {
-          const day = `${tmdbId}:${row.airDate}`;
-          facts.byDay.set(day, [...facts.byDay.get(day) ?? [], fact]);
-        }
-      }
-      return facts;
-    },
-    { staleMs: FACTS_STALE_MS }
-  );
-}
-async function sonarrSeriesFacts(cfg, tmdbId) {
-  return cached(
-    `seer:sonarr:facts:series:${tmdbId}`,
-    SERIES_FACTS_TTL_MS,
-    async () => {
-      const [server, index] = await Promise.all([sonarr(cfg), sonarrSeriesIndex(cfg)]);
-      const seriesId = index.get(tmdbId);
-      if (!server || !seriesId) return /* @__PURE__ */ new Map();
-      const rows = await arrGet(server, `/api/v3/episode?seriesId=${seriesId}`);
-      if (rows === null) throw new Error("Sonarr injoignable (\xE9pisodes de la s\xE9rie)");
-      const facts = /* @__PURE__ */ new Map();
-      for (const row of rows) {
-        if (row.seasonNumber == null || row.episodeNumber == null) continue;
-        facts.set(airTimeKey(row.seasonNumber, row.episodeNumber), factOf(row));
-      }
-      return facts;
-    },
-    { staleMs: FACTS_STALE_MS }
-  );
-}
-
 // server/search/status-map.ts
 var MEDIA_STATUS = {
   UNKNOWN: 1,
@@ -5408,8 +5533,8 @@ function refreshStatusMap(cfg) {
 var NO_FACTS = { byEpisode: /* @__PURE__ */ new Map(), byDay: /* @__PURE__ */ new Map() };
 var NO_QUEUE = { episodes: /* @__PURE__ */ new Map(), movies: /* @__PURE__ */ new Map() };
 function merge(prev, next) {
-  if (!prev) return { stalled: next.stalled, percent: next.percent };
-  return { stalled: prev.stalled && next.stalled, percent: prev.percent ?? next.percent };
+  if (!prev) return { stalled: next.stalled, percent: next.percent, validating: next.validating };
+  return { stalled: prev.stalled && next.stalled, percent: prev.percent ?? next.percent, validating: prev.validating && next.validating };
 }
 function indexQueue(entries) {
   const index = { episodes: /* @__PURE__ */ new Map(), movies: /* @__PURE__ */ new Map() };
@@ -5435,7 +5560,8 @@ var WAITING = /* @__PURE__ */ new Set([
   "partially_available"
 ]);
 function fromQueue(q) {
-  return q ? q.stalled ? "stalled" : "downloading" : null;
+  if (!q) return null;
+  return q.stalled ? "stalled" : q.validating ? "importing" : "downloading";
 }
 function fromRequest(status, seriesLevel = false) {
   if (!status || !WAITING.has(status)) return null;
@@ -6543,7 +6669,7 @@ var CRAWL_LANGS = ["fr", "en"];
 var FULL_EVERY_MS2 = 3 * 864e5;
 var LIGHT_EVERY_MS = 864e5;
 var CHECK_EVERY_MS = 36e5;
-var CONCURRENCY = 2;
+var CONCURRENCY2 = 2;
 var MIN_BUILT = 1e3;
 var state = "idle";
 var crawling = false;
@@ -6595,7 +6721,7 @@ async function crawl(prisma, cfg, index, mode, tags) {
   }
   const started = Date.now();
   let learned = 0;
-  await mapLimit(jobs, CONCURRENCY, async ({ source, page, lang }) => {
+  await mapLimit(jobs, CONCURRENCY2, async ({ source, page, lang }) => {
     const records = await fetchDiscover(cfg, source, page, lang, tags);
     for (const r of records) index.upsert(r);
     queueTitles(prisma, records);
