@@ -57,10 +57,12 @@ export const DetailHero = memo(function DetailHero({ item, detail, mediaType, st
   if (channel?.kind === "uncharted" && (status?.state === "available" || status?.state === "partial")) channel = null;
   const ChannelIcon = channel ? CHANNEL_ICON[channel.kind] : null;
 
+  // Les saisons listées font foi : TMDB annonce « 1 saison » pour Re:Zero, qui en liste quatre.
+  const seasonCount = tv?.seasons?.filter((s) => s.seasonNumber > 0).length || tv?.numberOfSeasons;
   const eyebrow = [
     mediaType === "tv" ? t("seer:typeSeries") : t("seer:typeMovie"),
     year,
-    movie?.runtime ? formatRuntime(movie.runtime) : tv?.numberOfSeasons ? t("seasonsCount", { count: tv.numberOfSeasons }) : "",
+    movie?.runtime ? formatRuntime(movie.runtime) : seasonCount ? t("seasonsCount", { count: seasonCount }) : "",
   ].filter(Boolean).join(" · ");
 
   return (
