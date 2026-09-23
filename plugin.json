@@ -64,5 +64,16 @@
         "fr": "Paramètres"
       }
     }
-  ]
+  ],
+  "search": {
+    "path": "/search/provider",
+    "types": [
+      "movie",
+      "series"
+    ],
+    "labels": {
+      "fr": "Pas encore sur le serveur",
+      "en": "Not on the server yet"
+    }
+  }
 }
