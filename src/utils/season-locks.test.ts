@@ -14,6 +14,24 @@ test("une saison là, une saison demandée, une saison libre", () => {
   assert.equal(locks.has(4), false);
 });
 
+test("une saison que Sonarr connaît sans que personne l'ait demandée reste libre", () => {
+  // Relevé réel (TMDB 71663) : saisons 3 et 4 demandées, 1 et 2 listées au statut 1.
+  const locks = seasonLocks({
+    status: 3,
+    seasons: [
+      { id: 1, seasonNumber: 1, status: 1 },
+      { id: 2, seasonNumber: 2, status: 1 },
+      { id: 3, seasonNumber: 3, status: 3 },
+      { id: 4, seasonNumber: 4, status: 3 },
+    ],
+    requests: [{ id: 9, status: 2, seasons: [{ seasonNumber: 3 }, { seasonNumber: 4 }] }],
+  }, []);
+  assert.equal(locks.has(1), false);
+  assert.equal(locks.has(2), false);
+  assert.equal(locks.get(3), 3);
+  assert.equal(locks.get(4), 3);
+});
+
 test("une saison supprimée chez Jellyseerr redevient libre", () => {
   const locks = seasonLocks({
     status: 4,

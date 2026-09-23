@@ -9,7 +9,7 @@
  */
 
 import type { SeerrTvDetail } from "../api/types";
-import { MEDIA_STATUS_DELETED } from "./media-status";
+import { MEDIA_STATUS_DELETED, isRequestedSeasonStatus } from "./media-status";
 
 type MediaInfo = SeerrTvDetail["mediaInfo"];
 
@@ -24,10 +24,14 @@ export function seasonLocks(info: MediaInfo, localSeasons: readonly number[] | u
   // les aligne dans la minute). Média entier supprimé : ses demandes ne
   // verrouillent plus rien.
   const deleted = new Set<number>();
-  // 1) Statuts de disponibilité par saison (présents seulement une fois dispo).
+  // 1) Statut de chaque saison. Jellyseerr y liste TOUTE saison que Sonarr
+  //    connaît, y compris celles que personne n'a demandées : elles y sont
+  //    au statut 1 (inconnu) et restent libres. Les compter affichait
+  //    « Demandé » sur chaque saison d'une série dont on n'avait demandé que
+  //    les deux dernières.
   for (const s of info?.seasons ?? []) {
     if (s.status === MEDIA_STATUS_DELETED) deleted.add(s.seasonNumber);
-    else map.set(s.seasonNumber, s.status);
+    else if (isRequestedSeasonStatus(s.status)) map.set(s.seasonNumber, s.status);
   }
   // 2) Saisons couvertes par une demande active : Jellyseerr ne remplit
   //    mediaInfo.seasons qu'à la disponibilité ; une saison seulement demandée

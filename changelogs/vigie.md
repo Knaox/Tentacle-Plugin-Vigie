@@ -19,6 +19,12 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.15.1]
+### FR
+- **Une série demandée en partie ne se dit plus demandée en entier** : sur la fiche, seules les saisons réellement demandées portent « Demandé », comme chez Jellyseerr ; les autres restent libres et se cochent pour une demande
+### EN
+- **A partly requested series no longer shows every season as requested**: on the detail page, only the seasons actually requested read "Requested", as in Jellyseerr; the others stay free and can be ticked for a request
+
 ## [1.15.0]
 ### FR
 - **Vigie tient en un seul onglet.** Découvrir, Mes demandes et Calendrier sont réunis sous la barre de recherche ; chaque vue garde sa position quand on passe de l'une à l'autre, et les anciens liens (/requests, /releases) ouvrent le bon onglet
