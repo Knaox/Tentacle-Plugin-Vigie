@@ -2,7 +2,7 @@
   "id": "seer",
   "name": "Vigie — Jellyseerr (unofficial)",
   "description": "Demandez films et séries, suivez leur arrivée et voyez les prochaines sorties. Se connecte à votre instance Jellyseerr / Overseerr — projet indépendant, sans affiliation avec Jellyseerr ni Overseerr.",
-  "version": "1.14.5",
+  "version": "1.15.0",
   "author": "Knaox",
   "entry": "dist/plugin-seer.iife.js",
   "server": "server/index.mjs",
