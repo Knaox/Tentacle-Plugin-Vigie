@@ -3,9 +3,9 @@
 /* ------------------------------------------------------------------ */
 
 /*
- * Une image, un titre, et d'un regard : où en est ce titre (le badge d'état),
- * par où il est sorti (salle, streaming, plateformes), et ce qu'on peut en
- * faire (les actions). L'en-tête est TOUJOURS sombre, comme une affiche : son
+ * Une image, un titre, et d'un regard : où en est ce titre (le badge d'état
+ * — et, pour une série en partie là, ce qui lui manque), par où il est sorti
+ * (salle, streaming, plateformes), et ce qu'on peut en faire (les actions). L'en-tête est TOUJOURS sombre, comme une affiche : son
  * texte blanc se lit sur l'image dans les deux thèmes, et la page claire
  * reprend dessous.
  */
@@ -16,6 +16,8 @@ import type { SeerrMovieDetail, SeerrSearchResult, SeerrTvDetail } from "../../a
 import type { AvailabilityVerdict } from "../../api/types-releases";
 import { backdropUrl, formatRuntime, mediaTitle, mediaYear, posterUrl } from "../../utils/media-helpers";
 import type { TitleStatus } from "../../utils/title-state";
+import { gapText, gapsFromSeasons } from "../../utils/series-gaps";
+import { useTitleGaps } from "../../hub/TitleStates";
 import { StateBadge } from "../ui/StateBadge";
 import { channelOf } from "../ui/ChannelLine";
 import { DashedCircleIcon, DiscIcon, PlayCircleIcon, StarIcon, TicketIcon, CalendarIcon } from "../ui/icons";
@@ -56,6 +58,9 @@ export const DetailHero = memo(function DetailHero({ item, detail, mediaType, st
   let channel = verdict ? channelOf(verdict, t) : null;
   if (channel?.kind === "uncharted" && (status?.state === "available" || status?.state === "partial")) channel = null;
   const ChannelIcon = channel ? CHANNEL_ICON[channel.kind] : null;
+  // Les saisons de la fiche d'abord (fraîches) ; celles de la liste du serveur à défaut.
+  const listed = useTitleGaps(item);
+  const gap = status?.state === "partial" ? gapText(gapsFromSeasons(tv?.mediaInfo?.seasons) ?? listed, t, "long") : null;
 
   // Les saisons listées font foi : TMDB annonce « 1 saison » pour Re:Zero, qui en liste quatre.
   const seasonCount = tv?.seasons?.filter((s) => s.seasonNumber > 0).length || tv?.numberOfSeasons;
@@ -119,6 +124,7 @@ export const DetailHero = memo(function DetailHero({ item, detail, mediaType, st
         {(status || channel || streamingIds.length > 0) && (
           <div className="mt-4 flex flex-wrap items-center gap-2">
             {status && <StateBadge status={status} variant="media" />}
+            {gap && <span className="text-sm font-medium text-tentacle-on-media-primary">{gap}</span>}
             {channel && ChannelIcon && (
               <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--vg-plate)] px-3 text-xs font-semibold text-tentacle-on-media-primary ring-1 ring-[var(--vg-glass-ring)]">
                 <ChannelIcon className="h-4 w-4 text-tentacle-on-media-secondary" />

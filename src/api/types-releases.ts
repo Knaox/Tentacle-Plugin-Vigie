@@ -182,6 +182,12 @@ export interface CalendarItem {
 }
 
 /** L'état de chaque épisode d'une série, pour sa fiche. */
+/** Ce qui manque à une série en partie là : des saisons entières, des épisodes de certaines. */
+export interface SeriesGaps {
+  missing: number[];
+  partial: number[];
+}
+
 export interface SeriesEpisodeStates {
   /** Sonarr suit la série : l'état se lit épisode par épisode. */
   tracked: boolean;

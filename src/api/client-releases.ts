@@ -7,7 +7,7 @@ import { getCurrentLanguage } from "../utils/media-helpers";
 import type { MediaType } from "./types";
 import type {
   AvailabilityResponse, RequestsProgressResponse, QueueResponse,
-  CalendarResponse, CalendarProvider, SeriesEpisodeStates,
+  CalendarResponse, CalendarProvider, SeriesEpisodeStates, SeriesGaps,
 } from "./types-releases";
 
 /**
@@ -89,6 +89,11 @@ export async function getCalendarProviders(): Promise<{ results: CalendarProvide
  * L'état de chaque épisode d'une série (« S4E18 » → demandé, en route, bloqué,
  * disponible), d'après Sonarr. `tracked: false` : Sonarr ne suit pas la série.
  */
+/** Ce qui manque à chaque série en partie là, par id TMDB — une liste pour tout le serveur. */
+export async function getSeriesGaps(): Promise<{ items: Record<string, SeriesGaps> }> {
+  return backendFetch("/series/gaps");
+}
+
 export async function getEpisodeStates(tmdbId: number): Promise<SeriesEpisodeStates> {
   return backendFetch(`/episodes/states?tmdbId=${tmdbId}`);
 }

@@ -16,6 +16,7 @@ import type { TmdbRef } from "./tmdb-cache";
 import { tmdbKey } from "./tmdb-cache";
 import { resolveTmdbMeta, scheduleTmdbBackfill, DEFAULT_REGION } from "./tmdb-resolver";
 import { classifyAvailability, type AvailabilityVerdict } from "./availability";
+import { gapsOf, partialSeriesSeasons, type SeriesGaps } from "./series-gaps";
 
 /*
  * Plafond de sécurité. La grille défile à l'infini et envoie sa liste ENTIÈRE
@@ -76,5 +77,20 @@ export function registerAvailabilityRoutes(
     }
 
     return { results, pending: missing.length };
+  });
+
+  /*
+   * Ce qui manque à chaque série en partie là — des saisons entières, des
+   * épisodes de certaines — pour tout le serveur d'un coup : une soixantaine
+   * d'entrées de deux listes de numéros, que chaque affiche lit sans appel.
+   */
+  app.get("/series/gaps", async () => {
+    const seasons = await partialSeriesSeasons(await getWorkerConfig());
+    const items: Record<string, SeriesGaps> = {};
+    for (const [tmdbId, states] of seasons) {
+      const gaps = gapsOf(states);
+      if (gaps) items[tmdbId] = gaps;
+    }
+    return { items };
   });
 }

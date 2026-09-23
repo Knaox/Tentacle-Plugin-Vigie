@@ -7,6 +7,9 @@ import { useTranslation } from "react-i18next";
 import type { LocalRequest } from "../api/types";
 import type { ProgressItem } from "../api/types-releases";
 import { posterUrl } from "../utils/media-helpers";
+import { gapText, restrictGaps } from "../utils/series-gaps";
+import { useTitleGaps } from "../hub/TitleStates";
+import { GapLine } from "../components/ui/GapLine";
 import { statusText } from "../utils/state-labels";
 import { useInterpolatedProgress } from "../hooks/useDownloadProgress";
 import { StateBadge } from "../components/ui/StateBadge";
@@ -15,7 +18,8 @@ import { PHRASE_TONE, requestView } from "./requestPhrase";
 /**
  * Le même dessin qu'une affiche du catalogue : l'état en bandeau au pied de
  * l'affiche (son filet avance quand le titre arrive), et sous le titre la
- * nuance — « En attente de validation », « Reste 12 min ».
+ * nuance — « En attente de validation », « Reste 12 min », ou, là en partie,
+ * ce qui manque encore : « Il manque des épisodes ».
  */
 export const RequestTile = memo(function RequestTile({ request, progress, receivedAt, onOpen }: {
   request: LocalRequest;
@@ -28,9 +32,11 @@ export const RequestTile = memo(function RequestTile({ request, progress, receiv
   const live = useInterpolatedProgress(progress?.download, receivedAt);
   // L'avancement interpolé, pas seulement le dernier mesuré : le filet glisse.
   const shown = status && status.state === "downloading" && live.percent !== null ? { ...status, percent: live.percent } : status;
+  const gaps = useTitleGaps({ id: request.tmdbId, mediaType: request.mediaType });
+  const gap = !detail && shown?.state === "partial" ? gapText(restrictGaps(gaps, request.seasons), t, "short") : null;
   const poster = posterUrl(request.posterPath);
   const typeLine = [request.mediaType === "tv" ? t("seer:typeSeries") : t("seer:typeMovie"), request.year].filter(Boolean).join(" · ");
-  const label = [request.title, shown ? statusText(shown, t) : "", detail ? t(detail.key, detail.params) : ""].filter(Boolean).join(" — ");
+  const label = [request.title, shown ? statusText(shown, t) : "", detail ? t(detail.key, detail.params) : gap ?? ""].filter(Boolean).join(" — ");
 
   return (
     <button type="button" onClick={() => onOpen(request)} aria-label={label} className="group block w-full text-left focus-visible:outline-none">
@@ -41,9 +47,11 @@ export const RequestTile = memo(function RequestTile({ request, progress, receiv
         {shown && <StateBadge status={shown} variant="band" />}
       </div>
       <p className="mt-2 truncate text-[13px] font-semibold leading-5 text-tentacle-text-primary">{request.title}</p>
-      <p className={`mt-0.5 truncate text-xs ${detail ? PHRASE_TONE[detail.tone].text : "text-tentacle-text-tertiary"}`}>
-        {detail ? t(detail.key, detail.params) : typeLine}
-      </p>
+      {gap ? <GapLine text={gap} /> : (
+        <p className={`mt-0.5 truncate text-xs ${detail ? PHRASE_TONE[detail.tone].text : "text-tentacle-text-tertiary"}`}>
+          {detail ? t(detail.key, detail.params) : typeLine}
+        </p>
+      )}
     </button>
   );
 });

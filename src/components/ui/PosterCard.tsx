@@ -10,7 +10,8 @@
  *     route (son filet avance), bloqué, disponible, en partie. Posé sur une
  *     plaque presque opaque : aucune affiche ne peut en avaler la couleur ;
  *   - par où est-il sorti ? — sous le titre, sur la page : au cinéma, en
- *     streaming, potentiellement disponible…
+ *     streaming, potentiellement disponible… Pour une série en partie là,
+ *     cette ligne dit plutôt ce qui lui manque : « Il manque 1 saison ».
  *
  * Un clic ouvre la fiche ; sur ordinateur, le « + » du survol demande un film
  * d'un geste, et ouvre les saisons libres d'une série pour les ajouter d'un
@@ -25,9 +26,11 @@ import type { SeerrSearchResult } from "../../api/types";
 import { mediaTitle, mediaYear, posterUrl } from "../../utils/media-helpers";
 import { statusText } from "../../utils/state-labels";
 import type { TitleStatus } from "../../utils/title-state";
-import { useTitleStatus } from "../../hub/TitleStates";
+import { useTitleGaps, useTitleStatus } from "../../hub/TitleStates";
+import { gapText } from "../../utils/series-gaps";
 import { useVerdict } from "../../hooks/useVerdict";
 import { ChannelLine, channelOf } from "./ChannelLine";
+import { GapLine } from "./GapLine";
 import { StateBadge } from "./StateBadge";
 import { PlusIcon, StarIcon } from "./icons";
 
@@ -55,6 +58,9 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
   const year = mediaYear(item);
   const own = useTitleStatus(item);
   const status = forced !== undefined ? forced : own;
+  const gaps = useTitleGaps(item);
+  // Ce qui manque ne se dit que d'une série « en partie » — pas d'un épisode du calendrier.
+  const gap = forced === undefined && status?.state === "partial" ? gapText(gaps, t, "short") : null;
   const verdict = useVerdict(item.mediaType, item.id, caption == null);
   const typeLabel = item.mediaType === "tv" ? t("seer:typeSeries") : t("seer:typeMovie");
   let channel = verdict ? channelOf(verdict, t) : null;
@@ -71,7 +77,7 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
     if (node?.complete && node.naturalWidth > 0) setLoaded(true);
   }, []);
 
-  const label = [title, status ? statusText(status, t) : "", caption ?? channel?.label ?? [typeLabel, year].filter(Boolean).join(" · ")]
+  const label = [title, status ? statusText(status, t) : "", caption ?? gap ?? channel?.label ?? [typeLabel, year].filter(Boolean).join(" · ")]
     .filter(Boolean).join(" — ");
 
   return (
@@ -118,6 +124,8 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
         <p className="mt-2 truncate text-[13px] font-semibold leading-5 text-tentacle-text-primary">{title}</p>
         {caption != null ? (
           <p className="mt-0.5 truncate text-xs text-tentacle-text-tertiary">{caption}</p>
+        ) : gap ? (
+          <GapLine text={gap} />
         ) : (
           <ChannelLine channel={channel} fallback={[typeLabel, year].filter(Boolean).join(" · ")} year={channel ? year : undefined} />
         )}

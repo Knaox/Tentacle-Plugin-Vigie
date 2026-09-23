@@ -6,8 +6,9 @@
  * Quand la requête désigne clairement un titre (« dune », « interstelar »),
  * il mérite mieux qu'une affiche parmi d'autres : son image, son résumé, et
  * l'action qui répond à la question qu'on se pose — Demander s'il n'est pas
- * là, Regarder s'il y est. Une personne (« nolan ») s'y montre avec ce pour
- * quoi on la connaît.
+ * là, Regarder s'il y est —, son état et, s'il n'est là qu'en partie, ce qui
+ * lui manque. Une personne (« nolan ») s'y montre avec ce pour quoi on la
+ * connaît.
  */
 
 import { memo } from "react";
@@ -19,6 +20,9 @@ import { mediaStateOf } from "../utils/media-status";
 import { navigateToMedia } from "../utils/navigate-media";
 import { CTA_PRIMARY, CTA_SECONDARY, CTA_SIZE_MD } from "../styles/cta";
 import { useHub } from "../hub/HubContext";
+import { useTitleGaps, useTitleStatus } from "../hub/TitleStates";
+import { gapText } from "../utils/series-gaps";
+import { StateBadge } from "../components/ui/StateBadge";
 import { PlayIcon, PlusIcon, StarIcon, UserIcon } from "../components/ui/icons";
 
 export const TopMediaResult = memo(function TopMediaResult({ item }: { item: SeerrSearchResult }) {
@@ -26,6 +30,9 @@ export const TopMediaResult = memo(function TopMediaResult({ item }: { item: See
   const hub = useHub();
   const title = mediaTitle(item);
   const state = mediaStateOf(item.mediaInfo?.status);
+  const status = useTitleStatus(item);
+  const gaps = useTitleGaps(item);
+  const gap = status?.state === "partial" ? gapText(gaps, t, "long") : null;
   const backdrop = backdropUrl(item.backdropPath, "w780");
   const poster = posterUrl(item.posterPath, "w342");
   const meta = [
@@ -53,6 +60,12 @@ export const TopMediaResult = memo(function TopMediaResult({ item }: { item: See
               <span className="inline-flex items-center gap-1"><StarIcon className="h-3.5 w-3.5 text-[var(--seer-st-rating-solid)]" />{item.voteAverage?.toFixed(1)}</span>
             )}
           </p>
+          {status && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <StateBadge status={status} variant="chip" />
+              {gap && <span className="text-xs font-medium text-tentacle-text-secondary">{gap}</span>}
+            </div>
+          )}
           {item.overview && <p className="mt-2 hidden text-sm leading-relaxed text-tentacle-text-tertiary sm:line-clamp-2">{item.overview}</p>}
           <div className="pointer-events-auto mt-3 flex flex-wrap gap-2">
             {state === "available" || state === "partial" ? (

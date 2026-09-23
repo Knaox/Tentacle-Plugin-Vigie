@@ -5,7 +5,8 @@
 /*
  * L'affiche, le titre, l'ÉTAT (le badge commun à tout Vigie : demandé, en
  * route, bloqué, disponible, en partie) et sa nuance — avec la barre
- * d'avancement quand quelque chose arrive, et le prochain épisode quand la
+ * d'avancement quand quelque chose arrive, ce qui manque encore quand elle
+ * n'est là qu'en partie (parmi SES saisons), et le prochain épisode quand la
  * série en attend un (le calendrier, là où on le cherche). Une seule action à
  * portée de main ; le reste est derrière « ⋯ ».
  */
@@ -15,6 +16,8 @@ import { useTranslation } from "react-i18next";
 import type { LocalRequest } from "../api/types";
 import type { ProgressItem } from "../api/types-releases";
 import { posterUrl } from "../utils/media-helpers";
+import { gapText, restrictGaps } from "../utils/series-gaps";
+import { useTitleGaps } from "../hub/TitleStates";
 import { CTA_PRIMARY, CTA_SECONDARY } from "../styles/cta";
 import { CalendarIcon, CheckIcon, DotsIcon, PlayIcon, RetryIcon } from "../components/ui/icons";
 import { RequestProgressBar } from "../components/RequestProgressBar";
@@ -41,6 +44,9 @@ export const RequestRow = memo(function RequestRow(props: Props) {
   const { request, progress, receivedAt, nextRelease, onAction, onMenu, onNextRelease, selectable, selected, onToggleSelect } = props;
   const { t } = useTranslation("seer");
   const { status, detail } = requestView(request, progress);
+  const gaps = useTitleGaps({ id: request.tmdbId, mediaType: request.mediaType });
+  // En partie là : ce qui manque parmi les saisons DEMANDÉES, pas celles de toute la série.
+  const gap = !detail && status?.state === "partial" ? gapText(restrictGaps(gaps, request.seasons), t, "long") : null;
   const poster = posterUrl(request.posterPath, "w185");
   const date = new Date(request.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short" });
   const canSelect = !["deleting", "processing"].includes(request.status);
@@ -90,6 +96,7 @@ export const RequestRow = memo(function RequestRow(props: Props) {
             {detail && (
               <span className={`min-w-0 truncate text-xs font-medium ${PHRASE_TONE[detail.tone].text}`}>{t(detail.key, detail.params)}</span>
             )}
+            {gap && <span className="min-w-0 text-xs font-medium text-tentacle-text-secondary">{gap}</span>}
           </span>
           {/* L'avancement réel : taille, temps restant, détail par saison. */}
           {progress?.download && (
