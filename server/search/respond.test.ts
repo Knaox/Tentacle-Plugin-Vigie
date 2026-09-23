@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { presentProvider } from "./respond";
+import { presentHub, presentProvider } from "./respond";
 import { parseQuery } from "./query";
 import type { Candidate } from "./present";
 import type { Ranked } from "./service";
@@ -68,4 +68,15 @@ test("avant que les statuts soient chargés, un titre de l'index seul n'est pas 
   const response = presentProvider(r, null, 8, "fr", "2026-09-23");
   assert.deepEqual(response.items.map((i) => i.id), ["movie:2"]);
   assert.equal(response.complete, false, "le client doit redemander");
+});
+
+test("quand aucun nom ne contient les mots tapés, le plus connu des premiers choix de TMDB est mis en avant", () => {
+  const r = ranked("shingeki no kyojin", [
+    candidate({ tmdbId: 5, title: "進撃の巨人 -the Musical-", text: 0, remoteRank: 0, voteCount: 2 }),
+    candidate({ tmdbId: 1, title: "L'Attaque des Titans : la dernière attaque", text: 0, remoteRank: 3, voteCount: 400 }),
+    candidate({ tmdbId: 1429, mediaType: "tv", key: "tv:1429", title: "L'Attaque des Titans", text: 0, remoteRank: 1, voteCount: 7000 }),
+  ]);
+  const hub = presentHub(r, 1, [], false, Date.now());
+  assert.equal(hub.top?.kind, "media");
+  assert.equal(hub.top?.kind === "media" ? hub.top.item.id : null, 1429);
 });

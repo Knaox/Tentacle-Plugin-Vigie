@@ -24,6 +24,7 @@ import {
  * contient passerait en vedette. */
 const TOP_SINGLE_WORD = 800;
 const GROUP_LIMIT = 40;
+const TMDB_FIRST_CHOICES = 5;
 const PEOPLE_LIMIT = 10;
 /* Ce qui mérite d'être proposé à côté d'un titre que la bibliothèque a déjà. */
 const NOTABLE_VOTES = 30;
@@ -84,6 +85,14 @@ export function presentHub(
     top = { kind: "person", person: toPerson(bestPerson) };
   } else if (bestMedia && bestMedia.text >= needed) {
     top = { kind: "media", item: toSearchItem(bestMedia, statusFor(bestMedia)) };
+  } else if (!media.some((c) => c.text >= TEXT_KEY_WORDS)) {
+    // Aucun nom affiché ne contient les mots tapés : TMDB a trouvé par un autre
+    // titre (« shingeki no kyojin » → L'Attaque des Titans). Parmi ses premiers
+    // choix, le plus connu — son tout premier était une comédie musicale.
+    const first = media
+      .filter((c) => c.remoteRank !== null && c.remoteRank < TMDB_FIRST_CHOICES)
+      .sort((a, b) => b.voteCount - a.voteCount)[0];
+    if (first) top = { kind: "media", item: toSearchItem(first, statusFor(first)) };
   }
   const topKey = top?.kind === "media" ? `${top.item.mediaType}:${top.item.id}` : null;
   const rest = media.filter((c) => c.key !== topKey);
