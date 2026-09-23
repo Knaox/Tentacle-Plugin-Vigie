@@ -5,6 +5,7 @@
 import type { FastifyRequest } from "fastify";
 import type { UnifiedRequest, SeerRequest } from "./types";
 import { resolveRequestStatus } from "./request-status";
+import type { SeasonStates } from "./series-gaps";
 import { aggregateDownloads, type SeerrDownloadItem } from "./download-progress";
 
 export interface JellyfinUser { userId: string; username: string; isAdmin: boolean; }
@@ -54,10 +55,12 @@ export function seerrRequestToUnified(
   detail: SeerrTmdbDetail | null,
   localById: Map<number, SeerRequest>,
   fallbackUser: { jellyfinUserId: string; username: string },
+  /** L'état des saisons de la série, quand elle est en partie là (series-gaps). */
+  seasonStates?: SeasonStates,
 ): UnifiedRequest {
   const local = localById.get(sr.id);
   // Épingle « Disponible » et disponibilité par-saison : voir `request-status`.
-  const status = resolveRequestStatus(sr, local);
+  const status = resolveRequestStatus(sr, local, seasonStates);
   const seasons = sr.seasons?.map((s) => s.seasonNumber).filter((n) => typeof n === "number") ?? null;
   const mediaType = (sr.media?.mediaType ?? "movie") as "movie" | "tv";
   const title = detail?.title ?? detail?.name ?? local?.title ?? `#${sr.id}`;

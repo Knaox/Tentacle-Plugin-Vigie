@@ -38,8 +38,16 @@ test("une demande : attente, route, blocage, arrivée — jamais « échec » po
   assert.equal(stateFromRequest({ status: "partially_available" }, progress())?.state, "downloading");
   assert.equal(stateFromRequest({ status: "available" })?.state, "available");
   assert.equal(stateFromRequest({ status: "deleted" }), null);
-  // Partiellement demandée, partiellement là : en partie.
-  assert.equal(stateFromRequest({ status: "approved", seerrMediaStatus: 4 })?.state, "partial");
+  // La demande parle de ses saisons : le serveur la dit « en partie » quand elles le sont.
+  assert.equal(stateFromRequest({ status: "partially_available" })?.state, "partial");
+});
+
+test("la saison 5 demandée d'une série en partie là : la demande attend, l'affiche dit « en partie »", () => {
+  // Le serveur rend « approved » : rien de ce qui a été demandé n'est là.
+  const mine = stateFromRequest({ status: "approved" });
+  assert.equal(mine?.state, "requested");
+  // L'affiche, elle, parle de la série — en partie là.
+  assert.equal(mergeStatus({ state: "partial", percent: null }, mine)?.state, "partial");
 });
 
 test("une série en partie là reste « en partie », quoi qu'en dise sa demande", () => {

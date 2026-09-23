@@ -71,14 +71,17 @@ const WAITING: ReadonlySet<RequestStatus> = new Set([
 /**
  * L'état d'UNE demande, avancement réel compris. `null` pour ce qui n'est
  * plus une attente : refusée, supprimée, en cours de suppression.
+ *
+ * Une demande parle de SES saisons : le serveur la dit disponible quand elles
+ * sont toutes là, en partie quand certaines le sont (ou certains de leurs
+ * épisodes), en attente sinon — même si la série, elle, est en partie là.
+ * C'est l'affiche du TITRE qui dit « en partie » pour la série entière.
  */
 export function stateFromRequest(
-  request: Pick<LocalRequest, "status"> & { seerrMediaStatus?: number | null },
+  request: Pick<LocalRequest, "status">,
   progress?: ProgressItem,
 ): TitleStatus | null {
   const download = progress?.download;
-  // Demandée, mais la série est déjà en partie là (d'autres saisons) : on le dit.
-  if (WAITING.has(request.status) && request.seerrMediaStatus === 4) return { state: "partial", percent: null };
   switch (request.status) {
     case "available":
       return { state: "available", percent: null };

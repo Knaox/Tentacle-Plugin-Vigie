@@ -24,6 +24,7 @@ import {
 import { fetchAllSeerrRequests } from "./seerr-requests-fetch";
 import { resolveJellyseerrUserId } from "./jellyseerr-user";
 import { resolveRequestStatus } from "./request-status";
+import { partialSeriesSeasons, type SeasonStates } from "./series-gaps";
 import { rowToRequest } from "./db-helpers";
 
 /** Statuts locaux considérés comme « pas encore repris par Jellyseerr ». */
@@ -38,6 +39,12 @@ export interface MergedRows {
   deletingIds: Set<number>;
   stats: RequestsStats;
   fetchedAt: string;
+  /**
+   * L'état des saisons des séries en partie là, par id TMDB : la liste de
+   * Jellyseerr ne le donne pas, et c'est lui qui dit si une demande de
+   * saison est arrivée, arrivée en partie, ou pas du tout.
+   */
+  seasonStates?: ReadonlyMap<number, SeasonStates>;
   /**
    * true = Jellyseerr n'a pas répondu et ces lignes sont un REPLI local.
    * Le calendrier s'en sert pour se déclarer incomplet plutôt que de graver
@@ -74,6 +81,8 @@ export async function buildMergedRows(
 
   let seerrRows: SeerrRequestRow[] = [];
   let seerrUnreachable = false;
+  // En parallèle : une liste partagée par tout le serveur, en cache une minute.
+  const seasonStatesP = partialSeriesSeasons(cfg);
   try {
     const seerUserId = await resolveJellyseerrUserId(cfg, prisma, user.userId, user.username);
     const all = await fetchAllSeerrRequests(cfg, seerUserId);
@@ -99,13 +108,15 @@ export async function buildMergedRows(
     for (const r of pending) deletingIds.add(Number(r.seerr_request_id));
   } catch { /* best-effort */ }
 
+  const seasonStates = await seasonStatesP;
   return {
     seerrRows,
     localBySeerrId,
     localOnly,
     deletingIds,
-    stats: computeStats(seerrRows, localOnly, localBySeerrId, deletingIds),
+    stats: computeStats(seerrRows, localOnly, localBySeerrId, deletingIds, seasonStates),
     fetchedAt: new Date().toISOString(),
+    seasonStates,
     seerrUnreachable,
   };
 }
@@ -115,6 +126,7 @@ function computeStats(
   localOnly: SeerRequest[],
   localBySeerrId: Map<number, SeerRequest>,
   deletingIds: Set<number>,
+  seasonStates: ReadonlyMap<number, SeasonStates>,
 ): RequestsStats {
   const byStatus: Record<string, number> = {};
   const byType = { movie: 0, tv: 0 };
@@ -128,7 +140,7 @@ function computeStats(
   };
 
   for (const sr of seerrRows) {
-    bump(effectiveStatus(sr, localBySeerrId, deletingIds), sr.media?.mediaType);
+    bump(effectiveStatus(sr, localBySeerrId, deletingIds, seasonStates), sr.media?.mediaType);
   }
   for (const l of localOnly) bump(l.status, l.mediaType);
 
@@ -140,11 +152,12 @@ function effectiveStatus(
   sr: SeerrRequestRow,
   localBySeerrId: Map<number, SeerRequest>,
   deletingIds: Set<number>,
+  seasonStates: ReadonlyMap<number, SeasonStates>,
 ): RequestStatus {
   if (deletingIds.has(sr.id)) return "deleting";
   /* Le MÊME verdict que la liste, sans quoi les compteurs du bandeau et les
    * badges des cartes raconteraient deux histoires différentes. */
-  return resolveRequestStatus(sr, localBySeerrId.get(sr.id));
+  return resolveRequestStatus(sr, localBySeerrId.get(sr.id), seasonStates.get(sr.media?.tmdbId ?? 0));
 }
 
 export function collectTmdbRefs(rows: MergedRows): TmdbRef[] {
@@ -186,7 +199,7 @@ export function hydrateRows(
     const unified = seerrRequestToUnified(sr, detail, rows.localBySeerrId, {
       jellyfinUserId: user.userId,
       username: user.username,
-    });
+    }, rows.seasonStates?.get(sr.media.tmdbId));
     if (rows.deletingIds.has(sr.id)) unified.status = "deleting";
     out.push(unified);
   }

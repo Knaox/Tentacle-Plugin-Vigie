@@ -21,6 +21,7 @@ import { fetchSeerrRequestsPage } from "./seerr-requests-fetch";
 import { resolveJellyseerrUserId } from "./jellyseerr-user";
 import { aggregateDownloads } from "./download-progress";
 import { resolveRequestStatus } from "./request-status";
+import { partialSeriesSeasons } from "./series-gaps";
 import { rowsCacheKey } from "./routes-requests-read";
 import type { MergedRows } from "./requests-list";
 
@@ -85,6 +86,7 @@ export function registerProgressRoutes(
       /* Ce que la file *arr dit bloqué (import refusé, source morte) et que
        * Jellyseerr ne relaie pas. Injoignable : on se fie à Jellyseerr seul. */
       const blocked = await blockedDownloadIds(config).catch(() => new Set<string>());
+      const seasonStates = await partialSeriesSeasons(config);
 
       const items: ProgressItem[] = [];
       for (const sr of rows) {
@@ -94,7 +96,7 @@ export function registerProgressRoutes(
         /* Même verdict que la liste : une demande dont toutes les saisons
          * demandées sont arrivées est disponible, même si la série récupère
          * encore des saisons que personne ici n'a demandées. */
-        const status = resolveRequestStatus(sr);
+        const status = resolveRequestStatus(sr, null, seasonStates.get(sr.media?.tmdbId ?? 0));
         /* Un téléchargement terminé sur une demande déjà disponible n'apprend
          * rien : l'afficher ferait une barre pleine sous un badge « Disponible »,
          * et surtout ferait poller le front pour rien. */

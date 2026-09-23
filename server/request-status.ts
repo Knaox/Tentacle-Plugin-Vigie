@@ -31,6 +31,7 @@
  */
 
 import type { RequestStatus } from "./types";
+import type { SeasonStates } from "./series-gaps";
 import { mapSeerrStatus } from "./worker-sync";
 
 /** `media.seasons[].status` : 5 = AVAILABLE (la saison est en bibliothèque). */
@@ -38,6 +39,9 @@ const AVAILABLE = 5;
 
 /** `request.seasons[].status` : 5 = COMPLETED (la saison demandée est arrivée). */
 const COMPLETED = 5;
+
+/** `media.seasons[].status` : 4 = PARTIALLY_AVAILABLE (une partie des épisodes est là). */
+const PARTIAL = 4;
 
 /**
  * La forme MINIMALE dont ce module a besoin — volontairement structurelle :
@@ -56,53 +60,85 @@ export interface StatusRow {
   };
 }
 
+/** Ce qui, des saisons DEMANDÉES, est déjà là. */
+export type RequestedSeasonsHere = "all" | "some" | "none" | "unknown";
+
 /**
- * Toutes les saisons demandées sont-elles disponibles ?
+ * Les saisons demandées sont-elles là — toutes, une partie, aucune ?
  *
- * Faux dès qu'on ne peut pas conclure — demande sans saison (film, ou série
- * demandée en bloc), Jellyseerr qui ne renvoie pas la granularité : mieux vaut
- * garder le statut global que promettre une disponibilité qu'on n'a pas vue.
+ * Une saison compte pour arrivée si `media.seasons` la dit disponible OU si sa
+ * demande est « terminée » ; pour « en partie » si seuls certains de ses
+ * épisodes sont là. `seasonStates` complète `media.seasons`, que la liste des
+ * demandes ne renvoie pas (cf. series-gaps.ts).
+ *
+ * « unknown » dès qu'on ne peut pas conclure — demande sans saison (film,
+ * série demandée en bloc), saison dont on ignore l'état : mieux vaut garder le
+ * statut global que promettre ce qu'on n'a pas vu.
  */
-export function allRequestedSeasonsAvailable(row: StatusRow): boolean {
+export function requestedSeasonsHere(row: StatusRow, seasonStates?: SeasonStates): RequestedSeasonsHere {
   const requested = (row.seasons ?? []).filter((s) => typeof s.seasonNumber === "number");
-  if (requested.length === 0) return false;
+  if (requested.length === 0) return "unknown";
 
-  const available = new Set(
-    (row.media?.seasons ?? [])
-      .filter((s) => s.status === AVAILABLE)
-      .map((s) => s.seasonNumber),
-  );
+  const states = new Map<number, number>(seasonStates ?? []);
+  for (const s of row.media?.seasons ?? []) {
+    if (typeof s.status === "number") states.set(s.seasonNumber, s.status);
+  }
 
-  return requested.every((s) => available.has(s.seasonNumber) || s.status === COMPLETED);
+  let here = 0;
+  let some = 0;
+  let known = 0;
+  for (const s of requested) {
+    const state = states.get(s.seasonNumber);
+    if (state === AVAILABLE || s.status === COMPLETED) here++;
+    else if (state === PARTIAL) some++;
+    if (state !== undefined || s.status === COMPLETED) known++;
+  }
+  if (here === requested.length) return "all";
+  if (here + some > 0) return "some";
+  return known === requested.length ? "none" : "unknown";
+}
+
+/** Toutes les saisons demandées sont-elles disponibles ? */
+export function allRequestedSeasonsAvailable(row: StatusRow, seasonStates?: SeasonStates): boolean {
+  return requestedSeasonsHere(row, seasonStates) === "all";
 }
 
 /**
  * Le statut d'une ligne Jellyseerr, tel qu'il doit s'afficher.
  *
  * Deux corrections se superposent au mapping brut :
- *   1. l'épingle « Disponible » — une ligne locale posée à la main via
+ *   1. la disponibilité par-saison — voir l'en-tête du module ;
+ *   2. l'épingle « Disponible » — une ligne locale posée à la main via
  *      « Marquer comme » l'emporte quand Jellyseerr a PERDU le média
  *      (availability-sync → UNKNOWN/DELETED, approbation fantôme) ; un état
- *      réel plus actif reprend toujours la main ;
- *   2. la disponibilité par-saison — voir l'en-tête du module.
+ *      réel plus actif reprend toujours la main.
  */
 export function resolveRequestStatus(
   row: StatusRow,
   local?: { status: RequestStatus } | null,
+  seasonStates?: SeasonStates,
 ): RequestStatus {
   let status = mapSeerrStatus(row.status, row.media?.status, row.media?.downloadStatus);
+
+  /* Uniquement depuis « partiellement disponible » : c'est le seul état où le
+   * périmètre de la demande et celui du média divergent. La série est en
+   * partie là ; la DEMANDE, elle, l'est entièrement (ses saisons sont toutes
+   * arrivées), en partie, ou pas du tout — la saison 5 demandée d'une série
+   * dont les quatre premières sont là attend toujours : elle reprend alors le
+   * statut d'une demande en cours (en route si quelque chose descend). */
+  if (status === "partially_available") {
+    const here = requestedSeasonsHere(row, seasonStates);
+    if (here === "all") status = "available";
+    else if (here === "none") {
+      const downloads = row.media?.downloadStatus;
+      status = mapSeerrStatus(row.status, downloads && downloads.length > 0 ? 3 : 2, downloads);
+    }
+  }
 
   if (
     local?.status === "available" &&
     (status === "approved" || status === "unavailable" || status === "deleted")
   ) {
-    status = "available";
-  }
-
-  /* Uniquement depuis « partiellement disponible » : c'est le seul état où le
-   * périmètre de la demande et celui du média divergent. Un téléchargement en
-   * cours (media PROCESSING) reste un téléchargement en cours. */
-  if (status === "partially_available" && allRequestedSeasonsAvailable(row)) {
     status = "available";
   }
 

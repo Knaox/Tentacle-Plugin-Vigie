@@ -73,7 +73,7 @@ export function collectRequestRefs(rows: MergedRows, includeSettled: boolean): R
     if (!statusByKey.has(key)) {
       const local = rows.localBySeerrId.get(sr.id);
       statusByKey.set(key, {
-        status: resolveRequestStatus(sr, local),
+        status: resolveRequestStatus(sr, local, rows.seasonStates?.get(sr.media.tmdbId)),
         requestId: local?.id ?? `seerr-${sr.id}`,
       });
     }

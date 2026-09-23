@@ -130,3 +130,52 @@ test("une demande refusée ou rejetée par Jellyseerr reste un échec", () => {
   assert.equal(resolveRequestStatus({ status: 3, media: { status: 3 } }), "failed");
   assert.equal(resolveRequestStatus({ status: 4, media: { status: 3 } }), "failed");
 });
+
+/* ── La demande parle de SES saisons, pas de la série ───────────────── */
+
+test("la saison demandée est elle-même en partie là → en partie", () => {
+  // Saison 1 demandée, une partie de ses épisodes arrivés : « en partie ».
+  const row = serie([1], [[1, 4], [2, 5]]);
+  assert.equal(resolveRequestStatus(row), "partially_available");
+});
+
+test("la saison demandée est là, même si une autre ne l'est qu'en partie → disponible", () => {
+  const row = serie([2], [[1, 4], [2, 5]]);
+  assert.equal(resolveRequestStatus(row), "available");
+});
+
+test("une saison là et l'autre en partie : la demande est en partie là", () => {
+  const row = serie([1, 2], [[1, 4], [2, 5]]);
+  assert.equal(resolveRequestStatus(row), "partially_available");
+});
+
+test("rien de ce qu'on a demandé n'est là : la demande attend, même si la série est en partie là", () => {
+  // Saisons 1 à 4 là, la 5 demandée pas encore sortie : « demandée », pas « en partie ».
+  const row = serie([5], [[1, 5], [2, 5], [3, 5], [4, 5], [5, 1]]);
+  assert.equal(resolveRequestStatus(row), "approved");
+});
+
+test("rien de ce qu'on a demandé n'est là, mais quelque chose descend → en route", () => {
+  const row = serie([5], [[1, 5], [5, 3]]);
+  row.media = { ...row.media, downloadStatus: [{ status: "downloading" }] };
+  assert.equal(resolveRequestStatus(row), "downloading");
+});
+
+test("rien n'est là et la demande attend sa validation → en attente de validation", () => {
+  const row = { ...serie([5], [[1, 5], [5, 1]]), status: 1 };
+  assert.equal(resolveRequestStatus(row), "sent_to_seer");
+});
+
+test("l'index des séries incomplètes complète la liste, qui ne donne pas `media.seasons`", () => {
+  // Forme réelle de `GET /request` : les saisons de la série n'y sont pas.
+  const row: StatusRow = { status: 2, seasons: [{ seasonNumber: 4, status: 2 }], media: { status: 4 } };
+  const index = new Map([[1, 5], [2, 5], [3, 5], [4, 4]]);
+  assert.equal(resolveRequestStatus(row, null, index), "partially_available");
+  const s3: StatusRow = { status: 2, seasons: [{ seasonNumber: 3, status: 2 }], media: { status: 4 } };
+  assert.equal(resolveRequestStatus(s3, null, index), "available");
+});
+
+test("une saison dont on ignore l'état : on ne conclut rien", () => {
+  const row: StatusRow = { status: 2, seasons: [{ seasonNumber: 5 }], media: { status: 4 } };
+  assert.equal(resolveRequestStatus(row, null, new Map([[1, 5]])), "partially_available");
+});
