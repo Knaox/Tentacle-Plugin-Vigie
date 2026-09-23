@@ -18,7 +18,7 @@
  *     titre « demandé » dans ce cache) se voit aussitôt dans la grille.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { BROWSE_PAGE_SIZE, MAX_BROWSE_PAGES } from "../api/client-browse";
 import type { SeerrPagedResponse, SeerrSearchResult } from "../api/types";
@@ -51,12 +51,19 @@ function totalOf(first: SeerrPagedResponse | undefined): number | null {
   return Math.min(first.totalResults ?? 0, pages * BROWSE_PAGE_SIZE);
 }
 
+type PageLoader = (page: number) => Promise<SeerrPagedResponse>;
+
+/** Un parcours : sa clé et SON chargeur, liés une fois pour toutes. */
+function newRun(key: string, load: PageLoader) {
+  return { key, load, inflight: new Set<number>(), failedAt: new Map<number, number>(), wanted: [1, 2] };
+}
+
 /** `enabled` faux : une source vide qui ne demande rien (la série d'un « Tous » sans équivalent). */
-export function useSparseCatalog(key: string, fetchPage: (page: number) => Promise<SeerrPagedResponse>, enabled = true): SparseCatalog {
+export function useSparseCatalog(key: string, fetchPage: PageLoader, enabled = true): SparseCatalog {
   const qc = useQueryClient();
   const [version, setVersion] = useState(0);
   const [error, setError] = useState(false);
-  const run = useRef({ key, inflight: new Set<number>(), failedAt: new Map<number, number>(), wanted: [1, 2] as number[] });
+  const run = useRef(newRun(key, fetchPage));
   const fetcher = useRef(fetchPage);
   fetcher.current = fetchPage;
 
@@ -80,7 +87,9 @@ export function useSparseCatalog(key: string, fetchPage: (page: number) => Promi
         !pageData(p) && !s.inflight.has(p) && Date.now() - (s.failedAt.get(p) ?? 0) > RETRY_MS);
       if (next === undefined) return;
       s.inflight.add(next);
-      qc.fetchQuery({ queryKey: [ROOT, runKey, next], queryFn: () => fetcher.current(next), staleTime: STALE_MS, gcTime: GC_MS })
+      // Le chargeur du parcours, jamais le dernier venu : une page de films
+      // ne se charge qu'avec celui des films.
+      qc.fetchQuery({ queryKey: [ROOT, runKey, next], queryFn: () => s.load(next), staleTime: STALE_MS, gcTime: GC_MS })
         .then(() => { if (next === 1 && run.current.key === runKey) setError(false); })
         .catch(() => {
           s.failedAt.set(next, Date.now());
@@ -93,9 +102,13 @@ export function useSparseCatalog(key: string, fetchPage: (page: number) => Promi
     }
   }, [qc, pageData, enabled]);
 
-  // Nouveau parcours : on repart de zéro — le cache, lui, garde ce qu'il sait.
-  useEffect(() => {
-    run.current = { key, inflight: new Set(), failedAt: new Map(), wanted: [1, 2] };
+  /* Nouveau parcours : on repart de zéro — le cache, lui, garde ce qu'il sait.
+   * AVANT les effets de la grille : enfant, elle passe d'ordinaire la première
+   * et réclamait ses cases à l'ANCIEN parcours avec le chargeur du nouveau.
+   * Une page de films périmée revenait alors pleine de séries, et « Films »
+   * les montrait au retour. */
+  useLayoutEffect(() => {
+    run.current = newRun(key, fetcher.current);
     setError(false);
     setVersion((v) => v + 1);
     pump();
