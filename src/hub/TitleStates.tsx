@@ -15,7 +15,7 @@ import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { SeerrSearchResult } from "../api/types";
 import type { SeriesGaps } from "../api/types-releases";
 import { useSeriesGapsMap } from "../hooks/useSeriesGaps";
-import { mergeStatus, stateFromMedia, stateFromRequest, strongest, type TitleStatus } from "../utils/title-state";
+import { mergeStatus, stateFromMedia, stateFromRequest, strongest, type MediaInfoLike, type TitleStatus } from "../utils/title-state";
 import type { HubData } from "./useHubData";
 
 const MineContext = createContext<ReadonlyMap<string, TitleStatus>>(new Map());
@@ -48,7 +48,7 @@ export function useTitleGaps(item: { id: number; mediaType: string }): SeriesGap
 }
 
 /** L'état d'un titre sur son affiche : Jellyseerr, précisé par sa propre demande. */
-export function useTitleStatus(item: Pick<SeerrSearchResult, "id" | "mediaType" | "mediaInfo">): TitleStatus | null {
+export function useTitleStatus(item: Pick<SeerrSearchResult, "id" | "mediaType"> & { mediaInfo?: MediaInfoLike }): TitleStatus | null {
   const mine = useContext(MineContext).get(`${item.mediaType}:${item.id}`);
   const info = item.mediaInfo;
   return useMemo(() => mergeStatus(stateFromMedia(info), mine), [info, mine]);

@@ -123,7 +123,8 @@ export interface SeerrMovieDetail {
   genres?: { id: number; name: string }[];
   productionCompanies?: SeerrProductionCompany[];
   productionCountries?: { iso_3166_1: string; name: string }[];
-  mediaInfo?: { status: number };
+  /** Ses demandes : une qui tient encore garde le film pris, même retombé au statut 1. */
+  mediaInfo?: { status: number; requests?: { id: number; status: number }[] };
   credits?: {
     cast?: SeerrCastMember[];
     crew?: SeerrCrewMember[];

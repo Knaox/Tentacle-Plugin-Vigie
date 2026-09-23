@@ -1,17 +1,22 @@
 /* ------------------------------------------------------------------ */
-/*  Vigie — Quelles saisons d'une série sont déjà prises               */
+/*  Vigie — Ce qui est déjà pris : les saisons d'une série, un film    */
 /* ------------------------------------------------------------------ */
 
 /*
  * Partagé par la fiche et la demande rapide : une saison déjà là, déjà
- * demandée (chez Jellyseerr ou dans la file du plugin) ne se redemande pas.
- * Extrait de la fiche, à l'identique.
+ * demandée (chez Jellyseerr ou dans la file du plugin) ne se redemande pas —
+ * un film non plus. Extrait de la fiche, à l'identique.
  */
 
 import type { SeerrTvDetail } from "../api/types";
 import { MEDIA_STATUS_DELETED, isRequestedSeasonStatus } from "./media-status";
 
 type MediaInfo = SeerrTvDetail["mediaInfo"];
+
+/** Une demande Jellyseerr qui tient encore : ni refusée (3), ni en échec (4). */
+function holds(request: { status: number }): boolean {
+  return request.status !== 3 && request.status !== 4;
+}
 
 /**
  * Numéro de saison → statut Jellyseerr (2 en attente, 3 en acquisition,
@@ -33,14 +38,14 @@ export function seasonLocks(info: MediaInfo, localSeasons: readonly number[] | u
     if (s.status === MEDIA_STATUS_DELETED) deleted.add(s.seasonNumber);
     else if (isRequestedSeasonStatus(s.status)) map.set(s.seasonNumber, s.status);
   }
-  // 2) Saisons couvertes par une demande active : Jellyseerr ne remplit
-  //    mediaInfo.seasons qu'à la disponibilité ; une saison seulement demandée
-  //    n'est QUE dans mediaInfo.requests[].seasons. On la marque « en
-  //    traitement » (3) pour la verrouiller, sans rétrograder une saison déjà
-  //    disponible. (statut demande : 3 = refusée, 4 = échouée → ignorées)
+  // 2) Saisons couvertes par une demande active : une saison seulement
+  //    demandée n'a pas toujours d'état dans mediaInfo.seasons (Sonarr ne l'a
+  //    pas encore vue, ou la dit encore au statut 1) ; sa demande, dans
+  //    mediaInfo.requests[].seasons, fait foi. On la marque « en traitement »
+  //    (3) pour la verrouiller, sans rétrograder une saison déjà disponible.
   if (info?.status !== MEDIA_STATUS_DELETED) {
     for (const r of info?.requests ?? []) {
-      if (r.status === 3 || r.status === 4) continue;
+      if (!holds(r)) continue;
       for (const se of r.seasons ?? []) {
         if (deleted.has(se.seasonNumber)) continue;
         const existing = map.get(se.seasonNumber);
@@ -56,6 +61,16 @@ export function seasonLocks(info: MediaInfo, localSeasons: readonly number[] | u
     if (existing === undefined || existing < 3) map.set(sn, 3);
   }
   return map;
+}
+
+/**
+ * Un film a-t-il une demande qui tient encore ? Son statut ne suffit pas :
+ * retombé à 1 (« Marquer comme… › Demandée », fichier retiré), il garde sa
+ * demande et Vigie le dit « Demandé » — « L'Odyssée », demande terminée et
+ * média inconnu, offrait pourtant « Demander quand même » sous ce badge.
+ */
+export function hasActiveRequest(info: { requests?: ReadonlyArray<{ status: number }> } | undefined): boolean {
+  return (info?.requests ?? []).some(holds);
 }
 
 /** Détection animé : genre Animation + origine japonaise ou coréenne, ou mot-clé TMDB « anime ». */

@@ -29,7 +29,7 @@ import { useVerdict } from "../hooks/useVerdict";
 import { useToast } from "../hooks/useToast";
 import { useOverlay } from "../hooks/useOverlay";
 import { useTitleStatus } from "../hub/TitleStates";
-import { isAnimeTitle, seasonLocks } from "../utils/season-locks";
+import { hasActiveRequest, isAnimeTitle, seasonLocks } from "../utils/season-locks";
 import { mediaTitle, mediaYear } from "../utils/media-helpers";
 import { openTrailersViaHost } from "../utils/external";
 import { CHROME_BOTTOM } from "../utils/host-chrome";
@@ -98,6 +98,12 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
   );
   const tvSeasons = (tvDetail?.seasons ?? []).filter((s) => s.seasonNumber > 0);
   const freeSeasons = tvSeasons.filter((s) => locks.get(s.seasonNumber) === undefined).length;
+  // Un film déjà pris ne se redemande pas : suivi par Jellyseerr, attendu par
+  // une demande quand son statut est retombé à 1, ou par SA demande encore
+  // dans la file du plugin (le badge le dit). Le bouton ne reste que le temps
+  // de dire « Demande ajoutée ».
+  const movieFree = !isTv && (requestSuccess
+    || (mediaStatus < 2 && !hasActiveRequest(detail?.mediaInfo ?? current.mediaInfo) && status === null));
   const streamingIds = (providers ?? []).map((p) => p.provider_id).filter((id) => id > 0);
 
   const handleClose = useCallback(() => {
@@ -164,7 +170,7 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
       mediaStatus={mediaStatus}
       trailers={trailers ?? []}
       onOpenTrailer={() => openTrailerAt(0)}
-      movieRequest={!isTv && mediaStatus < 2 ? {
+      movieRequest={movieFree ? {
         requesting: requestMedia.isPending, success: requestSuccess, obtainable: verdict?.obtainable ?? true,
         isAnime, profileId: movieProfileId, onProfile: setMovieProfileId, onRequest: requestMovie,
       } : null}

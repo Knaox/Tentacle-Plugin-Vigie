@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isAnimeTitle, seasonLocks } from "./season-locks";
+import { hasActiveRequest, isAnimeTitle, seasonLocks } from "./season-locks";
 
 test("une saison là, une saison demandée, une saison libre", () => {
   const locks = seasonLocks({
@@ -43,6 +43,17 @@ test("une saison supprimée chez Jellyseerr redevient libre", () => {
 
 test("une demande refusée ne verrouille rien", () => {
   assert.equal(seasonLocks({ status: 2, requests: [{ id: 9, status: 3, seasons: [{ seasonNumber: 1 }] }] }, []).has(1), false);
+});
+
+test("un film retombé au statut 1 garde sa demande : il reste pris", () => {
+  // Relevé réel (TMDB 1368337, « L'Odyssée ») : demande terminée, média revenu à « inconnu ».
+  assert.equal(hasActiveRequest({ requests: [{ status: 5 }] }), true);
+  assert.equal(hasActiveRequest({ requests: [{ status: 1 }] }), true);
+  assert.equal(hasActiveRequest({ requests: [{ status: 2 }] }), true);
+  // Refusée ou en échec : le film se redemande.
+  assert.equal(hasActiveRequest({ requests: [{ status: 3 }, { status: 4 }] }), false);
+  assert.equal(hasActiveRequest({}), false);
+  assert.equal(hasActiveRequest(undefined), false);
 });
 
 test("un animé se reconnaît au mot-clé, ou à l'animation japonaise", () => {
