@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createRequest } from "../api/seer-client";
 import type { MediaType, SeerrPagedResponse, SeerrSearchResult } from "../api/types";
+import { markRequestedEverywhere } from "./markRequested";
 
 export interface RequestMediaPayload {
   mediaType: MediaType;
@@ -52,6 +53,8 @@ export function useRequestMedia() {
       qc.setQueriesData({ queryKey: ["seer-trending"] }, updateSimple);
       qc.setQueriesData({ queryKey: ["seer-search"] }, updateSimple);
       qc.setQueriesData({ queryKey: ["seer-discover"] }, updateInfinite);
+      // Le hub : rangées, recherche, grille à accès direct, filmographies.
+      markRequestedEverywhere(qc, payload.tmdbId, payload.mediaType);
 
       // Verrou des saisons demandées : MàJ optimiste immédiate de la source
       // locale (le picker les verrouille aussitôt), puis invalidation pour
