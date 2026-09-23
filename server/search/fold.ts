@@ -47,6 +47,36 @@ export function significantTokens(tokens: readonly string[]): string[] {
   return kept.length > 0 ? kept : [...tokens];
 }
 
+/* Les élisions : « d'une », « l'enfer », « qu'il ». */
+const ELIDED = new Set(["d", "l", "j", "m", "n", "s", "t", "c", "qu"]);
+
+/**
+ * Les formes d'un nom plié sous lesquelles on peut le taper : lui-même, et
+ * recollé à l'élision de tête — « L'Ours » se tape aussi « lours », comme
+ * TMDB le comprend. Sans cette forme, « lours » devenait « loups ».
+ */
+export function nameForms(folded: string): string[] {
+  const space = folded.indexOf(" ");
+  if (space < 0 || !ELIDED.has(folded.slice(0, space))) return [folded];
+  return [folded, folded.slice(0, space) + folded.slice(space + 1)];
+}
+
+/**
+ * TMDB lit « d'une » comme « dune » : chercher Dune ramenait « Anatomie d'une
+ * chute » ou « La Vengeance d'une femme ». Vrai quand un mot de la requête
+ * n'apparaît dans un nom QUE recollé à une élision, ailleurs qu'en tête — en
+ * tête (« lours » pour « L'Ours »), c'est bien le titre qu'on a tapé.
+ */
+export function onlyThroughElision(names: readonly string[], tokens: readonly string[]): boolean {
+  return names.some((name) => {
+    const words = name.split(" ");
+    for (let i = 1; i < words.length - 1; i++) {
+      if (ELIDED.has(words[i]) && tokens.includes(words[i] + words[i + 1])) return true;
+    }
+    return false;
+  });
+}
+
 /**
  * Distance de Damerau (alignement optimal) BORNÉE : au-delà de `max`, la
  * valeur exacte n'intéresse personne et le calcul s'arrête — `max + 1` est

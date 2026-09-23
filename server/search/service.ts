@@ -23,7 +23,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { cached, peek } from "../cache";
 import type { WorkerCfg } from "../seerr-unified";
-import { foldText, tokenize } from "./fold";
+import { foldText, nameForms, onlyThroughElision, tokenize } from "./fold";
 import { parseQuery, type ParsedQuery } from "./query";
 import { TitleIndex, type TitleEntry, type TitleRecord } from "./title-index";
 import { ensureTitleIndex } from "./title-crawl";
@@ -79,7 +79,7 @@ function fromEntry(e: TitleEntry, lang: string): Candidate {
 }
 
 function fromRemote(m: RemoteMedia): Candidate {
-  const names = [m.title, m.originalTitle].filter((n): n is string => !!n).map(foldText).filter((n) => n !== "");
+  const names = [m.title, m.originalTitle].filter((n): n is string => !!n).map(foldText).filter((n) => n !== "").flatMap(nameForms);
   const year = m.releaseDate ? Number(m.releaseDate.slice(0, 4)) || null : null;
   const isAnime = m.genreIds.includes(16) && ["ja", "ko", "zh"].includes(m.originalLanguage ?? "");
   return {
@@ -140,7 +140,8 @@ function score(candidates: Iterable<Candidate>, parsed: ParsedQuery, fixed: read
   const anyFull = scored.some((s) => s.c.text >= TEXT_KEY_WORDS);
   const media = scored
     .map((s) => s.c)
-    .filter((c) => !(anyFull && c.text < TEXT_KEY_WORDS && c.remoteRank === null));
+    .filter((c) => !(anyFull && c.text < TEXT_KEY_WORDS && c.remoteRank === null))
+    .filter((c) => !(c.text === 0 && onlyThroughElision(c.names, parsed.tokens)));
   return { media, fixWon };
 }
 

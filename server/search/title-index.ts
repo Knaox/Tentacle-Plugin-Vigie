@@ -15,7 +15,7 @@
  *   - `byInitial`: le vocabulaire par première lettre (correction des fautes).
  */
 
-import { editDistance, foldText, significantTokens } from "./fold";
+import { editDistance, foldText, nameForms, significantTokens } from "./fold";
 
 export interface TitleRecord {
   mediaType: "movie" | "tv";
@@ -141,9 +141,8 @@ export class TitleIndex {
     entry.isAnime = isAnimeOf(entry.genreIds, entry.originalLanguage);
 
     const weight = entryWeight(entry);
-    for (const name of [r.title, r.originalTitle]) {
-      if (!name) continue;
-      const folded = foldText(name);
+    const forms = [r.title, r.originalTitle].flatMap((name) => (name ? nameForms(foldText(name)) : []));
+    for (const folded of forms) {
       if (folded === "" || entry.names.includes(folded)) continue;
       entry.names.push(folded);
       for (const token of folded.split(" ")) {

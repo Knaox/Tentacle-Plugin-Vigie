@@ -76,3 +76,12 @@ test("un mot connu et porteur ne se corrige jamais", () => {
   assert.equal(index.dominantNeighbor("inceptio"), "inception");
   assert.equal(index.lookup(tokenize("inception")).corrected, null);
 });
+
+test("« lours » trouve « L'Ours » au lieu d'être corrigé en « loups »", () => {
+  const index = sample();
+  index.upsert(rec({ tmdbId: 10484, title: "L'Ours", voteCount: 700 }));
+  index.upsert(rec({ tmdbId: 581, title: "Danse avec les loups", voteCount: 4000 }));
+  const { hits, corrected } = index.lookup(tokenize("lours"));
+  assert.equal(corrected, null);
+  assert.equal(hits[0].entry.tmdbId, 10484);
+});

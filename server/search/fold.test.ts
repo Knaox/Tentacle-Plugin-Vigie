@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { editDistance, foldText, significantTokens, tokenize } from "./fold";
+import { editDistance, foldText, nameForms, onlyThroughElision, significantTokens, tokenize } from "./fold";
 
 test("le pliage efface casse, accents, ligatures et ponctuation", () => {
   assert.equal(foldText("L'Âge de glace"), "l age de glace");
@@ -28,4 +28,19 @@ test("la distance s'arrête dès que la borne est franchie", () => {
   assert.equal(editDistance("avatar", "titanic", 2), 3);
   assert.equal(editDistance("dune", "dunkerque", 1), 2);
   assert.equal(editDistance("", "abc", 2), 3);
+});
+
+test("« d'une » recollé n'est pas « Dune », sauf en tête de titre", () => {
+  const dune = tokenize("dune");
+  assert.equal(onlyThroughElision([foldText("Anatomie d'une chute")], dune), true);
+  assert.equal(onlyThroughElision([foldText("Reign : Le Destin d'une reine")], dune), true);
+  assert.equal(onlyThroughElision([foldText("Dune : Deuxième partie")], dune), false);
+  assert.equal(onlyThroughElision([foldText("L'Ours")], tokenize("lours")), false);
+});
+
+test("un titre à élision de tête se tape aussi recollé", () => {
+  assert.deepEqual(nameForms(foldText("L'Ours")), ["l ours", "lours"]);
+  assert.deepEqual(nameForms(foldText("L'Âge de glace")), ["l age de glace", "lage de glace"]);
+  assert.deepEqual(nameForms(foldText("Le Loup")), ["le loup"]);
+  assert.deepEqual(nameForms("dune"), ["dune"]);
 });
