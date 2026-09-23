@@ -6,8 +6,8 @@
  * UNE page pour tout : chercher, découvrir, parcourir le catalogue entier,
  * suivre ses demandes, voir ce qui sort. Les vues déjà ouvertes restent
  * montées (cachées) : revenir à un onglet le retrouve tel qu'on l'a laissé,
- * position de défilement comprise, sans rien recharger — là où l'hôte
- * reconstruisait tout le cadre du plugin à chaque entrée du menu.
+ * sans rien recharger — là où l'hôte reconstruisait tout le cadre du plugin à
+ * chaque entrée du menu. Un onglet s'ouvre en haut de sa page.
  *
  * Le catalogue a son onglet, et c'est LA grille de Vigie : « Tout voir », un
  * genre, une plateforme, une pastille de la recherche y mènent, déjà filtrés.
@@ -77,15 +77,21 @@ export function VigieHub({ routePath }: { routePath: string }) {
   const search = useVigieSearch(query, { showBlocked, exact });
   const searching = query.trim().length >= MIN_SEARCH;
 
-  // Chaque vue garde sa position : on la note en partant, on la rend en revenant.
+  // Un onglet s'ouvre en haut de sa page. Seuls un RETOUR (« Retour à
+  // Découvrir ») et la sortie d'une recherche rendent la position qu'on avait
+  // quittée : là, c'est ce qu'on attend.
   const viewKey = searching ? "search" : tab === "catalog" ? `catalog:${catalog.nonce}` : tab;
   const positions = useRef(new Map<string, number>());
   const currentView = useRef(viewKey);
+  const restoreNext = useRef(false);
   const leave = useCallback(() => { positions.current.set(currentView.current, window.scrollY); }, []);
   useLayoutEffect(() => {
     if (currentView.current === viewKey) return;
+    const fromSearch = currentView.current === "search";
     currentView.current = viewKey;
-    window.scrollTo({ top: positions.current.get(viewKey) ?? 0 });
+    const restore = restoreNext.current || fromSearch;
+    restoreNext.current = false;
+    window.scrollTo({ top: restore ? positions.current.get(viewKey) ?? 0 : 0 });
   }, [viewKey]);
 
   const setQuery = useCallback((next: string) => {
@@ -174,7 +180,10 @@ export function VigieHub({ routePath }: { routePath: string }) {
                   preset={catalog.preset}
                   active={show("catalog")}
                   openFilters={catalog.filters}
-                  back={catalog.from ? { label: t("seer:backToTab", { tab: t(TAB_LABEL[catalog.from]) }), run: () => goTo(catalog.from as HubTab) } : undefined}
+                  back={catalog.from ? {
+                    label: t("seer:backToTab", { tab: t(TAB_LABEL[catalog.from]) }),
+                    run: () => { restoreNext.current = true; goTo(catalog.from as HubTab); },
+                  } : undefined}
                 />
               </div>
             )}
