@@ -18,6 +18,7 @@ import { kickWorkerNow } from "./worker";
 import { getUser, type WorkerCfg, parseRequestId, fetchSeerrRequestById } from "./seerr-unified";
 import { registerRequestReadRoutes } from "./routes-requests-read";
 import { registerRequestActionRoutes } from "./routes-requests-actions";
+import { markLocallyPending } from "./search/pending";
 
 export function registerRequestRoutes(
   app: FastifyInstance,
@@ -100,6 +101,7 @@ export function registerRequestRoutes(
 
         const updated = await getRequestById(prisma, existing.id);
         invalidateRequestCaches(user.userId);
+        markLocallyPending(body.mediaType, body.tmdbId);
         kickWorkerNow();
         return reply.status(201).send(updated);
       }
@@ -121,6 +123,8 @@ export function registerRequestRoutes(
     });
 
     invalidateRequestCaches(user.userId);
+    // La recherche dit « Demandé » tout de suite, sans attendre le worker.
+    markLocallyPending(body.mediaType, body.tmdbId);
     kickWorkerNow();
     return reply.status(201).send(req);
   });
