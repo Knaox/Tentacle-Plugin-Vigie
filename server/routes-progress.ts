@@ -14,7 +14,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import type { DownloadProgress, RequestStatus } from "./types";
-import { fetchServerQueue, type QueueResponse } from "./arr-queue";
+import { blockedDownloadIds, fetchServerQueue, type QueueResponse } from "./arr-queue";
 import { cached, peek } from "./cache";
 import { getUser, type WorkerCfg, type SeerrRequestRow } from "./seerr-unified";
 import { fetchSeerrRequestsPage } from "./seerr-requests-fetch";
@@ -25,12 +25,6 @@ import { rowsCacheKey } from "./routes-requests-read";
 import type { MergedRows } from "./requests-list";
 
 const PROGRESS_TTL_MS = 10_000;
-/*
- * La file du serveur est la même pour tout le monde : une seule entrée de
- * cache, sans identifiant d'utilisateur. Dix onglets ouverts ne déclenchent
- * donc qu'un appel *arr toutes les huit secondes.
- */
-const QUEUE_TTL_MS = 8_000;
 
 export interface ProgressItem {
   /** Même identifiant que dans la liste : 'seerr-<n>' ou l'uuid local. */
@@ -62,7 +56,8 @@ export function registerProgressRoutes(
     };
     if (!config) return empty;
 
-    return cached("seer:arr:queue", QUEUE_TTL_MS, () => fetchServerQueue(config));
+    // Une seule lecture de la file pour tout le monde (cf. arr-queue.ts).
+    return fetchServerQueue(config);
   });
 
   app.get("/requests/progress", async (request) => {
@@ -87,9 +82,13 @@ export function registerProgressRoutes(
         for (const f of found) localIds.set(Number(f.seerr_request_id), f.id);
       }
 
+      /* Ce que la file *arr dit bloqué (import refusé, source morte) et que
+       * Jellyseerr ne relaie pas. Injoignable : on se fie à Jellyseerr seul. */
+      const blocked = await blockedDownloadIds(config).catch(() => new Set<string>());
+
       const items: ProgressItem[] = [];
       for (const sr of rows) {
-        const { summary, items: detail } = aggregateDownloads(sr.media?.downloadStatus);
+        const { summary, items: detail } = aggregateDownloads(sr.media?.downloadStatus, (id) => blocked.has(id));
         if (!summary) continue;
 
         /* Même verdict que la liste : une demande dont toutes les saisons

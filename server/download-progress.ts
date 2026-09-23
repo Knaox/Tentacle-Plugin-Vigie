@@ -19,7 +19,21 @@ export interface SeerrDownloadItem {
   timeLeft?: string;
   estimatedCompletionTime?: string;
   title?: string;
+  /** Empreinte du téléchargement — la même clé que dans la file *arr. */
+  downloadId?: string;
   episode?: { seasonNumber?: number; episodeNumber?: number; title?: string };
+}
+
+/*
+ * Ce qui, dans la file *arr, n'avancera plus tout seul : une source morte
+ * (`warning` — qBittorrent « stalled » y arrive ainsi), un client injoignable,
+ * une pause. `delay` n'en est pas : c'est un profil de délai, le téléchargement
+ * partira à l'heure dite.
+ */
+const STALLED_STATUSES = new Set(["warning", "failed", "paused", "downloadClientUnavailable"]);
+
+export function isStalledStatus(status: string | undefined): boolean {
+  return typeof status === "string" && STALLED_STATUSES.has(status);
 }
 
 /**
@@ -108,6 +122,7 @@ export function toDownloadProgress(item: SeerrDownloadItem): DownloadProgress | 
     estimatedCompletionAt: eta.at,
     status,
     validating: isValidating(size, sizeLeft, status),
+    stalled: isStalledStatus(status),
     title: item.title ?? item.episode?.title ?? null,
     seasonNumber: item.episode?.seasonNumber ?? null,
     episodeNumber: item.episode?.episodeNumber ?? null,
@@ -126,15 +141,29 @@ const MAX_DETAIL_ITEMS = 24;
  * - `percent` : (Σtaille − Σrestant) / Σtaille sur les seuls éléments dimensionnés.
  * - `etaSeconds` : le plus long des délais connus (c'est lui qui borne la fin).
  * - `status` : « downloading » dès qu'au moins un l'est.
+ * - `stalled` : rien n'avance plus — tout ce qui n'est pas arrivé est bloqué.
+ *
+ * `isBlocked` lit la file *arr elle-même (par empreinte de téléchargement) :
+ * Jellyseerr ne relaie que le statut du client, si bien qu'un import refusé
+ * (« completed » de son point de vue) se lisait « presque là » indéfiniment.
  */
 export function aggregateDownloads(
   items: readonly SeerrDownloadItem[] | undefined,
+  isBlocked?: (downloadId: string) => boolean,
 ): { summary: DownloadProgress | null; items: DownloadProgress[] } {
   if (!Array.isArray(items) || items.length === 0) return { summary: null, items: [] };
 
-  const parsed = items
-    .map(toDownloadProgress)
-    .filter((p): p is DownloadProgress => p !== null);
+  const parsed: DownloadProgress[] = [];
+  for (const raw of items) {
+    const p = toDownloadProgress(raw);
+    if (!p) continue;
+    if (!p.stalled && raw.downloadId && isBlocked?.(raw.downloadId)) {
+      // Un fichier complet que *arr refuse d'importer n'est pas « en vérification ».
+      p.stalled = true;
+      p.validating = false;
+    }
+    parsed.push(p);
+  }
   if (parsed.length === 0) return { summary: null, items: [] };
 
   let totalSize = 0;
@@ -156,6 +185,7 @@ export function aggregateDownloads(
   }
 
   const active = parsed.find((p) => p.status === "downloading") ?? parsed[0];
+  const stalledCount = parsed.filter((p) => p.stalled).length;
   const percent = sized > 0 && totalSize > 0
     ? Math.min(100, Math.max(0, ((totalSize - totalLeft) / totalSize) * 100))
     : null;
@@ -170,6 +200,9 @@ export function aggregateDownloads(
     // `every` et non `some` : tant qu'un seul épisode descend encore, la
     // demande télécharge réellement — ce n'est pas de la validation.
     validating: parsed.every((p) => p.validating),
+    // Un épisode bloqué parmi d'autres qui avancent : la demande avance.
+    stalled: stalledCount > 0 && parsed.every((p) => p.stalled || p.validating),
+    stalledCount,
     title: parsed.length === 1 ? active.title : null,
     seasonNumber: parsed.length === 1 ? active.seasonNumber : null,
     episodeNumber: parsed.length === 1 ? active.episodeNumber : null,

@@ -88,6 +88,14 @@ export interface DownloadProgress {
   status: string;
   /** Fichier complet, mais pas encore vérifié ni rangé dans la bibliothèque. */
   validating: boolean;
+  /**
+   * N'avance plus tout seul : source morte, import refusé, client en pause.
+   * JAMAIS un échec — la demande reste un téléchargement, affiché « bloqué ».
+   * Sur le résumé d'une demande : tout ce qui n'est pas arrivé est bloqué.
+   */
+  stalled?: boolean;
+  /** Résumé d'une demande : combien de ses éléments sont bloqués. */
+  stalledCount?: number;
   title: string | null;
   seasonNumber: number | null;
   episodeNumber: number | null;

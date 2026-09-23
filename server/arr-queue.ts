@@ -15,10 +15,19 @@
 
 import type { WorkerCfg } from "./seerr-unified";
 import { buildArrUrl, getArrServerConfig, type ArrServerConfig } from "./arr-service";
-import { parseTimeSpan } from "./download-progress";
+import { cached } from "./cache";
+import { isStalledStatus, parseTimeSpan } from "./download-progress";
 
 /** Au-delà, la liste ne se lit plus ; le total reste annoncé. */
 const MAX_ITEMS = 60;
+/*
+ * La file est la même pour tout le monde : UNE lecture toutes les huit
+ * secondes, quel que soit le nombre d'onglets ou d'écrans qui la consultent
+ * (liste des administrateurs, avancement des demandes, état des épisodes).
+ */
+const QUEUE_TTL_MS = 8_000;
+/* L'état d'un épisode se lit ici : une page large, pas seulement ce qu'on liste. */
+const PAGE_SIZE = 250;
 
 export interface QueueEntry {
   /** « sonarr-42 » — clé de rendu stable. */
@@ -38,8 +47,12 @@ export interface QueueEntry {
   /** Fichier complet, en attente de vérification et de rangement. */
   validating: boolean;
   paused: boolean;
+  /** N'avancera plus tout seul — cf. `isStalledRecord`. Jamais un échec. */
+  stalled: boolean;
   /** Message de *arr (« Not an upgrade », « Sample »…), s'il y en a un. */
   warning: string | null;
+  /** Empreinte du téléchargement : un pack de saison la partage entre ses épisodes. */
+  downloadId: string | null;
 }
 
 export interface QueueResponse {
@@ -58,6 +71,8 @@ interface ArrQueueRecord {
   timeleft?: string;
   status?: string;
   trackedDownloadState?: string;
+  trackedDownloadStatus?: string;
+  downloadId?: string;
   errorMessage?: string;
   statusMessages?: Array<{ title?: string; messages?: string[] }>;
   seasonNumber?: number;
@@ -94,6 +109,20 @@ function isValidating(r: ArrQueueRecord): boolean {
   return r.sizeleft === 0 && typeof r.size === "number" && r.size > 0;
 }
 
+/* Import refusé ou raté : le fichier est là, *arr ne le rangera pas seul. */
+const BLOCKED_STATES = new Set(["importBlocked", "importFailed", "failedPending", "failed"]);
+
+/**
+ * Bloqué : source morte, client injoignable, pause, import refusé. Jellyseerr
+ * ne relaie que le statut du client — c'est ici seulement qu'un import refusé
+ * se voit, là où il ressemblait sinon à une vérification sans fin.
+ */
+export function isStalledRecord(r: Pick<ArrQueueRecord, "status" | "trackedDownloadState" | "trackedDownloadStatus">): boolean {
+  return isStalledStatus(r.status)
+    || BLOCKED_STATES.has(r.trackedDownloadState ?? "")
+    || r.trackedDownloadStatus === "error";
+}
+
 function firstMessage(r: ArrQueueRecord): string | null {
   if (r.errorMessage) return r.errorMessage;
   for (const m of r.statusMessages ?? []) {
@@ -113,6 +142,7 @@ function toEntry(r: ArrQueueRecord, source: "sonarr" | "radarr"): QueueEntry | n
     : null;
 
   const media = source === "sonarr" ? r.series : r.movie;
+  const stalled = isStalledRecord(r);
 
   return {
     id: `${source}-${r.id}`,
@@ -126,14 +156,16 @@ function toEntry(r: ArrQueueRecord, source: "sonarr" | "radarr"): QueueEntry | n
     percent,
     size,
     etaSeconds: parseTimeSpan(r.timeleft),
-    validating: isValidating(r),
+    validating: isValidating(r) && !stalled,
     paused: r.status === "paused" || r.status === "delay",
-    warning: r.status === "warning" || r.status === "failed" ? firstMessage(r) : null,
+    stalled,
+    warning: stalled || r.status === "warning" || r.status === "failed" ? firstMessage(r) : null,
+    downloadId: typeof r.downloadId === "string" && r.downloadId !== "" ? r.downloadId : null,
   };
 }
 
-/** Les deux files, normalisées. Un service en panne n'empêche pas l'autre. */
-export async function fetchServerQueue(cfg: WorkerCfg): Promise<QueueResponse> {
+/** Les deux files, normalisées, ENTIÈRES. Un service en panne n'empêche pas l'autre. */
+async function readQueues(cfg: WorkerCfg): Promise<QueueResponse> {
   const [sonarr, radarr] = await Promise.all([
     getArrServerConfig(cfg.seerrUrl, cfg.seerrApiKey, "sonarr"),
     getArrServerConfig(cfg.seerrUrl, cfg.seerrApiKey, "radarr"),
@@ -141,10 +173,10 @@ export async function fetchServerQueue(cfg: WorkerCfg): Promise<QueueResponse> {
 
   const [sq, rq] = await Promise.all([
     sonarr
-      ? fetchQueue(sonarr, "/api/v3/queue?pageSize=100&includeSeries=true&includeEpisode=true")
+      ? fetchQueue(sonarr, `/api/v3/queue?pageSize=${PAGE_SIZE}&includeSeries=true&includeEpisode=true`)
       : Promise.resolve(null),
     radarr
-      ? fetchQueue(radarr, "/api/v3/queue?pageSize=100&includeMovie=true")
+      ? fetchQueue(radarr, `/api/v3/queue?pageSize=${PAGE_SIZE}&includeMovie=true`)
       : Promise.resolve(null),
   ]);
 
@@ -162,8 +194,29 @@ export async function fetchServerQueue(cfg: WorkerCfg): Promise<QueueResponse> {
 
   return {
     updatedAt: new Date().toISOString(),
-    items: items.slice(0, MAX_ITEMS),
+    items,
     total: (sq?.total ?? 0) + (rq?.total ?? 0),
     unreachable,
   };
+}
+
+/** La file entière, lue une fois pour tous (cf. QUEUE_TTL_MS). */
+export function queueSnapshot(cfg: WorkerCfg): Promise<QueueResponse> {
+  return cached("seer:arr:queue:all", QUEUE_TTL_MS, () => readQueues(cfg));
+}
+
+/** Ce que voient les administrateurs : la file, plafonnée à ce qui se lit. */
+export async function fetchServerQueue(cfg: WorkerCfg): Promise<QueueResponse> {
+  const snapshot = await queueSnapshot(cfg);
+  return { ...snapshot, items: snapshot.items.slice(0, MAX_ITEMS) };
+}
+
+/** Les empreintes des téléchargements bloqués — l'avancement des demandes s'y réfère. */
+export async function blockedDownloadIds(cfg: WorkerCfg): Promise<Set<string>> {
+  const snapshot = await queueSnapshot(cfg);
+  const ids = new Set<string>();
+  for (const entry of snapshot.items) {
+    if (entry.stalled && entry.downloadId) ids.add(entry.downloadId);
+  }
+  return ids;
 }

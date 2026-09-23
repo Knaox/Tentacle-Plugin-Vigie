@@ -59,3 +59,41 @@ test("TimeSpan .NET — les jours sont séparés par un POINT, pas par deux-poin
   assert.equal(parseTimeSpan("1.02:03:04"), 26 * 3600 + 3 * 60 + 4);
   assert.equal(parseTimeSpan(undefined), null);
 });
+
+test("source morte, client injoignable, pause : bloqué — jamais un échec", () => {
+  for (const status of ["warning", "failed", "paused", "downloadClientUnavailable"]) {
+    assert.equal(toDownloadProgress(item({ status }))?.stalled, true, status);
+  }
+  // Un profil de délai n'est pas un blocage : le téléchargement partira seul.
+  assert.equal(toDownloadProgress(item({ status: "delay" }))?.stalled, false);
+  assert.equal(toDownloadProgress(item())?.stalled, false);
+});
+
+test("un import refusé par *arr n'est plus « presque là » : il est bloqué", () => {
+  // Jellyseerr relaie « completed » ; seule la file *arr sait que l'import coince.
+  const { summary, items } = aggregateDownloads(
+    [item({ sizeLeft: 0, status: "completed", downloadId: "ABC" })],
+    (id) => id === "ABC",
+  );
+  assert.equal(items[0].stalled, true);
+  assert.equal(items[0].validating, false);
+  assert.equal(summary?.stalled, true);
+  assert.equal(summary?.stalledCount, 1);
+});
+
+test("un épisode bloqué parmi d'autres qui avancent : la demande avance", () => {
+  const { summary } = aggregateDownloads([
+    item({ status: "warning", episode: { seasonNumber: 4, episodeNumber: 18 } }),
+    item({ episode: { seasonNumber: 4, episodeNumber: 19 } }),
+  ]);
+  assert.equal(summary?.stalled, false);
+  assert.equal(summary?.stalledCount, 1);
+});
+
+test("tout ce qui n'est pas arrivé est bloqué : la demande est bloquée", () => {
+  const { summary } = aggregateDownloads([
+    item({ status: "warning", episode: { seasonNumber: 4, episodeNumber: 18 } }),
+    item({ sizeLeft: 0, episode: { seasonNumber: 4, episodeNumber: 17 } }),
+  ]);
+  assert.equal(summary?.stalled, true);
+});

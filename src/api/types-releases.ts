@@ -69,6 +69,14 @@ export interface DownloadProgress {
   status: string;
   /** Fichier complet, mais pas encore vérifié ni rangé dans la bibliothèque. */
   validating: boolean;
+  /**
+   * N'avance plus tout seul (source morte, import refusé, pause) : BLOQUÉ,
+   * jamais un échec. Sur le résumé : tout ce qui n'est pas arrivé est bloqué.
+   * Absent chez un serveur plus ancien.
+   */
+  stalled?: boolean;
+  /** Résumé d'une demande : combien de ses éléments sont bloqués. */
+  stalledCount?: number;
   title: string | null;
   seasonNumber: number | null;
   episodeNumber: number | null;
@@ -104,6 +112,8 @@ export interface QueueEntry {
   etaSeconds: number | null;
   validating: boolean;
   paused: boolean;
+  /** N'avancera plus tout seul — absent chez un serveur plus ancien. */
+  stalled?: boolean;
   warning: string | null;
 }
 
