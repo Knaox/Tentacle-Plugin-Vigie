@@ -15,11 +15,18 @@ import type { DiscoverFilters, DiscoverMediaType, SeerrSearchResult } from "../a
 
 export type HubTab = "discover" | "requests" | "calendar";
 
+export type BrowseKind = "all" | "popular" | "top" | "upcoming" | "genre" | "provider" | "trending";
+
 /** Un parcours du catalogue : une rangée « Tout voir », un genre, une plateforme. */
 export interface BrowsePreset {
   /** Identité stable (clé de cache, retour en arrière). */
   id: string;
+  /** Titre à l'ouverture — ensuite, il suit le type choisi (cf. presetTitle). */
   title: string;
+  /** Ce que le parcours montre : « populaires », un genre, une plateforme… */
+  kind?: BrowseKind;
+  /** Nom de la plateforme, pour un parcours qui en porte une. */
+  label?: string;
   mediaType: DiscoverMediaType;
   /** `trending` : les tendances, films et séries mêlés — sans filtre possible. */
   source?: "discover" | "trending";

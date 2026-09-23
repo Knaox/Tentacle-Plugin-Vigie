@@ -72,6 +72,12 @@ export function useDiscoverFilters(initial?: Partial<DiscoverFilters>) {
     setFilters((f) => ({ ...f, genres: [], tvStatus: [] }));
   }, []);
 
+  /* Changer de type : les genres traduits dans l'autre dictionnaire ; le
+   * statut de diffusion n'a de sens que pour les séries. */
+  const setGenres = useCallback((genres: number[], keepTvStatus: boolean) => {
+    setFilters((f) => ({ ...f, genres, tvStatus: keepTvStatus ? f.tvStatus : [] }));
+  }, []);
+
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (filters.genres.length > 0) count++;
@@ -98,6 +104,7 @@ export function useDiscoverFilters(initial?: Partial<DiscoverFilters>) {
     setSortOrder,
     resetFilters,
     resetGenres,
+    setGenres,
     activeFilterCount,
     hasActiveFilters,
   };

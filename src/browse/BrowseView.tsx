@@ -27,6 +27,7 @@ import { CTA_SECONDARY, CTA_SIZE_MD } from "../styles/cta";
 import { getCurrentLanguage } from "../utils/media-helpers";
 import { useSparseCatalog } from "./useSparseCatalog";
 import { VirtualGrid } from "./VirtualGrid";
+import { mapGenres, presetTitle } from "./presetTitle";
 
 const TYPES: Array<{ value: DiscoverMediaType; key: string }> = [
   { value: "movies", key: "seer:filterMovies" },
@@ -42,6 +43,8 @@ export function BrowseView({ preset, active, onBack }: { preset: BrowsePreset; a
   const f = useDiscoverFilters(preset.filters);
   const { filters } = f;
   const trending = preset.source === "trending";
+  // « Films populaires » passé aux séries s'appelle « Séries populaires ».
+  const title = presetTitle(preset, mediaType, filters, t);
 
   const key = useMemo(
     () => JSON.stringify([preset.id, mediaType, filters, i18n.language]),
@@ -56,10 +59,11 @@ export function BrowseView({ preset, active, onBack }: { preset: BrowsePreset; a
   // Un autre parcours, un autre filtre : on repart du haut de la grille.
   useEffect(() => { window.scrollTo({ top: 0 }); }, [key]);
 
-  // Les identifiants de genre ne sont pas les mêmes pour les films et les séries.
+  // Les genres ne portent pas les mêmes identifiants pour les films et les
+  // séries : on les traduit, et seul un genre sans équivalent disparaît.
   const changeType = (next: DiscoverMediaType) => {
     if (next === mediaType) return;
-    f.resetGenres();
+    f.setGenres(mapGenres(filters.genres, mediaType, next), next !== "movies");
     setMediaType(next);
   };
 
@@ -87,7 +91,7 @@ export function BrowseView({ preset, active, onBack }: { preset: BrowsePreset; a
           <ChevronLeft className="h-5 w-5" />
         </button>
         <div className="min-w-0">
-          <h2 className="truncate text-xl font-bold tracking-tight text-tentacle-text-primary sm:text-2xl">{preset.title}</h2>
+          <h2 className="truncate text-xl font-bold tracking-tight text-tentacle-text-primary sm:text-2xl">{title}</h2>
           {catalog.total !== null && (
             <p className="text-xs tabular-nums text-tentacle-text-tertiary">
               {t(catalog.capped ? "seer:titlesCountCapped" : "seer:titlesCount", {
