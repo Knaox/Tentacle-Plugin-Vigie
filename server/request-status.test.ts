@@ -114,3 +114,19 @@ test("un état plus actif reprend la main sur l'épingle", () => {
   };
   assert.equal(resolveRequestStatus(row, { status: "available" }), "downloading");
 });
+
+test("un téléchargement bloqué n'est JAMAIS un échec", () => {
+  // Source morte, import refusé, client en pause : la file *arr le dit, mais
+  // classé « failed », l'auto-retry supprimait la demande Jellyseerr pour la
+  // recréer. Il reste un téléchargement — l'affichage le dit « bloqué ».
+  for (const status of ["warning", "failed", "downloadClientUnavailable", "paused"]) {
+    const row: StatusRow = { status: 2, media: { status: 3, downloadStatus: [{ status }] } };
+    assert.equal(resolveRequestStatus(row), "downloading", status);
+  }
+});
+
+test("une demande refusée ou rejetée par Jellyseerr reste un échec", () => {
+  // request.status 3 = DECLINED, 4 = FAILED : une décision, pas une source morte.
+  assert.equal(resolveRequestStatus({ status: 3, media: { status: 3 } }), "failed");
+  assert.equal(resolveRequestStatus({ status: 4, media: { status: 3 } }), "failed");
+});

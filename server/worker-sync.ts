@@ -261,12 +261,17 @@ export function mapSeerrStatus(
   // qu'on vient précisément de requalifier (bug « la demande se supprime »).
   if (mediaStatus === 1) return "unavailable";
 
-  // PROCESSING = approuvé, en cours d'acquisition. Le check d'échec de
-  // téléchargement ne vaut QUE dans cet état (info fraîche) ; Jellyseerr
-  // n'affiche « en traitement » que si un download est réellement actif —
-  // sans download actif, son badge est « Demandé », on mappe pareil.
+  // PROCESSING = approuvé, en cours d'acquisition. Jellyseerr n'affiche « en
+  // traitement » que si un download est réellement actif — sans download
+  // actif, son badge est « Demandé », on mappe pareil.
+  //
+  // Un download qui COINCE (source morte, import refusé, client en pause…)
+  // reste un download : il est BLOQUÉ, jamais en échec. Le classer « failed »
+  // déclenchait l'auto-retry, qui supprimait la demande Jellyseerr pour la
+  // recréer — tout le contraire de ce qu'attend un titre à qui il ne manque
+  // qu'une source. Le signal « bloqué » voyage avec l'avancement (`stalled`,
+  // cf. download-progress.ts), là où l'affichage le lit.
   if (mediaStatus === 3) {
-    if (downloadStatus?.some((d) => d.status === "failed" || d.status === "warning")) return "failed";
     return downloadStatus && downloadStatus.length > 0 ? "downloading" : "unavailable";
   }
   if (requestStatus === 1) return "sent_to_seer";
