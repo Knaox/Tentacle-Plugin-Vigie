@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { CTA_PRIMARY } from "../../styles/cta";
 import { ICON_BUTTON } from "../../styles/pills";
 import { CHROME_BOTTOM } from "../../utils/host-chrome";
 import { useOverlay } from "../../hooks/useOverlay";
+import { useSheetSwipe } from "../../hooks/useSheetSwipe";
 import { CloseIcon } from "../ui/icons";
 
 /**
@@ -19,7 +20,9 @@ import { CloseIcon } from "../ui/icons";
  * verrait pas et coûterait une passe de composition (règle GPU du projet).
  *
  * Extraite pour que l'agenda des sorties hérite du même comportement —
- * verrouillage de la surcouche de l'hôte, fermeture à l'échappement.
+ * verrouillage de la surcouche de l'hôte, fermeture à l'échappement, et au
+ * téléphone la feuille qu'on tire vers le bas pour la fermer. Pendant qu'elle
+ * est ouverte, la page dessous ne défile plus (elle défilait sous le doigt).
  */
 
 interface Props {
@@ -38,8 +41,24 @@ export function FilterSheet({
   open, onClose, title, activeCount, onReset, footerLabel, children,
 }: Props) {
   const { t } = useTranslation("seer");
+  const panel = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const scrim = useRef<HTMLDivElement>(null);
 
   useOverlay(open, onClose);
+  useSheetSwipe({ panel, scroller: body, scrim, onDismiss: onClose, enabled: open });
+
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    panel.current?.focus();
+    return () => {
+      document.body.style.overflow = overflow;
+      previous?.focus();
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -47,20 +66,25 @@ export function FilterSheet({
     <div className="fixed inset-0 z-[100] flex items-end sm:items-stretch sm:justify-end" role="presentation">
       {/* Voile SOMBRE dans les deux thèmes : `bg-black` est inversé en clair par l'hôte. */}
       <div
+        ref={scrim}
         aria-hidden
         className="absolute inset-0"
         style={{ background: "rgba(var(--scrim-media-rgb, 0, 0, 0), 0.6)", animation: "fadeIn 200ms ease both" }}
         onClick={onClose}
       />
       <div
+        ref={panel}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative flex max-h-[88dvh] w-full flex-col rounded-t-3xl bg-tentacle-surface-modal shadow-tentacle-modal ring-1 ring-tentacle-border-subtle sm:h-full sm:max-h-none sm:max-w-md sm:rounded-none sm:rounded-l-3xl"
+        tabIndex={-1}
+        className="relative flex max-h-[88dvh] w-full flex-col rounded-t-3xl bg-tentacle-surface-modal shadow-tentacle-modal outline-none ring-1 ring-tentacle-border-subtle sm:h-full sm:max-h-none sm:max-w-md sm:rounded-none sm:rounded-l-3xl"
         style={{ animation: "vigieSheetIn 280ms cubic-bezier(0.22,1,0.36,1) both" }}
       >
-        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-tentacle-fill-strong sm:hidden" aria-hidden />
-        <div className="flex shrink-0 items-center justify-between gap-3 px-5 pb-3 pt-3 sm:pt-5">
+        <div data-sheet-grip className="flex h-5 shrink-0 items-end justify-center sm:hidden" aria-hidden>
+          <div className="h-1 w-10 rounded-full bg-tentacle-fill-strong" />
+        </div>
+        <div data-sheet-grip className="flex shrink-0 items-center justify-between gap-3 px-5 pb-3 pt-3 sm:pt-5">
           <div className="flex min-w-0 items-center gap-2">
             <h3 className="truncate text-lg font-bold text-tentacle-text-primary">{title}</h3>
             {activeCount > 0 && (
@@ -85,7 +109,7 @@ export function FilterSheet({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-tentacle-border-subtle px-5">
+        <div ref={body} className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-tentacle-border-subtle px-5">
           {children}
         </div>
 

@@ -5,9 +5,10 @@
 /*
  * Un en-tête de cinéma (l'image, le titre, où en est le titre, par où il est
  * sorti, et l'action qu'on vient chercher), puis son corps. Au téléphone, une
- * feuille qui monte du bas et dont la fin passe au-dessus de la barre de
- * l'application ; sur grand écran, une fenêtre large. Retour et fermeture
- * restent accrochés en haut pendant qu'on défile.
+ * feuille qui monte du bas, dont la fin passe au-dessus de la barre de
+ * l'application, et qu'on referme en la tirant vers le bas depuis son haut ;
+ * sur grand écran, une fenêtre large. Retour et fermeture restent accrochés
+ * en haut pendant qu'on défile — la poignée, elle, défile avec l'image.
  *
  * Une autre fiche ouverte depuis celle-ci (un titre semblable, un film de la
  * filmographie) s'empile : « retour » ramène à la précédente.
@@ -28,6 +29,7 @@ import { useSeriesAirTimes } from "../hooks/useAirTimes";
 import { useVerdict } from "../hooks/useVerdict";
 import { useToast } from "../hooks/useToast";
 import { useOverlay } from "../hooks/useOverlay";
+import { useSheetSwipe } from "../hooks/useSheetSwipe";
 import { useTitleStatus } from "../hub/TitleStates";
 import { hasActiveRequest, isAnimeTitle, seasonLocks } from "../utils/season-locks";
 import { mediaTitle, mediaYear } from "../utils/media-helpers";
@@ -56,6 +58,7 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
   const { t } = useTranslation("seer");
   const toast = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrimRef = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState(item);
   const [stack, setStack] = useState<SeerrSearchResult[]>([]);
   const [closing, setClosing] = useState(false);
@@ -118,6 +121,8 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
   }, []);
   // La bande-annonce, ouverte par-dessus, prend Échap tant qu'elle est là.
   useOverlay(true, handleClose);
+  // Tirée vers le bas, la feuille est déjà hors de l'écran : pas de fondu.
+  useSheetSwipe({ panel: scrollRef, scroller: scrollRef, scrim: scrimRef, onDismiss: onClose });
   useEffect(() => { scrollRef.current?.scrollTo({ top: 0 }); }, [current]);
 
   // Lecture : via la modale de l'HÔTE (l'embed YouTube échoue dans le cadre isolé), sinon ici.
@@ -184,6 +189,7 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
       {/* Voile sombre dans les deux thèmes, sans flou : opaque aux trois quarts,
           flouter derrière ne se verrait presque pas (règle GPU du projet). */}
       <div
+        ref={scrimRef}
         aria-hidden
         className="absolute inset-0"
         style={{ background: "rgba(var(--scrim-media-rgb, 0, 0, 0), 0.74)", animation: closing ? "fadeOut 180ms ease forwards" : "fadeIn 200ms ease both" }}
@@ -202,15 +208,19 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
           scrollbarWidth: "thin",
         }}
       >
+        {/* La poignée, au téléphone : elle défile avec l'image au lieu de
+            flotter sur le texte, et sa zone se tire pour fermer. */}
+        <div data-sheet-grip aria-hidden className="absolute inset-x-0 top-0 z-20 flex h-8 justify-center pt-2 sm:hidden">
+          <span className="h-1 w-10 rounded-full bg-[rgba(255,255,255,0.35)]" />
+        </div>
         {/* Accrochés en haut pendant qu'on défile : on ne cherche jamais la sortie. */}
-        <div className="sticky top-0 z-30 h-0">
+        <div data-sheet-grip className="sticky top-0 z-30 h-0">
           <div className="flex items-start justify-between p-3">
             {stack.length > 0 ? (
               <button type="button" onClick={back} aria-label={t("seer:backToTitle", { title: mediaTitle(stack[stack.length - 1]) })} className={PLATE}>
                 <ChevronLeft className="h-5 w-5" />
               </button>
             ) : <span />}
-            <span aria-hidden className="mt-1 h-1 w-10 rounded-full bg-[rgba(255,255,255,0.35)] sm:hidden" />
             <button type="button" onClick={handleClose} aria-label={t("seer:close")} className={PLATE}>
               <CloseIcon className="h-5 w-5" />
             </button>

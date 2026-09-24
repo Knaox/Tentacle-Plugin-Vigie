@@ -4,8 +4,9 @@
 
 /*
  * Au téléphone, une feuille qui monte du bas (le pouce l'atteint, et le
- * geste « descendre pour fermer » est celui qu'on attend) ; sur un grand
- * écran, une fenêtre centrée. Échap, un clic à côté, ou la croix la ferment.
+ * geste « descendre pour fermer » est celui qu'on attend — et qu'elle tient,
+ * cf. `useSheetSwipe`) ; sur un grand écran, une fenêtre centrée. Échap, un
+ * clic à côté, ou la croix la ferment.
  *
  * Pendant qu'elle est ouverte, le corps de la page ne défile plus et l'hôte
  * voile sa propre barre (voir `useOverlay`, qui tient la pile des panneaux).
@@ -16,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import { CHROME_BOTTOM } from "../../utils/host-chrome";
 import { CloseIcon } from "./icons";
 import { useOverlay } from "../../hooks/useOverlay";
+import { useSheetSwipe } from "../../hooks/useSheetSwipe";
 
 interface SheetProps {
   open: boolean;
@@ -33,7 +35,10 @@ const MAX = { sm: "sm:max-w-md", md: "sm:max-w-xl", lg: "sm:max-w-3xl" } as cons
 export function Sheet({ open, onClose, title, size = "md", children, footer }: SheetProps) {
   const { t } = useTranslation("seer");
   const panel = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const scrim = useRef<HTMLDivElement>(null);
   useOverlay(open, onClose);
+  useSheetSwipe({ panel, scroller: body, scrim, onDismiss: onClose, enabled: open });
 
   useEffect(() => {
     if (!open) return;
@@ -54,6 +59,7 @@ export function Sheet({ open, onClose, title, size = "md", children, footer }: S
       {/* Voile SOMBRE dans les deux thèmes : `bg-black` est inversé en clair
           par l'hôte, et un voile blanc ne détache rien. */}
       <div
+        ref={scrim}
         aria-hidden
         className="absolute inset-0"
         style={{ background: "rgba(var(--scrim-media-rgb, 0, 0, 0), 0.62)", animation: "fadeIn 180ms ease both" }}
@@ -68,9 +74,12 @@ export function Sheet({ open, onClose, title, size = "md", children, footer }: S
         className={`relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-3xl bg-tentacle-surface-modal shadow-tentacle-modal outline-none ring-1 ring-tentacle-border-subtle sm:max-h-[86vh] sm:rounded-3xl ${MAX[size]}`}
         style={{ animation: "fadeSlideUp 240ms cubic-bezier(0.22,1,0.36,1) both" }}
       >
-        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-tentacle-fill-strong sm:hidden" aria-hidden />
+        {/* La poignée : une zone de prise de 20 px, pas un trait de 4. */}
+        <div data-sheet-grip className="flex h-5 shrink-0 items-end justify-center sm:hidden" aria-hidden>
+          <div className="h-1 w-10 rounded-full bg-tentacle-fill-strong" />
+        </div>
         {title !== undefined && (
-          <div className="flex shrink-0 items-center justify-between gap-3 px-5 pb-2 pt-3 sm:pt-5">
+          <div data-sheet-grip className="flex shrink-0 items-center justify-between gap-3 px-5 pb-2 pt-3 sm:pt-5">
             <h2 className="min-w-0 truncate text-lg font-bold text-tentacle-text-primary">{title}</h2>
             <button
               type="button"
@@ -83,6 +92,7 @@ export function Sheet({ open, onClose, title, size = "md", children, footer }: S
           </div>
         )}
         <div
+          ref={body}
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5"
           // Sans pied, la fin du contenu ne doit pas finir sous la barre de l'hôte.
           style={{ paddingBottom: footer ? "1.25rem" : `calc(1.25rem + env(safe-area-inset-bottom, 0px) + ${CHROME_BOTTOM})` }}
