@@ -12,6 +12,7 @@ export default {
   hubSubtitle: "Tout ce qui n'est pas encore sur le serveur : cherchez-le, demandez-le, suivez son arrivée.",
   hubSearchPlaceholder: "Film, série, acteur, plateforme…",
   searching: "Recherche…",
+  searchJump: "Aller à la recherche",
   clearSearch: "Effacer la recherche",
   close: "Fermer",
   loading: "Chargement…",

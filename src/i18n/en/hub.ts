@@ -10,6 +10,7 @@ export default {
   hubSubtitle: "Everything that isn't on the server yet: find it, request it, follow it until it arrives.",
   hubSearchPlaceholder: "Movie, series, actor, platform…",
   searching: "Searching…",
+  searchJump: "Go to search",
   clearSearch: "Clear search",
   close: "Close",
   loading: "Loading…",

@@ -120,6 +120,16 @@ export function VigieHub({ routePath }: { routePath: string }) {
 
   const setTab = goTo;
 
+  /** Un toucher dans la barre d'onglets. L'onglet déjà ouvert, touché de
+   *  nouveau, remonte en haut de sa page — comme partout sur téléphone. */
+  const tapTab = useCallback((next: HubTab) => {
+    if (next === tab && !searching) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    goTo(next);
+  }, [goTo, tab, searching]);
+
   /** Le catalogue, sur un parcours : « Tout voir », un genre, une plateforme… */
   const browse = useCallback((preset: BrowsePreset, withFilters = false) => {
     setCatalog((c) => ({ nonce: c.nonce + 1, preset, filters: withFilters, from: tab === "catalog" ? c.from : tab }));
@@ -177,7 +187,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
             searching={search.searching}
             tab={tab}
             searchActive={searching}
-            onTab={setTab}
+            onTab={tapTab}
             activeRequests={data.counts.active}
             weekReleases={data.weekItems.length}
           />
