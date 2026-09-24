@@ -35,9 +35,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={{ show }}>
       {children}
       {/* Au-dessus de la barre de l'hôte : un toast posé à 16 px du bord
-          disparaissait derrière la barre d'onglets de l'application mobile. */}
+          disparaissait derrière la barre d'onglets de l'application mobile.
+          Au téléphone il prend la largeur de l'écran, gouttières comprises :
+          calé à droite sur 320 px, il flottait de travers sur la page. */}
       <div
-        className="pointer-events-none fixed right-4 z-[9999] flex w-80 flex-col gap-2"
+        className="pointer-events-none fixed inset-x-4 z-[9999] mx-auto flex max-w-md flex-col gap-2 sm:inset-x-auto sm:right-4 sm:mx-0 sm:w-80"
         style={{ bottom: `calc(1rem + ${CHROME_BOTTOM})` }}
       >
         {toasts.map((t) => (

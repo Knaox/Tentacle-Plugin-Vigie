@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useEffect, useRef } from "react";
 
 export type ToastType = "success" | "error" | "info" | "warning";
@@ -30,6 +31,7 @@ const TYPE_ICONS: Record<ToastType, string> = {
 };
 
 export function Toast({ toast, onDismiss }: ToastProps) {
+  const { t } = useTranslation("seer");
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -67,8 +69,11 @@ export function Toast({ toast, onDismiss }: ToastProps) {
       </svg>
       <span className="flex-1 text-sm text-tentacle-text-secondary">{toast.message}</span>
       <button
+        type="button"
         onClick={() => onDismiss(toast.id)}
-        className="ml-1 flex-shrink-0 text-tentacle-text-tertiary transition-colors hover:text-tentacle-text-secondary"
+        aria-label={t("seer:close")}
+        // 36 px de cible (la marge négative garde le dessin où il était).
+        className="-my-1.5 -mr-2 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-tentacle-text-tertiary transition-colors hover:bg-tentacle-fill-soft hover:text-tentacle-text-secondary"
       >
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
