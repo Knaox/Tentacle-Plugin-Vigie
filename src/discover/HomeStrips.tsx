@@ -138,7 +138,7 @@ export const ThisWeekStrip = memo(function ThisWeekStrip({ data }: { data: HubDa
       title={personal ? t("seer:stripWeekMine") : t("seer:stripWeekAll")}
       subtitle={personal ? t("seer:stripWeekMineHint", { count: data.weekItems.length }) : t("seer:stripWeekAllHint")}
       icon={<CalendarIcon className="h-5 w-5" />}
-      action={{ label: t("seer:openCalendar"), onClick: () => hub.setTab("calendar") }}
+      action={{ label: t("seer:openCalendar"), short: t("seer:seeAll"), onClick: () => hub.setTab("calendar") }}
     >
       {items.map((item) => (
         <PosterCard key={item.id} item={calendarAsMedia(item)} onOpen={hub.openMedia} caption={ribbonOf(item, t)} status={calendarStatus(item)} />

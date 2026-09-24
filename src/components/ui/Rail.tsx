@@ -18,8 +18,9 @@ export function SectionHeader({ title, subtitle, count, action, icon }: {
   title: string;
   subtitle?: string;
   count?: number | null;
-  /** « Tout voir », « Ouvrir le calendrier »… */
-  action?: { label: string; onClick: () => void };
+  /** « Tout voir », « Ouvrir le calendrier »… `short` le remplace au
+   *  téléphone, où le libellé long tronquait le titre de la section. */
+  action?: { label: string; short?: string; onClick: () => void };
   icon?: ReactNode;
 }) {
   return (
@@ -27,20 +28,26 @@ export function SectionHeader({ title, subtitle, count, action, icon }: {
       <div className="min-w-0">
         <h2 className="flex items-center gap-2 text-lg font-bold tracking-tight text-tentacle-text-primary sm:text-xl">
           {icon && <span className="text-[var(--brand-light)]">{icon}</span>}
-          <span className="truncate">{title}</span>
+          <span className="line-clamp-2 sm:truncate">{title}</span>
           {count != null && count > 0 && (
             <span className="text-sm font-semibold tabular-nums text-tentacle-text-quaternary">{count}</span>
           )}
         </h2>
-        {subtitle && <p className="mt-0.5 truncate text-xs text-tentacle-text-tertiary sm:text-sm">{subtitle}</p>}
+        {subtitle && <p className="mt-0.5 line-clamp-2 text-xs text-tentacle-text-tertiary sm:truncate sm:text-sm">{subtitle}</p>}
       </div>
       {action && (
         <button
           type="button"
           onClick={action.onClick}
-          className="inline-flex min-h-[36px] shrink-0 items-center gap-1 rounded-full px-3 text-sm font-semibold text-[var(--brand-light)] transition-colors hover:bg-tentacle-fill-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)]"
+          aria-label={action.label}
+          className="-mr-2 inline-flex min-h-[44px] shrink-0 items-center gap-1 rounded-full px-3 text-sm font-semibold text-[var(--brand-light)] transition-colors hover:bg-tentacle-fill-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)] sm:mr-0 sm:min-h-[36px]"
         >
-          {action.label}
+          {action.short ? (
+            <>
+              <span className="sm:hidden">{action.short}</span>
+              <span className="hidden sm:inline">{action.label}</span>
+            </>
+          ) : action.label}
           <ChevronRight className="h-4 w-4" />
         </button>
       )}
@@ -52,7 +59,7 @@ interface RailProps {
   title: string;
   subtitle?: string;
   count?: number | null;
-  action?: { label: string; onClick: () => void };
+  action?: { label: string; short?: string; onClick: () => void };
   icon?: ReactNode;
   children: ReactNode;
   /** Largeur d'une carte : affiches, vignettes 16:9, ou portraits (distribution). */
