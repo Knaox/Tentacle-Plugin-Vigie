@@ -8,7 +8,8 @@
  * d'avancement quand quelque chose arrive, ce qui manque encore quand elle
  * n'est là qu'en partie (parmi SES saisons), et le prochain épisode quand la
  * série en attend un (le calendrier, là où on le cherche). Une seule action à
- * portée de main ; le reste est derrière « ⋯ ».
+ * portée de main ; le reste est derrière « ⋯ ». Au téléphone, cette action
+ * reste là, réduite à son icône : « Regarder » sans ouvrir la fiche.
  */
 
 import { memo } from "react";
@@ -51,7 +52,7 @@ export const RequestRow = memo(function RequestRow(props: Props) {
   const date = new Date(request.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short" });
   const canSelect = !["deleting", "processing"].includes(request.status);
   const seasons = request.seasons && request.seasons.length > 0
-    ? t("seer:seasonsShort", { seasons: request.seasons.join(", ") }) : null;
+    ? t("seer:seasonsShort", { seasons: request.seasons.join(", "), count: request.seasons.length }) : null;
 
   const primary = request.status === "available" || request.status === "partially_available"
     ? { action: "watch" as const, label: t("seer:watch"), icon: <PlayIcon className="h-4 w-4" />, style: CTA_PRIMARY }
@@ -94,7 +95,7 @@ export const RequestRow = memo(function RequestRow(props: Props) {
           <span className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             {status && <StateBadge status={status} variant="chip" />}
             {detail && (
-              <span className={`min-w-0 truncate text-xs font-medium ${PHRASE_TONE[detail.tone].text}`}>{t(detail.key, detail.params)}</span>
+              <span className={`min-w-0 line-clamp-2 text-xs font-medium sm:truncate ${PHRASE_TONE[detail.tone].text}`}>{t(detail.key, detail.params)}</span>
             )}
             {gap && <span className="min-w-0 text-xs font-medium text-tentacle-text-secondary">{gap}</span>}
           </span>
@@ -105,7 +106,8 @@ export const RequestRow = memo(function RequestRow(props: Props) {
             </span>
           )}
           {request.status === "failed" && request.lastError && (
-            <span className="mt-1 block truncate text-xs text-tentacle-text-quaternary" title={request.lastError}>{request.lastError}</span>
+            // Deux lignes au téléphone : l'infobulle du bureau ne s'ouvre pas au doigt.
+            <span className="mt-1 line-clamp-2 text-xs text-tentacle-text-quaternary sm:block sm:truncate" title={request.lastError}>{request.lastError}</span>
           )}
           {!nextRelease && <span className="mt-1 block text-[11px] text-tentacle-text-quaternary">{t("seer:requestedOn", { date })}</span>}
         </span>
@@ -116,8 +118,13 @@ export const RequestRow = memo(function RequestRow(props: Props) {
         </button>
       )}
       {!selectable && primary && (
-        <button type="button" onClick={() => onAction(primary.action, request)} className={`${primary.style} hidden h-10 shrink-0 gap-1.5 px-4 text-sm sm:inline-flex`}>
-          {primary.icon}{primary.label}
+        <button
+          type="button"
+          onClick={() => onAction(primary.action, request)}
+          aria-label={`${primary.label} — ${request.title}`}
+          className={`${primary.style} h-11 w-11 shrink-0 gap-1.5 text-sm sm:h-10 sm:w-auto sm:px-4`}
+        >
+          {primary.icon}<span className="hidden sm:inline">{primary.label}</span>
         </button>
       )}
       {!selectable && (
