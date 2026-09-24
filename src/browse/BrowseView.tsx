@@ -104,7 +104,7 @@ export function BrowseView({ preset, active, back, openFilters = false }: Props)
 
   return (
     <div>
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-3 flex items-center gap-3 sm:mb-4">
         {back && (
           <button
             type="button"
@@ -117,7 +117,7 @@ export function BrowseView({ preset, active, back, openFilters = false }: Props)
           </button>
         )}
         <div className="min-w-0">
-          <h2 className="truncate text-2xl font-extrabold tracking-tight text-tentacle-text-primary sm:text-3xl">{title}</h2>
+          <h2 className="truncate text-xl font-extrabold tracking-tight text-tentacle-text-primary sm:text-3xl">{title}</h2>
           <p className="mt-0.5 text-xs tabular-nums text-tentacle-text-tertiary sm:text-sm">
             {catalog.total !== null
               ? t(catalog.capped ? "seer:titlesCountCapped" : "seer:titlesCount", {
@@ -130,7 +130,9 @@ export function BrowseView({ preset, active, back, openFilters = false }: Props)
       </div>
 
       {!trending && (
-        <div className="-mx-4 mb-4 space-y-3 bg-tentacle-surface-0 px-4 py-2 sm:sticky sm:top-[49px] sm:z-20 md:-mx-8 md:px-8">
+        // Accrochée sous les onglets du hub, au téléphone aussi : une seule
+        // rangée, on change de type ou de filtres sans remonter la grille.
+        <div className="sticky top-[49px] z-20 -mx-4 mb-4 space-y-2 bg-tentacle-surface-0 px-4 py-2 sm:space-y-3 md:-mx-8 md:px-8">
           <BrowseToolbar
             mediaType={mediaType}
             onType={changeType}

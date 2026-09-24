@@ -6,8 +6,12 @@
  * Trois commandes, dans l'ordre où l'on s'en sert : le type (Films, Séries,
  * Animés — un segmenté franc, plus une rangée de puces minuscules), le tri
  * (une liste native : le téléphone ouvre son propre sélecteur) et les filtres
- * avancés, qui disent combien sont actifs. Sur grand écran la barre reste
- * accrochée sous les onglets du hub : on filtre sans remonter la grille.
+ * avancés, qui disent combien sont actifs. La barre reste accrochée sous les
+ * onglets du hub : on filtre sans remonter la grille.
+ *
+ * Au téléphone, UNE rangée : le type et le bouton des filtres. Le tri vit en
+ * tête du panneau de filtres (il y était déjà) — deux rangées accrochées
+ * mangeaient le quart de l'écran au-dessus de la grille.
  */
 
 import { memo } from "react";
@@ -45,12 +49,14 @@ export const BrowseToolbar = memo(function BrowseToolbar(props: Props) {
   const current = SORTS.find((s) => s.by === sortBy && s.order === sortOrder) ?? SORTS.find((s) => s.by === sortBy) ?? SORTS[0];
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex items-center gap-2 sm:flex-wrap">
       <Segmented
         ariaLabel={t("seer:mediaType")}
         value={mediaType}
         onChange={onType}
         stretch="mobile"
+        size="adaptive"
+        className="min-w-0 flex-1 sm:flex-none"
         // Quatre segments au téléphone : les icônes n'y tiendraient pas.
         options={[
           { value: "all", label: t("seer:filterAllTypes"), icon: <LayersIcon className="hidden h-4 w-4 sm:block" /> },
@@ -59,7 +65,7 @@ export const BrowseToolbar = memo(function BrowseToolbar(props: Props) {
           { value: "anime", label: t("seer:filterAnimes"), icon: <SparkIcon className="hidden h-4 w-4 sm:block" /> },
         ]}
       />
-      <label className="relative flex min-w-0 flex-1 sm:flex-none">
+      <label className="relative hidden min-w-0 flex-1 sm:flex sm:flex-none">
         <span className="sr-only">{t("seer:sortLabel")}</span>
         <SortIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-tentacle-text-tertiary" />
         <select
@@ -79,7 +85,7 @@ export const BrowseToolbar = memo(function BrowseToolbar(props: Props) {
         </select>
         <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-tentacle-text-tertiary" />
       </label>
-      <FilterButton count={filterCount} onClick={onOpenFilters} />
+      <FilterButton count={filterCount} onClick={onOpenFilters} compact />
     </div>
   );
 });

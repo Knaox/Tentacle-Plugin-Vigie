@@ -29,7 +29,8 @@ interface Props<T extends string> {
   options: ReadonlyArray<SegmentOption<T>>;
   onChange: (value: T) => void;
   ariaLabel: string;
-  size?: "md" | "sm";
+  /** `adaptive` : compact au téléphone (44 px avec le cadre), `md` au-delà. */
+  size?: "md" | "sm" | "adaptive";
   /** Occupe toute la largeur, segments égaux — toujours, ou au téléphone seulement. */
   stretch?: "always" | "mobile";
   className?: string;
@@ -38,6 +39,7 @@ interface Props<T extends string> {
 const SIZE = {
   md: "h-10 px-4 text-sm",
   sm: "h-9 px-3 text-[13px]",
+  adaptive: "h-9 px-2.5 text-[13px] min-[400px]:px-3 min-[400px]:text-sm sm:h-10 sm:px-4",
 } as const;
 
 const CONTAINER = {
@@ -46,7 +48,10 @@ const CONTAINER = {
   none: "inline-flex max-w-full",
 } as const;
 
-const SEGMENT = { always: "flex-1", mobile: "flex-1 sm:flex-none", none: "" } as const;
+// Au téléphone, chaque segment part de sa largeur NATURELLE puis prend sa
+// part du reste : à parts égales, le libellé le plus long (« Animés ») était
+// tronqué alors que « Tous » flottait dans sa case.
+const SEGMENT = { always: "flex-1", mobile: "flex-auto sm:flex-none", none: "" } as const;
 
 export function Segmented<T extends string>({ value, options, onChange, ariaLabel, size = "md", stretch, className = "" }: Props<T>) {
   const mode = stretch ?? "none";
