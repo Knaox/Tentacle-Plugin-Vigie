@@ -200,7 +200,9 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
         aria-modal="true"
         aria-labelledby="seer-detail-title"
         onClick={(e) => e.stopPropagation()}
-        className="relative max-h-[94dvh] w-full max-w-5xl overflow-y-auto overscroll-contain rounded-t-3xl bg-tentacle-surface-modal shadow-tentacle-modal ring-1 ring-tentacle-border-subtle sm:max-h-[90vh] sm:rounded-3xl"
+        // Au téléphone la fiche couvre toute la page : pleine (la surface des
+        // modales est à 96 %, la page transparaissait en fantôme sous le texte).
+        className="relative max-h-[94dvh] w-full max-w-5xl overflow-y-auto overscroll-contain rounded-t-3xl bg-tentacle-surface-modal shadow-tentacle-modal ring-1 ring-tentacle-border-subtle sm:max-h-[90vh] sm:rounded-3xl max-sm:[background:linear-gradient(var(--surface-modal),var(--surface-modal)),var(--surface-0)]"
         style={{
           animation: closing ? "fadeOut 180ms ease forwards" : "vigieDialogIn 320ms cubic-bezier(0.22,1,0.36,1) both",
           // La fin de la fiche passe au-dessus de la barre de l'application.

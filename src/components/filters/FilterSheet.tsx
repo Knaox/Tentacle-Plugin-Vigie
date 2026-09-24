@@ -78,7 +78,7 @@ export function FilterSheet({
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className="relative flex max-h-[88dvh] w-full flex-col rounded-t-3xl bg-tentacle-surface-modal shadow-tentacle-modal outline-none ring-1 ring-tentacle-border-subtle sm:h-full sm:max-h-none sm:max-w-md sm:rounded-none sm:rounded-l-3xl"
+        className="relative flex max-h-[88dvh] w-full flex-col rounded-t-3xl bg-tentacle-surface-modal shadow-tentacle-modal outline-none ring-1 ring-tentacle-border-subtle sm:h-full sm:max-h-none sm:max-w-md sm:rounded-none sm:rounded-l-3xl max-sm:[background:linear-gradient(var(--surface-modal),var(--surface-modal)),var(--surface-0)]"
         style={{ animation: "vigieSheetIn 280ms cubic-bezier(0.22,1,0.36,1) both" }}
       >
         <div data-sheet-grip className="flex h-5 shrink-0 items-end justify-center sm:hidden" aria-hidden>

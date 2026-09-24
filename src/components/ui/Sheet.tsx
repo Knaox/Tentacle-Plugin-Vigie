@@ -71,7 +71,7 @@ export function Sheet({ open, onClose, title, size = "md", children, footer }: S
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className={`relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-3xl bg-tentacle-surface-modal shadow-tentacle-modal outline-none ring-1 ring-tentacle-border-subtle sm:max-h-[86vh] sm:rounded-3xl ${MAX[size]}`}
+        className={`relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-3xl bg-tentacle-surface-modal shadow-tentacle-modal outline-none ring-1 ring-tentacle-border-subtle sm:max-h-[86vh] sm:rounded-3xl max-sm:[background:linear-gradient(var(--surface-modal),var(--surface-modal)),var(--surface-0)] ${MAX[size]}`}
         style={{ animation: "fadeSlideUp 240ms cubic-bezier(0.22,1,0.36,1) both" }}
       >
         {/* La poignée : une zone de prise de 20 px, pas un trait de 4. */}
