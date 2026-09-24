@@ -19,6 +19,28 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.16.0]
+### FR
+- **Au téléphone, Vigie se parcourt au pouce.** L'en-tête se fait compact et le contenu commence bien plus haut ; les onglets restent accrochés en haut de l'écran, et une loupe y apparaît dès que le champ de recherche a défilé. Toucher l'onglet ouvert remonte en haut de sa page
+- **Catalogue** : au téléphone, une seule rangée accrochée sous les onglets — le type, et les filtres (le tri est en tête du panneau). Un filtre actif se retire d'un toucher sur toute sa pastille
+- **Calendrier** : au téléphone, le mois se lit comme le Calendrier d'iOS — des points pour chaque jour qui a des sorties, et la liste du jour touché juste dessous
+- **Mes demandes** : deux rangées d'outils au lieu de trois ; « Regarder » ou « Réessayer » reste à portée sur chaque demande ; la dernière erreur se lit en entier, sans infobulle
+- **Retirer une demande « À vérifier » sans rien toucher d'autre** : une demande en échec quitte la liste, sans supprimer de fichier ni rien changer dans Jellyfin, Sonarr ou Radarr
+- **Les panneaux se referment en les tirant vers le bas**, et ils sont pleins : la page ne transparaît plus dessous. Les confirmations (saisons à supprimer ou à redemander, redemande groupée) deviennent des panneaux, avec des boutons à la taille du doigt
+- Dans la prochaine version de l'application mobile Tentacle, la barre d'onglets s'efface quand un panneau s'ouvre, et les liens (YouTube…) s'ouvrent hors de l'application
+- La recherche ne corrige plus « Dune » en « D'une », et le clavier se range quand on lance la recherche ou qu'on ouvre une fiche
+- Plus de titre de rangée tronqué par son lien, des notifications pleine largeur au téléphone, des onglets de filmographie à la taille du doigt
+### EN
+- **On a phone, Vigie is easy to reach with your thumb.** The header is compact and the content starts much higher; the tabs stay pinned at the top of the screen, and a magnifier shows up in them once the search field has scrolled away. Tapping the open tab scrolls back to its top
+- **Catalog**: on a phone, a single row pinned under the tabs — the type, and the filters (sorting sits at the top of the panel). An active filter is removed with one tap anywhere on its chip
+- **Calendar**: on a phone, the month reads like the iOS Calendar — dots on each day with releases, and the tapped day's list right below
+- **My requests**: two rows of tools instead of three; "Watch" or "Retry" stays within reach on every request; the last error reads in full, no tooltip needed
+- **Remove a request "to check" without touching anything else**: a failed request leaves the list without deleting any file or changing anything in Jellyfin, Sonarr or Radarr
+- **Panels close when you pull them down**, and they are solid: the page no longer shows through. Confirmations (seasons to remove or request again, bulk retry) become panels, with finger-sized buttons
+- In the next release of the Tentacle mobile app, the tab bar steps aside when a panel opens, and links (YouTube…) open outside the app
+- Search no longer corrects "Dune" into "D'une", and the keyboard goes away when you search or open a title
+- Row titles are no longer cut off by their link, notifications span the phone's width, and filmography tabs are finger-sized
+
 ## [1.15.1]
 ### FR
 - **Mes demandes suivent Sonarr et Radarr en direct** : l'avancement réel, comme dans la file du serveur, puis « En cours d'importation » dès que le fichier est complet, et « Disponible » dès qu'il est rangé — sans plus attendre que Jellyseerr le constate. Ce nouvel état se lit aussi sur les affiches, la fiche et le calendrier
