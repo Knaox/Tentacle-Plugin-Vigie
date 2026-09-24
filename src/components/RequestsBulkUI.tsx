@@ -1,6 +1,19 @@
+/* ------------------------------------------------------------------ */
+/*  Vigie — Actions groupées sur les demandes                          */
+/* ------------------------------------------------------------------ */
+
+/*
+ * La barre flotte au-dessus de la barre d'onglets de l'hôte ; ses boutons font
+ * 44 px au doigt (32 avant) et parlent le langage des autres actions de Vigie
+ * — le rouge « supprimer » vient des jetons d'état, lisible dans les deux
+ * thèmes. La redemande groupée demande son profil dans une feuille, comme
+ * toutes les surfaces de Vigie.
+ */
+
 import { useTranslation } from "react-i18next";
 import { ProfileSelector } from "./ProfileSelector";
-import { CTA_PRIMARY, CTA_PRIMARY_HALO } from "../styles/cta";
+import { Sheet } from "./ui/Sheet";
+import { CTA_DANGER, CTA_GHOST, CTA_PRIMARY, CTA_PRIMARY_HALO, CTA_SECONDARY } from "../styles/cta";
 import { CHROME_BOTTOM } from "../utils/host-chrome";
 
 interface RequestsBulkBarProps {
@@ -19,27 +32,16 @@ export function RequestsBulkBar({
   const { t } = useTranslation("seer");
   return (
     <div
-      className="fixed left-1/2 z-40 flex max-w-[calc(100vw-16px)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-xl border border-tentacle-border-subtle bg-tentacle-surface-dropdown px-4 py-3 shadow-2xl backdrop-blur-sm sm:gap-3 sm:px-5"
-      style={{ bottom: `calc(1rem + ${CHROME_BOTTOM})` }}
+      className="fixed inset-x-3 z-40 mx-auto flex max-w-md items-center gap-2 rounded-2xl border border-tentacle-border-subtle bg-tentacle-surface-dropdown p-2 shadow-2xl backdrop-blur-sm sm:inset-x-auto sm:left-1/2 sm:w-auto sm:max-w-none sm:-translate-x-1/2 sm:gap-3 sm:px-3"
+      style={{ bottom: `calc(0.75rem + ${CHROME_BOTTOM})` }}
     >
-      <button
-        onClick={onBulkDelete}
-        disabled={deleting}
-        className="rounded-lg bg-red-600/20 px-4 py-2 text-xs font-semibold text-red-400 transition-colors hover:bg-red-600/30 disabled:opacity-50"
-      >
-        {deleting ? "..." : t("seer:bulkDelete", { count })}
+      <button type="button" onClick={onBulkDelete} disabled={deleting} className={`${CTA_DANGER} h-11 min-w-0 flex-1 px-3 sm:h-10 sm:flex-none sm:px-4`}>
+        <span className="truncate">{deleting ? "…" : t("seer:bulkDelete", { count })}</span>
       </button>
-      <button
-        onClick={onOpenRetryModal}
-        disabled={retrying}
-        className="rounded-lg bg-[rgba(var(--brand-rgb),0.2)] px-4 py-2 text-xs font-semibold text-tentacle-brand-light transition-colors hover:bg-[rgba(var(--brand-rgb),0.3)] disabled:opacity-50"
-      >
-        {retrying ? "..." : t("seer:bulkRetry", { count })}
+      <button type="button" onClick={onOpenRetryModal} disabled={retrying} className={`${CTA_SECONDARY} h-11 min-w-0 flex-1 px-3 sm:h-10 sm:flex-none sm:px-4`}>
+        <span className="truncate">{retrying ? "…" : t("seer:bulkRetry", { count })}</span>
       </button>
-      <button
-        onClick={onCancel}
-        className="rounded-lg bg-tentacle-fill-soft px-4 py-2 text-xs text-tentacle-text-tertiary transition-colors hover:bg-tentacle-fill-medium"
-      >
+      <button type="button" onClick={onCancel} className={`${CTA_GHOST} h-11 shrink-0 px-3 sm:h-10`}>
         {t("seer:bulkCancel")}
       </button>
     </div>
@@ -60,28 +62,21 @@ export function BulkRetryModal({
   count, profileId, onProfileChange, retrying, onConfirm, onClose,
 }: BulkRetryModalProps) {
   const { t } = useTranslation("seer");
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
-      <div className="mx-4 w-full max-w-sm rounded-xl bg-tentacle-surface-2 p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}>
-        <h3 className="mb-4 text-sm font-semibold text-tentacle-text-primary">
-          {t("seer:bulkRetry", { count })}
-        </h3>
-        <ProfileSelector showAll selectedId={profileId} onChange={onProfileChange} />
-        <div className="mt-4 flex items-center justify-end gap-2">
-          <button onClick={onClose}
-            className="rounded-lg bg-tentacle-fill-soft px-4 py-1.5 text-xs text-tentacle-text-tertiary hover:bg-tentacle-fill-medium">
-            {t("seer:cancel")}
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={retrying}
-            style={CTA_PRIMARY_HALO}
-            className={`${CTA_PRIMARY} px-4 py-1.5 text-xs`}>
-            {retrying ? "..." : t("seer:seasonActionConfirm")}
-          </button>
-        </div>
-      </div>
+  const footer = (
+    <div className="flex items-center gap-2 sm:justify-end">
+      <button type="button" onClick={onClose} className={`${CTA_SECONDARY} h-11 flex-1 px-4 sm:h-10 sm:flex-none`}>
+        {t("seer:cancel")}
+      </button>
+      <button type="button" onClick={onConfirm} disabled={retrying} style={CTA_PRIMARY_HALO} className={`${CTA_PRIMARY} h-11 flex-1 px-4 sm:h-10 sm:flex-none`}>
+        {retrying ? "…" : t("seer:seasonActionConfirm")}
+      </button>
     </div>
+  );
+  return (
+    <Sheet open onClose={onClose} title={t("seer:bulkRetry", { count })} size="sm" footer={footer}>
+      <div className="pb-1">
+        <ProfileSelector showAll selectedId={profileId} onChange={onProfileChange} />
+      </div>
+    </Sheet>
   );
 }

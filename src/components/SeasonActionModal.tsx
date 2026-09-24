@@ -1,7 +1,20 @@
+/* ------------------------------------------------------------------ */
+/*  Vigie — Supprimer ou redemander une demande, saison par saison      */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Une feuille, comme toutes les surfaces de Vigie : au téléphone elle monte
+ * du bas (on la tire pour la fermer), sur grand écran c'est une fenêtre
+ * centrée. Elle en hérite Échap, le voile de l'hôte et le verrou du
+ * défilement — la fenêtre maison d'avant n'avait rien de tout cela, et des
+ * cibles de 28 px.
+ */
+
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { LocalRequest } from "../api/types";
 import { ProfileSelector } from "./ProfileSelector";
+import { Sheet } from "./ui/Sheet";
 import { CTA_PRIMARY, CTA_PRIMARY_HALO, CTA_SECONDARY } from "../styles/cta";
 
 interface SeasonActionModalProps {
@@ -58,85 +71,89 @@ export function SeasonActionModal({ request, action, onConfirm, onClose }: Seaso
   const showWarn = action === "delete" ? deleteFiles : forceRedownload;
   const warn = action === "delete" ? t("seer:seasonActionDeleteWarn") : t("seer:seasonActionRetryWarn");
   const canConfirm = !hasSeasons || selected.size > 0;
+  const partialLabel = hasSeasons && selected.size > 0 && !allSelected
+    ? ` (S${Array.from(selected).sort((a, b) => a - b).join(", S")})`
+    : "";
+
+  const footer = (
+    <div className="flex items-center gap-2 sm:justify-end">
+      <button type="button" onClick={onClose} className={`${CTA_SECONDARY} h-11 flex-1 px-4 sm:h-10 sm:flex-none`}>
+        {t("seer:cancel")}
+      </button>
+      <button
+        type="button"
+        onClick={handleConfirm}
+        disabled={!canConfirm}
+        style={CTA_PRIMARY_HALO}
+        className={`${CTA_PRIMARY} h-11 flex-1 px-4 sm:h-10 sm:flex-none`}
+      >
+        {t("seer:seasonActionConfirm")}{partialLabel}
+      </button>
+    </div>
+  );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
-      <div className="mx-4 flex w-full max-w-sm max-h-[85vh] flex-col rounded-xl bg-tentacle-surface-2 p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}>
-        <h3 className="mb-4 text-sm font-semibold text-tentacle-text-primary">{title}</h3>
-
+    <Sheet open onClose={onClose} title={title} size="sm" footer={footer}>
+      <div className="space-y-4 pb-1">
         {/* Saisons — uniquement pour les séries */}
         {hasSeasons && (
-          <>
-            <div className="mb-3 flex flex-wrap gap-2 overflow-y-auto max-h-[40vh]" style={{ scrollbarWidth: "thin" }}>
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
               {seasons.map((s) => (
-                <button key={s} onClick={() => toggle(s)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-                    selected.has(s) ? "bg-tentacle-cta-primary text-tentacle-cta-primary-fg shadow-sm"
-                      : "bg-tentacle-fill-soft text-tentacle-text-secondary hover:bg-tentacle-fill-medium hover:text-tentacle-text-primary"
-                  }`}>
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => toggle(s)}
+                  aria-pressed={selected.has(s)}
+                  className={`h-10 min-w-[52px] rounded-full px-4 text-sm font-semibold tabular-nums transition-colors ${
+                    selected.has(s)
+                      ? "bg-tentacle-cta-primary text-tentacle-cta-primary-fg"
+                      : "bg-tentacle-fill-soft text-tentacle-text-secondary ring-1 ring-tentacle-border-subtle hover:bg-tentacle-fill-medium hover:text-tentacle-text-primary"
+                  }`}
+                >
                   S{s}
                 </button>
               ))}
             </div>
-
-            <button onClick={() => setSelected(new Set(seasons))}
-              className={`mb-3 w-full flex-shrink-0 rounded-lg px-3 py-2 text-xs font-medium transition-all ${
-                allSelected ? "bg-[rgba(var(--brand-rgb),0.2)] text-tentacle-brand-light ring-1 ring-[rgba(var(--brand-rgb),0.3)]"
-                  : "bg-tentacle-fill-subtle text-tentacle-text-tertiary hover:bg-tentacle-fill-medium"
-              }`}>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set(seasons))}
+              className={`h-11 w-full rounded-full px-4 text-sm font-semibold transition-colors ${
+                allSelected
+                  ? "bg-[rgba(var(--brand-rgb),0.2)] text-tentacle-brand-light ring-1 ring-[rgba(var(--brand-rgb),0.3)]"
+                  : "bg-tentacle-fill-subtle text-tentacle-text-secondary hover:bg-tentacle-fill-medium"
+              }`}
+            >
               {t("seer:seasonActionAll")}
             </button>
-
-          </>
+          </div>
         )}
 
         {/* Profil de qualité — uniquement pour retry */}
         {action === "retry" && (
-          <div className="mb-3 flex-shrink-0">
-            <ProfileSelector
-              showAll
-              selectedId={profileId}
-              onChange={setProfileId}
-            />
-          </div>
+          <ProfileSelector showAll selectedId={profileId} onChange={setProfileId} />
         )}
 
-        {/* Option destructive — décochée par défaut */}
-        <label className="mb-3 flex flex-shrink-0 cursor-pointer items-start gap-2 rounded-lg bg-tentacle-fill-subtle px-3 py-2">
+        {/* Option destructive — la ligne entière coche la case. */}
+        <label className="flex min-h-[56px] cursor-pointer items-start gap-3 rounded-2xl bg-tentacle-fill-subtle px-4 py-3">
           <input
             type="checkbox"
             checked={action === "delete" ? deleteFiles : forceRedownload}
             onChange={(e) => action === "delete" ? setDeleteFiles(e.target.checked) : setForceRedownload(e.target.checked)}
-            className="mt-0.5 h-4 w-4 accent-tentacle-brand"
+            className="mt-0.5 h-5 w-5 shrink-0 accent-tentacle-brand"
           />
-          <div className="min-w-0 flex-1">
-            <span className="block text-[11px] font-medium text-tentacle-text-secondary">
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-tentacle-text-primary">
               {action === "delete" ? t("seer:deleteAlsoFiles") : t("seer:forceRedownload")}
             </span>
-            <span className="block text-[10px] text-tentacle-text-tertiary">
+            <span className="mt-0.5 block text-xs text-tentacle-text-tertiary">
               {action === "delete" ? t("seer:deleteAlsoFilesHint") : t("seer:forceRedownloadHint")}
             </span>
-          </div>
+          </span>
         </label>
 
-        {showWarn && <p className="mb-3 text-[10px] text-orange-400/70">{warn}</p>}
-
-        <div className="flex flex-shrink-0 items-center justify-end gap-2">
-          <button onClick={onClose} className={`${CTA_SECONDARY} h-9 px-4 text-xs`}>
-            {t("seer:cancel")}
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={!canConfirm}
-            style={CTA_PRIMARY_HALO}
-            className={`${CTA_PRIMARY} h-9 px-4 text-xs`}
-          >
-            {t("seer:seasonActionConfirm")}
-            {hasSeasons && selected.size > 0 && !allSelected && ` (S${Array.from(selected).sort((a, b) => a - b).join(", S")})`}
-          </button>
-        </div>
+        {showWarn && <p className="text-xs font-medium text-tentacle-status-warning-fg">{warn}</p>}
       </div>
-    </div>
+    </Sheet>
   );
 }
