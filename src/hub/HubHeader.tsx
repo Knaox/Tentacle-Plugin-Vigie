@@ -10,7 +10,7 @@
  * l'autre sans remonter.
  */
 
-import { memo, useRef } from "react";
+import { memo, useRef, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { searchShortcutLabel, showsKeyboardHints } from "../utils/host-env";
 import { useSearchHotkey } from "../hooks/useSearchHotkey";
@@ -36,6 +36,12 @@ export const HubHeader = memo(function HubHeader(props: HubHeaderProps) {
   const { t } = useTranslation("seer");
   const input = useRef<HTMLInputElement>(null);
   useSearchHotkey(input, () => onQuery(""));
+
+  // « Rechercher » sur le clavier du téléphone : on a tapé, on veut voir les
+  // résultats — le clavier se range au lieu de les couvrir.
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") e.currentTarget.blur();
+  };
 
   /* Au téléphone, les quatre onglets se partagent la largeur, sans icône et
    * avec un libellé court ; le compteur y devient un exposant pour ne rien
@@ -65,9 +71,12 @@ export const HubHeader = memo(function HubHeader(props: HubHeaderProps) {
               type="search"
               value={query}
               onChange={(e) => onQuery(e.target.value)}
+              onKeyDown={onKeyDown}
               placeholder={t("seer:hubSearchPlaceholder")}
               aria-label={t("seer:hubSearchPlaceholder")}
               autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
               spellCheck={false}
               enterKeyHint="search"
               className="h-full min-w-0 flex-1 bg-transparent text-base text-tentacle-text-primary outline-none placeholder:text-tentacle-text-quaternary [&::-webkit-search-cancel-button]:appearance-none"

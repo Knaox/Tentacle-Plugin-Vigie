@@ -41,6 +41,13 @@ import { TitleStatesProvider } from "./TitleStates";
 
 const MIN_SEARCH = 2;
 
+/** Au téléphone, un toucher sur un résultat ne retire pas le focus du champ :
+ *  le clavier restait ouvert par-dessus la fiche qu'on venait d'ouvrir. */
+function dismissKeyboard(): void {
+  const active = document.activeElement;
+  if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) active.blur();
+}
+
 const TAB_LABEL: Record<HubTab, string> = {
   discover: "seer:tabDiscover", catalog: "seer:tabCatalog", requests: "seer:tabRequests", calendar: "seer:tabCalendar",
 };
@@ -130,8 +137,14 @@ export function VigieHub({ routePath }: { routePath: string }) {
   }, [goTo]);
 
   const openMedia = useCallback((item: SeerrSearchResult, options?: OpenMediaOptions) => {
+    dismissKeyboard();
     setPersonId(null);
     setDetail({ item, options });
+  }, []);
+
+  const openPerson = useCallback((id: number | null) => {
+    if (id !== null) dismissKeyboard();
+    setPersonId(id);
   }, []);
 
   const quickRequest = useCallback((item: SeerrSearchResult) => {
@@ -149,8 +162,8 @@ export function VigieHub({ routePath }: { routePath: string }) {
   }, [openMedia, requestMedia, toast, t]);
 
   const api = useMemo<HubApi>(() => ({
-    tab, setTab, openCalendar, openCatalog, openMedia, openPerson: setPersonId, browse, setQuery, quickRequest,
-  }), [tab, setTab, openCalendar, openCatalog, openMedia, browse, setQuery, quickRequest]);
+    tab, setTab, openCalendar, openCatalog, openMedia, openPerson, browse, setQuery, quickRequest,
+  }), [tab, setTab, openCalendar, openCatalog, openMedia, openPerson, browse, setQuery, quickRequest]);
 
   const show = (view: HubTab) => !searching && tab === view;
 
