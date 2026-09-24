@@ -6,6 +6,8 @@ import { ReleaseRow } from "./ReleaseRow";
 import { ICON_BUTTON } from "../../styles/pills";
 import { monthMatrix, weekdayInitials, today, monthHeading, dayHeading } from "../../utils/calendar-groups";
 import { collapseSeriesInDay, type CollapsedItem } from "../../utils/calendar-collapse";
+import { useIsPhone } from "../../hooks/useIsPhone";
+import { ReleaseMonthCompact } from "./ReleaseMonthCompact";
 
 interface Props {
   items: CalendarItem[];
@@ -30,7 +32,13 @@ const PER_CELL = 3;
  * pour l'apprendre. Chaque case porte donc maintenant les titres, repliés
  * au-delà de trois par un « +N » qui ouvre le détail du jour.
  */
-export function ReleaseMonthView({ items, cursor, onShift, onThisMonth, onOpen }: Props) {
+export function ReleaseMonthView(props: Props) {
+  // Au téléphone, le mois compact (points + liste du jour) : sept colonnes de
+  // titres n'y tiennent pas.
+  return useIsPhone() ? <ReleaseMonthCompact {...props} /> : <ReleaseMonthGrid {...props} />;
+}
+
+function ReleaseMonthGrid({ items, cursor, onShift, onThisMonth, onOpen }: Props) {
   const { t } = useTranslation("seer");
   const ref = today();
 

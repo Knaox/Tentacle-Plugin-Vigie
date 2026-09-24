@@ -3,6 +3,9 @@ import { useTranslation } from "react-i18next";
 import type { CalendarItem } from "../../api/types-releases";
 import { ReleaseEntry } from "./ReleaseEntry";
 import { ICON_BUTTON } from "../../styles/pills";
+
+/** Les flèches de semaine : 44 px au doigt, 36 à la souris. */
+const NAV_BUTTON = ICON_BUTTON.replace("h-9 w-9", "h-11 w-11 sm:h-9 sm:w-9");
 import { weekDays, weekHeading, today, startOfWeek } from "../../utils/calendar-groups";
 import { parseAirDate } from "../../utils/episode-dates";
 import { getCurrentLanguage } from "../../utils/media-helpers";
@@ -52,7 +55,7 @@ export function ReleaseWeekView({ items, anchor, onShift, onToday, onOpen }: Pro
   return (
     <div className="pb-10">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <button onClick={() => onShift(-1)} aria-label={t("seer:releasesWeekPrev")} className={ICON_BUTTON}>
+        <button onClick={() => onShift(-1)} aria-label={t("seer:releasesWeekPrev")} className={NAV_BUTTON}>
           <Chevron dir="left" />
         </button>
 
@@ -63,14 +66,14 @@ export function ReleaseWeekView({ items, anchor, onShift, onToday, onOpen }: Pro
           {!isCurrentWeek && (
             <button
               onClick={onToday}
-              className="shrink-0 rounded-full bg-tentacle-fill-subtle px-2.5 py-1 text-[11px] font-medium text-tentacle-text-secondary ring-1 ring-tentacle-border-subtle transition-colors hover:bg-tentacle-fill-medium"
+              className="h-9 shrink-0 rounded-full bg-tentacle-fill-subtle px-3 text-xs font-semibold text-tentacle-text-secondary ring-1 ring-tentacle-border-subtle transition-colors hover:bg-tentacle-fill-medium sm:h-auto sm:px-2.5 sm:py-1 sm:text-[11px] sm:font-medium"
             >
               {t("seer:releasesThisWeek")}
             </button>
           )}
         </div>
 
-        <button onClick={() => onShift(1)} aria-label={t("seer:releasesWeekNext")} className={ICON_BUTTON}>
+        <button onClick={() => onShift(1)} aria-label={t("seer:releasesWeekNext")} className={NAV_BUTTON}>
           <Chevron dir="right" />
         </button>
       </div>

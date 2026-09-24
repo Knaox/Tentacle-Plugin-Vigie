@@ -98,6 +98,8 @@ export default {
   releasesFilterTv: "TV",
   releasesToday: "Today",
   releasesTomorrow: "Tomorrow",
+  releasesDayEmpty: "Nothing comes out that day.",
+  releasesPickDay: "Tap a day to see what comes out.",
   releasesThisMonth: "This month",
   releasesKindDigital: "Streaming",
   releasesKindTheatrical: "In theaters",

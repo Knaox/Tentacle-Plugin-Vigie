@@ -104,6 +104,8 @@ export default {
   releasesFilterTv: "Séries",
   releasesToday: "Aujourd'hui",
   releasesTomorrow: "Demain",
+  releasesDayEmpty: "Rien ne sort ce jour-là.",
+  releasesPickDay: "Touchez un jour pour voir ce qui sort.",
   releasesThisMonth: "Ce mois-ci",
   releasesKindDigital: "En streaming",
   releasesKindTheatrical: "Au cinéma",

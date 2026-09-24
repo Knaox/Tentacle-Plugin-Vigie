@@ -126,10 +126,10 @@ export function CalendarView({ active, focus }: { active: boolean; focus?: Calen
         <Segmented ariaLabel={t("seer:calendarScope")} value={scope} onChange={setScope} options={scopes} size="sm" stretch="mobile" />
         <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
           <Segmented ariaLabel={t("seer:calendarLayout")} value={layout} onChange={setLayout} options={layouts} size="sm" stretch="mobile" className="min-w-0 flex-1 sm:flex-none" />
-          <FilterButton count={filterCount} onClick={() => setFiltersOpen(true)} />
+          <FilterButton count={filterCount} onClick={() => setFiltersOpen(true)} compact />
         </div>
       </div>
-      <p className="text-sm text-tentacle-text-tertiary">{t(`seer:scopeHint_${scope}`)}</p>
+      <p className="text-[13px] leading-snug text-tentacle-text-tertiary sm:text-sm">{t(`seer:scopeHint_${scope}`)}</p>
       {partial && <p className="text-xs text-tentacle-text-quaternary">{t("seer:releasesBuilding")}</p>}
 
       {pending && items.length === 0 ? (
