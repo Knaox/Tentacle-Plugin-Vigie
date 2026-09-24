@@ -11,6 +11,7 @@ export default {
   hubSearchPlaceholder: "Movie, series, actor, platform…",
   searching: "Searching…",
   searchJump: "Go to search",
+  scrollToTop: "Back to top",
   clearSearch: "Clear search",
   close: "Close",
   loading: "Loading…",

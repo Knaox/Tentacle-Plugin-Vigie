@@ -79,4 +79,5 @@ export const DiscIcon = (p: IconProps) => <Svg {...p}><circle cx="12" cy="12" r=
 export const DashedCircleIcon = (p: IconProps) => <Svg {...p}><circle cx="12" cy="12" r="8" strokeDasharray="3 2.6" /><path d="M12 9v3.5l2 1.5" /></Svg>;
 export const LayersIcon = (p: IconProps) => <Svg {...p}><path d="M12 4l8.5 4.5L12 13 3.5 8.5z" /><path d="M3.5 12.5L12 17l8.5-4.5M3.5 16.5L12 21l8.5-4.5" /></Svg>;
 export const SelectIcon = (p: IconProps) => <Svg {...p}><rect x="4" y="4" width="16" height="16" rx="4.5" /><path d="M8.5 12.3l2.4 2.4 4.6-5" /></Svg>;
+export const ArrowUpIcon = (p: IconProps) => <Svg {...p}><path d="M12 19V5.5M5.5 12L12 5.5 18.5 12" /></Svg>;
 export const SortIcon = (p: IconProps) => <Svg {...p}><path d="M7 5v14M4 16l3 3 3-3M17 19V5M14 8l3-3 3 3" /></Svg>;

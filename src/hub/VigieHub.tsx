@@ -34,6 +34,7 @@ import { RequestsView } from "../requests/RequestsView";
 import { CalendarView, type CalendarFocus, type CalendarScope } from "../calendar/CalendarView";
 import { PersonSheet } from "../person/PersonSheet";
 import { QuickSeasonsSheet } from "../components/QuickSeasonsSheet";
+import { ScrollTopButton } from "../components/ui/ScrollTopButton";
 import { HubContext, type BrowsePreset, type HubApi, type HubTab, type OpenMediaOptions } from "./HubContext";
 import { HubHeader } from "./HubHeader";
 import { hostQuery, readHubEntry } from "./deepLink";
@@ -236,6 +237,8 @@ export function VigieHub({ routePath }: { routePath: string }) {
           </main>
         </div>
 
+        {/* Sous la fiche et les feuilles (z-50 et plus), au-dessus des barres accrochées. */}
+        <ScrollTopButton />
         {detail && (
           <MediaDetailModal
             item={detail.item}

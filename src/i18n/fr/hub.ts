@@ -13,6 +13,7 @@ export default {
   hubSearchPlaceholder: "Film, série, acteur, plateforme…",
   searching: "Recherche…",
   searchJump: "Aller à la recherche",
+  scrollToTop: "Revenir en haut",
   clearSearch: "Effacer la recherche",
   close: "Fermer",
   loading: "Chargement…",
