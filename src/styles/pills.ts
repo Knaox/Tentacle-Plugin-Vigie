@@ -56,24 +56,6 @@ export function pillSm(active: boolean): string {
 }
 
 /**
- * Segment d'un sélecteur de vue (Semaine / Mois) : pas d'anneau ni d'élévation,
- * les segments vivent déjà dans un conteneur qui les encadre.
- */
-export function segment(active: boolean): string {
-  return (
-    "rounded-full px-3 py-1 text-[11px] font-medium transition-colors duration-150 " +
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)] " +
-    (active
-      ? `bg-[var(--surface-2)] ${BRAND_WASH} text-[var(--brand-light)]`
-      : "text-tentacle-text-tertiary hover:text-tentacle-text-primary")
-  );
-}
-
-/** Conteneur d'un groupe de segments. */
-export const SEGMENT_GROUP =
-  "inline-flex gap-0.5 rounded-full bg-tentacle-fill-subtle p-0.5 ring-1 ring-tentacle-border-subtle";
-
-/**
  * Bouton d'icône rond — navigation de calendrier, fermeture.
  * Taille minimale 36 px : au-dessous, la cible devient difficile à viser.
  */

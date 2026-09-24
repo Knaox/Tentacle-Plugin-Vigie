@@ -14,7 +14,7 @@ import { useTranslation } from "react-i18next";
 import { Sheet } from "../components/ui/Sheet";
 import { PosterCard, PosterCardSkeleton } from "../components/ui/PosterCard";
 import { UserIcon } from "../components/ui/icons";
-import { segment, SEGMENT_GROUP } from "../styles/pills";
+import { Segmented } from "../components/ui/Segmented";
 import { profileUrl } from "../utils/media-helpers";
 import { useHub } from "../hub/HubContext";
 import { filmography, usePerson } from "./usePerson";
@@ -47,7 +47,7 @@ export function PersonSheet({ personId, onClose }: { personId: number; onClose: 
             <>
               <p className={`mt-2 text-sm leading-relaxed text-tentacle-text-secondary ${bioOpen ? "" : "line-clamp-4"}`}>{person.biography}</p>
               {person.biography.length > 280 && (
-                <button type="button" onClick={() => setBioOpen((v) => !v)} className="mt-1 min-h-[32px] text-xs font-semibold text-[var(--brand-light)]">
+                <button type="button" onClick={() => setBioOpen((v) => !v)} className="-ml-2 mt-1 min-h-[40px] rounded-full px-2 text-xs font-semibold text-[var(--brand-light)] sm:min-h-[32px]">
                   {bioOpen ? t("seer:showLess") : t("seer:showMore")}
                 </button>
               )}
@@ -65,13 +65,19 @@ export function PersonSheet({ personId, onClose }: { personId: number; onClose: 
         <h3 className="text-base font-bold text-tentacle-text-primary">
           {t("seer:filmography")} <span className="text-sm font-semibold text-tentacle-text-quaternary">{works.length || ""}</span>
         </h3>
-        <div className={SEGMENT_GROUP} role="tablist">
-          {(["all", "movie", "tv"] as const).map((k) => (
-            <button key={k} type="button" role="tab" aria-selected={kind === k} onClick={() => setKind(k)} className={`${segment(kind === k)} min-h-[32px]`}>
-              {k === "all" ? t("seer:filterAllType") : k === "movie" ? t("seer:filterMovies") : t("seer:filterSeries")}
-            </button>
-          ))}
-        </div>
+        {/* Le segmenté commun : 36 px au doigt, là où ces onglets faisaient
+            32 px en 11 px, seuls de leur espèce dans Vigie. */}
+        <Segmented
+          ariaLabel={t("seer:filmography")}
+          value={kind}
+          onChange={setKind}
+          size="sm"
+          options={[
+            { value: "all", label: t("seer:filterAllType") },
+            { value: "movie", label: t("seer:filterMovies") },
+            { value: "tv", label: t("seer:filterSeries") },
+          ]}
+        />
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-5">
