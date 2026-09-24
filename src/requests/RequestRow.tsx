@@ -76,18 +76,25 @@ export const RequestRow = memo(function RequestRow(props: Props) {
         </button>
       )}
       {/* En mode sélection, toute la ligne sélectionne : ouvrir la fiche en
-          voulant cocher une demande était le piège. */}
-      <button
-        type="button"
-        onClick={() => (selectable ? canSelect && onToggleSelect?.(request.id) : onAction("open", request))}
-        aria-pressed={selectable ? selected : undefined}
-        disabled={selectable && !canSelect}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-none disabled:opacity-60 sm:gap-4"
-      >
-        <span className="block h-[84px] w-14 shrink-0 overflow-hidden rounded-lg bg-tentacle-surface-2 ring-1 ring-tentacle-border-subtle sm:h-24 sm:w-16">
+          voulant cocher une demande était le piège.
+
+          Le bouton est ÉTIRÉ sous le contenu au lieu de l'envelopper : la
+          barre d'avancement porte ses propres boutons (déplier une saison), et
+          un bouton dans un bouton faisait remonter leur toucher jusqu'à la
+          fiche. Le contenu laisse passer le toucher, sauf cette barre. */}
+      <div className={`relative flex min-w-0 flex-1 items-center gap-3 sm:gap-4 ${selectable && !canSelect ? "opacity-60" : ""}`}>
+        <button
+          type="button"
+          onClick={() => (selectable ? canSelect && onToggleSelect?.(request.id) : onAction("open", request))}
+          aria-pressed={selectable ? selected : undefined}
+          aria-label={request.title}
+          disabled={selectable && !canSelect}
+          className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)]"
+        />
+        <span className="pointer-events-none relative block h-[84px] w-14 shrink-0 overflow-hidden rounded-lg bg-tentacle-surface-2 ring-1 ring-tentacle-border-subtle sm:h-24 sm:w-16">
           {poster && <img src={poster} alt="" loading="lazy" className="h-full w-full object-cover" />}
         </span>
-        <span className="min-w-0 flex-1">
+        <span className="pointer-events-none relative min-w-0 flex-1">
           <span className="block truncate text-[15px] font-semibold text-tentacle-text-primary">{request.title}</span>
           <span className="mt-0.5 block truncate text-xs text-tentacle-text-tertiary">
             {[request.mediaType === "tv" ? t("seer:typeSeries") : t("seer:typeMovie"), request.year, seasons].filter(Boolean).join(" · ")}
@@ -99,9 +106,10 @@ export const RequestRow = memo(function RequestRow(props: Props) {
             )}
             {gap && <span className="min-w-0 text-xs font-medium text-tentacle-text-secondary">{gap}</span>}
           </span>
-          {/* L'avancement réel : taille, temps restant, détail par saison. */}
+          {/* L'avancement réel : taille, temps restant, détail par saison — seul
+              bloc qui reprend le toucher (ses saisons se déplient). */}
           {progress?.download && (
-            <span className="block max-w-md">
+            <span className="pointer-events-auto block max-w-md">
               <RequestProgressBar download={progress.download} downloads={progress.downloads} receivedAt={receivedAt} requestedSeasons={request.seasons} />
             </span>
           )}
@@ -111,7 +119,7 @@ export const RequestRow = memo(function RequestRow(props: Props) {
           )}
           {!nextRelease && <span className="mt-1 block text-[11px] text-tentacle-text-quaternary">{t("seer:requestedOn", { date })}</span>}
         </span>
-      </button>
+      </div>
       {nextRelease && !selectable && (
         <button type="button" onClick={onNextRelease} className="hidden shrink-0 items-center gap-1.5 rounded-full bg-tentacle-fill-subtle px-3 py-1.5 text-xs font-semibold text-tentacle-text-secondary ring-1 ring-tentacle-border-subtle transition-colors hover:bg-tentacle-fill-medium md:inline-flex">
           <CalendarIcon className="h-3.5 w-3.5 text-[var(--brand-light)]" />{nextRelease}
