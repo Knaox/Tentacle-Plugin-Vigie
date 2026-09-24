@@ -5,14 +5,15 @@
 /*
  * UNE page pour tout : chercher, découvrir, parcourir le catalogue entier,
  * suivre ses demandes, voir ce qui sort. Les vues déjà ouvertes restent
- * montées (cachées) : revenir à un onglet le retrouve tel qu'on l'a laissé,
- * sans rien recharger — là où l'hôte reconstruisait tout le cadre du plugin à
- * chaque entrée du menu. Un onglet s'ouvre en haut de sa page.
+ * montées (cachées) : rien ne se recharge — là où l'hôte reconstruisait tout
+ * le cadre du plugin à chaque entrée du menu. Un onglet s'ouvre en haut de sa
+ * page, et le rejoindre par la barre d'onglets le remet à zéro : ses filtres
+ * (type, états, portée, vue…) reviennent à leur état par défaut. Seul un
+ * RETOUR (« Retour à Découvrir ») retrouve une vue telle qu'on l'avait laissée.
  *
  * Le catalogue a son onglet, et c'est LA grille de Vigie : « Tout voir », un
  * genre, une plateforme, une pastille de la recherche y mènent, déjà filtrés.
- * On n'a plus à descendre au bas de Découvrir pour trouver le catalogue, et un
- * parcours ouvert se retrouve tel quel en revenant sur l'onglet.
+ * On n'a plus à descendre au bas de Découvrir pour trouver le catalogue.
  */
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -70,6 +71,8 @@ export function VigieHub({ routePath }: { routePath: string }) {
 
   const [tab, setTabState] = useState<HubTab>(entry.tab);
   const [visited, setVisited] = useState<ReadonlySet<HubTab>>(() => new Set([entry.tab]));
+  // Une vue rejointe par la barre d'onglets repart de zéro : sa clé change.
+  const [fresh, setFresh] = useState<Record<HubTab, number>>({ discover: 0, catalog: 0, requests: 0, calendar: 0 });
   const [query, setQueryState] = useState(entry.query);
   const [exact, setExact] = useState(false);
   const [showBlocked, setShowBlocked] = useState(false);
@@ -121,14 +124,22 @@ export function VigieHub({ routePath }: { routePath: string }) {
   const setTab = goTo;
 
   /** Un toucher dans la barre d'onglets. L'onglet déjà ouvert, touché de
-   *  nouveau, remonte en haut de sa page — comme partout sur téléphone. */
+   *  nouveau, remonte en haut de sa page — comme partout sur téléphone. Un
+   *  autre onglet s'ouvre remis à zéro : ses filtres à leur état par défaut,
+   *  le catalogue sur « Tout le catalogue ». */
   const tapTab = useCallback((next: HubTab) => {
     if (next === tab && !searching) {
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
+    if (next !== tab) {
+      setFresh((f) => ({ ...f, [next]: f[next] + 1 }));
+      if (next === "catalog") setCatalog((c) => ({ nonce: c.nonce + 1, preset: catalogPreset(t), filters: false, from: null }));
+      // Sans cela, le calendrier remonté rouvrirait la semaine demandée naguère.
+      if (next === "calendar") setCalendarFocus(null);
+    }
     goTo(next);
-  }, [goTo, tab, searching]);
+  }, [goTo, tab, searching, t]);
 
   /** Le catalogue, sur un parcours : « Tout voir », un genre, une plateforme… */
   const browse = useCallback((preset: BrowsePreset, withFilters = false) => {
@@ -201,7 +212,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
                 onSearchExact={() => setExact(true)}
               />
             )}
-            <div hidden={!show("discover")}><DiscoverHome data={data} /></div>
+            <div hidden={!show("discover")}><DiscoverHome key={`discover:${fresh.discover}`} data={data} /></div>
             {visited.has("catalog") && (
               <div hidden={!show("catalog")}>
                 <BrowseView
@@ -217,10 +228,10 @@ export function VigieHub({ routePath }: { routePath: string }) {
               </div>
             )}
             {visited.has("requests") && (
-              <div hidden={!show("requests")}><RequestsView data={data} active={show("requests")} /></div>
+              <div hidden={!show("requests")}><RequestsView key={`requests:${fresh.requests}`} data={data} active={show("requests")} /></div>
             )}
             {visited.has("calendar") && (
-              <div hidden={!show("calendar")}><CalendarView active={show("calendar")} focus={calendarFocus} /></div>
+              <div hidden={!show("calendar")}><CalendarView key={`calendar:${fresh.calendar}`} active={show("calendar")} focus={calendarFocus} /></div>
             )}
           </main>
         </div>
