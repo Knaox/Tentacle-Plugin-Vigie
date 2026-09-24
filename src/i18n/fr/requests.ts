@@ -9,6 +9,8 @@ export default {
   requestAdded: "Ajouté à la file d'attente",
   requestError: "Échec de la demande",
   requestDeleted: "Demande supprimée",
+  requestForgotten: "« {{title}} » retirée de vos demandes",
+  requestForgetError: "Impossible de retirer la demande",
   requestDeleteError: "Échec de la suppression",
   requestRetried: "Demande relancée",
   requestRetryError: "Échec de la relance",

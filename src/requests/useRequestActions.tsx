@@ -13,7 +13,7 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { LocalRequest } from "../api/types";
 import { useToast } from "../hooks/useToast";
-import { useDeleteRequest, useMarkRequestStatus, useRetryDeleteRequest, useRetryRequest } from "../hooks/useRequests";
+import { useDeleteRequest, useForgetRequest, useMarkRequestStatus, useRetryDeleteRequest, useRetryRequest } from "../hooks/useRequests";
 import { navigateToMedia } from "../utils/navigate-media";
 import { requestAsMedia } from "../utils/as-media";
 import { SeasonActionModal } from "../components/SeasonActionModal";
@@ -28,6 +28,7 @@ export function useRequestActions() {
   const deleteMutation = useDeleteRequest();
   const retryMutation = useRetryRequest();
   const retryDeleteMutation = useRetryDeleteRequest();
+  const forgetMutation = useForgetRequest();
   const markMutation = useMarkRequestStatus();
   const [menuFor, setMenuFor] = useState<LocalRequest | null>(null);
   const [modal, setModal] = useState<{ request: LocalRequest; action: "delete" | "retry" } | null>(null);
@@ -49,8 +50,17 @@ export function useRequestActions() {
           onError: () => toast.show("error", t("seer:requestDeleteError")),
         });
         break;
+      // Retirer seulement : la demande quitte la liste, rien n'est touché dans
+      // Jellyfin, Sonarr ou Radarr — pas de confirmation à cocher, la ligne du
+      // menu le dit.
+      case "forget":
+        forgetMutation.mutate(request.id, {
+          onSuccess: () => toast.show("success", t("seer:requestForgotten", { title: request.title })),
+          onError: () => toast.show("error", t("seer:requestForgetError")),
+        });
+        break;
     }
-  }, [hub, retryDeleteMutation, toast, t]);
+  }, [hub, retryDeleteMutation, forgetMutation, toast, t]);
 
   const onMark = (request: LocalRequest, status: MarkTarget) => {
     markMutation.mutate({ id: request.id, status }, {

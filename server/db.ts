@@ -14,7 +14,7 @@ export { rowToRequest, rowToUserSettings, toIso, uuid } from "./db-helpers";
 export { getUserRequests, getAllRequests, getQueueStatus, getUserStats, getGlobalStats } from "./db-queries";
 export {
   enqueueCleanup, getPendingCleanups, updateCleanupJob,
-  clearPendingCleanup, setPendingCleanup,
+  clearPendingCleanup, setPendingCleanup, cancelCleanupsForRequest,
   type CleanupJob,
 } from "./db-cleanup";
 export { upsertContentClaim, purgeExpiredContentClaims } from "./db-claims";

@@ -9,6 +9,8 @@ export default {
   requestAdded: "Added to queue",
   requestError: "Failed to submit request",
   requestDeleted: "Request deleted",
+  requestForgotten: "“{{title}}” removed from your requests",
+  requestForgetError: "Couldn't remove the request",
   requestDeleteError: "Failed to delete request",
   requestRetried: "Request resubmitted",
   requestRetryError: "Failed to retry request",

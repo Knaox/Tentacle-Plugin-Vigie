@@ -135,6 +135,11 @@ export async function retryRequest(
   });
 }
 
+/** Retire une demande « À vérifier » — et rien d'autre : ni fichiers, ni Sonarr, ni Radarr. */
+export async function forgetRequest(id: string): Promise<void> {
+  await backendFetch(`/requests/${id}/forget`, { method: "POST" });
+}
+
 export async function retryDeleteRequest(id: string): Promise<void> {
   await backendFetch(`/requests/${id}/retry-delete`, { method: "POST" });
 }

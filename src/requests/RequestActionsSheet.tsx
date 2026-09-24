@@ -6,14 +6,18 @@
  * Les cartes n'affichent plus quatre boutons chacune : une action principale
  * (Regarder, Réessayer), et « ⋯ » pour le reste — ici, en grandes lignes
  * faciles à viser, la suppression à part, en rouge, tout en bas.
+ *
+ * Une demande « À vérifier » (en échec, ou dont la suppression a échoué) peut
+ * aussi être seulement RETIRÉE : elle quitte la liste sans que rien ne soit
+ * touché dans Jellyfin, Sonarr ou Radarr — la ligne le dit en clair.
  */
 
 import { useTranslation } from "react-i18next";
 import type { LocalRequest } from "../api/types";
 import { Sheet } from "../components/ui/Sheet";
-import { CheckIcon, ListIcon, PlayIcon, PlusIcon, RetryIcon, TrashIcon } from "../components/ui/icons";
+import { CheckIcon, CloseIcon, ListIcon, PlayIcon, PlusIcon, RetryIcon, TrashIcon } from "../components/ui/icons";
 
-export type RequestAction = "open" | "watch" | "addSeasons" | "retry" | "mark" | "retryDelete" | "delete";
+export type RequestAction = "open" | "watch" | "addSeasons" | "retry" | "mark" | "retryDelete" | "forget" | "delete";
 
 /** Ce qu'une demande permet, selon où elle en est. */
 export function availableActions(request: LocalRequest): RequestAction[] {
@@ -27,6 +31,7 @@ export function availableActions(request: LocalRequest): RequestAction[] {
     out.push("mark");
   }
   if (status === "deleting" || status === "delete_failed") out.push("retryDelete");
+  if (status === "failed" || status === "delete_failed") out.push("forget");
   if (!["processing", "deleting"].includes(status)) out.push("delete");
   return out;
 }
@@ -38,6 +43,7 @@ const ICON: Record<RequestAction, React.ReactNode> = {
   retry: <RetryIcon className="h-5 w-5" />,
   mark: <CheckIcon className="h-5 w-5" />,
   retryDelete: <TrashIcon className="h-5 w-5" />,
+  forget: <CloseIcon className="h-5 w-5" />,
   delete: <TrashIcon className="h-5 w-5" />,
 };
 
@@ -55,8 +61,10 @@ export function RequestActionsSheet({ request, onAction, onClose }: {
       <ul className="space-y-1 pt-1">
         {actions.map((action) => {
           const danger = action === "delete";
+          // Les retraits (retirer seulement, supprimer) forment le bas du menu, à part.
+          const firstRemoval = action === (actions.includes("forget") ? "forget" : "delete");
           return (
-            <li key={action} className={danger ? "mt-2 border-t border-tentacle-border-subtle pt-2" : ""}>
+            <li key={action} className={firstRemoval ? "mt-2 border-t border-tentacle-border-subtle pt-2" : ""}>
               <button
                 type="button"
                 onClick={() => { onClose(); onAction(action, request); }}
@@ -67,7 +75,12 @@ export function RequestActionsSheet({ request, onAction, onClose }: {
                 <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${danger ? "bg-tentacle-status-error-bg" : "bg-tentacle-fill-soft text-tentacle-text-secondary"}`}>
                   {ICON[action]}
                 </span>
-                {label(action)}
+                <span className="min-w-0 flex-1 py-2">
+                  <span className="block">{label(action)}</span>
+                  {action === "forget" && (
+                    <span className="mt-0.5 block text-xs font-medium text-tentacle-text-tertiary">{t("seer:action_forgetHint")}</span>
+                  )}
+                </span>
               </button>
             </li>
           );

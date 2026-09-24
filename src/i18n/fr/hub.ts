@@ -152,6 +152,8 @@ export default {
   action_mark: "Marquer comme…",
   action_retryDelete: "Relancer la suppression",
   action_retryDeleteForce: "Forcer la suppression",
+  action_forget: "Retirer la demande seulement",
+  action_forgetHint: "Rien n'est touché dans Jellyfin, Sonarr ni Radarr",
   action_delete: "Supprimer la demande",
 
   // Calendrier

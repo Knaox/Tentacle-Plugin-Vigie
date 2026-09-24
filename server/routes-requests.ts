@@ -18,6 +18,7 @@ import { kickWorkerNow } from "./worker";
 import { getUser, type WorkerCfg, parseRequestId, fetchSeerrRequestById } from "./seerr-unified";
 import { registerRequestReadRoutes } from "./routes-requests-read";
 import { registerRequestActionRoutes } from "./routes-requests-actions";
+import { registerRequestForgetRoute } from "./routes-requests-forget";
 import { markLocallyPending } from "./search/pending";
 
 export function registerRequestRoutes(
@@ -27,6 +28,7 @@ export function registerRequestRoutes(
 ): void {
   registerRequestReadRoutes(app, prisma, getWorkerConfig);
   registerRequestActionRoutes(app, prisma, getWorkerConfig);
+  registerRequestForgetRoute(app, prisma, getWorkerConfig);
 
   /* ── POST /requests — validation user (block/quota/type) ─────────── */
   app.post("/requests", async (request, reply) => {

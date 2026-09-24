@@ -126,6 +126,17 @@ export async function clearPendingCleanup(prisma: Prisma, cleanupId: string): Pr
   );
 }
 
+/**
+ * Abandonne les nettoyages *arr pas encore aboutis d'une demande qu'on retire
+ * sans rien toucher : ce sont eux qui toucheraient Sonarr ou Radarr.
+ */
+export async function cancelCleanupsForRequest(prisma: Prisma, requestId: string): Promise<number> {
+  return prisma.$executeRawUnsafe(
+    `DELETE FROM seer_cleanup_queue WHERE request_id = ? AND status <> 'completed'`,
+    requestId,
+  );
+}
+
 /** Link a request to a cleanup job so it waits for cleanup to complete */
 export async function setPendingCleanup(prisma: Prisma, requestId: string, cleanupId: string): Promise<void> {
   await prisma.$executeRawUnsafe(

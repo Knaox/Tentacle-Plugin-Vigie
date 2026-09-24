@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { getMyRequests, deleteRequest, retryRequest, retryDeleteRequest, getQueueStatus, bulkDeleteRequests, bulkRetryRequests, markRequestStatus } from "../api/seer-client";
+import { getMyRequests, deleteRequest, forgetRequest, retryRequest, retryDeleteRequest, getQueueStatus, bulkDeleteRequests, bulkRetryRequests, markRequestStatus } from "../api/seer-client";
 import { useToast } from "./useToast";
 import type { LocalRequest, LocalRequestsResponse, RequestStatus } from "../api/types";
 
@@ -85,6 +85,23 @@ async function applyOptimisticStatus(
   return snapshot;
 }
 
+/** Retire des demandes de la liste en cache, le temps que le serveur confirme. */
+async function removeOptimistic(qc: QueryClient, ids: string[]): Promise<RequestsSnapshot> {
+  await qc.cancelQueries({ queryKey: ["seer-my-requests"] });
+  const snapshot = qc.getQueriesData<LocalRequestsResponse>({ queryKey: ["seer-my-requests"] }) as RequestsSnapshot;
+  const idSet = new Set(ids);
+  qc.setQueriesData<LocalRequestsResponse>({ queryKey: ["seer-my-requests"] }, (old) => {
+    if (!old?.results) return old;
+    const results = old.results.filter((r) => !idSet.has(r.id));
+    const gone = old.results.filter((r) => idSet.has(r.id));
+    if (gone.length === 0 || !old.stats) return { ...old, results };
+    const byStatus = { ...old.stats.byStatus };
+    for (const r of gone) byStatus[r.status] = Math.max(0, (byStatus[r.status] ?? 1) - 1);
+    return { ...old, results, total: Math.max(0, old.total - gone.length), stats: { ...old.stats, byStatus, total: Math.max(0, old.stats.total - gone.length) } };
+  });
+  return snapshot;
+}
+
 function rollbackOptimistic(qc: QueryClient, snapshot?: RequestsSnapshot): void {
   for (const [key, data] of snapshot ?? []) {
     qc.setQueryData(key as unknown[], data);
@@ -106,6 +123,17 @@ export function useDeleteRequest() {
     onMutate: async (args) => ({
       snapshot: args.full === false ? undefined : await applyOptimisticStatus(qc, [args.id], "deleting"),
     }),
+    onError: (_err, _vars, ctx) => rollbackOptimistic(qc, ctx?.snapshot),
+    onSettled: () => invalidateRequests(qc),
+  });
+}
+
+/** Retirer une demande « À vérifier » : elle quitte la liste aussitôt. */
+export function useForgetRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => forgetRequest(id),
+    onMutate: async (id) => ({ snapshot: await removeOptimistic(qc, [id]) }),
     onError: (_err, _vars, ctx) => rollbackOptimistic(qc, ctx?.snapshot),
     onSettled: () => invalidateRequests(qc),
   });

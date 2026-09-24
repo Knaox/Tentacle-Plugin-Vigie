@@ -543,6 +543,12 @@ async function clearPendingCleanup(prisma, cleanupId) {
     cleanupId
   );
 }
+async function cancelCleanupsForRequest(prisma, requestId) {
+  return prisma.$executeRawUnsafe(
+    `DELETE FROM seer_cleanup_queue WHERE request_id = ? AND status <> 'completed'`,
+    requestId
+  );
+}
 
 // server/db-claims.ts
 async function upsertContentClaim(prisma, tmdbId, jellyfinUserId, mediaType, title, ttlSeconds) {
@@ -3726,6 +3732,60 @@ async function insertAvailablePin(prisma, config, seerrReq, owner) {
   );
 }
 
+// server/routes-requests-forget.ts
+var FORGETTABLE = /* @__PURE__ */ new Set(["failed", "delete_failed"]);
+async function deleteSeerrRequest(config, seerrRequestId) {
+  await fetch(`${config.seerrUrl}/api/v1/request/${seerrRequestId}`, {
+    method: "DELETE",
+    headers: { "X-Api-Key": config.seerrApiKey },
+    signal: AbortSignal.timeout(1e4)
+  }).catch(() => {
+  });
+}
+function registerRequestForgetRoute(app, prisma, getWorkerConfig2) {
+  app.post("/requests/:id/forget", async (request, reply) => {
+    const { id } = request.params;
+    const user = getUser(request);
+    const parsed = parseRequestId(id);
+    const config = await getWorkerConfig2();
+    if (parsed.kind === "local") {
+      const req = await getRequestById(prisma, parsed.id);
+      if (!req) return reply.status(404).send({ message: "Request not found" });
+      if (req.jellyfinUserId !== user.userId && !user.isAdmin) {
+        return reply.status(403).send({ message: "Not your request" });
+      }
+      if (!FORGETTABLE.has(req.status)) {
+        return reply.status(409).send({ errorKey: "seer:errNotForgettable", message: "Only requests to check can be removed alone" });
+      }
+      if (config && req.seerrRequestId) await deleteSeerrRequest(config, req.seerrRequestId);
+      await cancelCleanupsForRequest(prisma, parsed.id);
+      await deleteRequestById(prisma, parsed.id);
+      invalidateRequestCaches(req.jellyfinUserId);
+      if (req.jellyfinUserId !== user.userId) invalidateRequestCaches(user.userId);
+      return { success: true };
+    }
+    if (!config) return reply.status(503).send({ message: "Seerr not configured" });
+    const seerrReq = await fetchSeerrRequestById(config, parsed.seerrId);
+    if (!seerrReq) {
+      invalidateRequestCaches(user.userId);
+      return { success: true };
+    }
+    if (!user.isAdmin) {
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT jellyseerr_user_id FROM seer_user_settings WHERE jellyfin_user_id = ? LIMIT 1`,
+        user.userId
+      );
+      const myId = rows[0]?.jellyseerr_user_id ?? null;
+      if (!myId || seerrReq.requestedBy?.id !== myId) {
+        return reply.status(403).send({ message: "Not your request" });
+      }
+    }
+    await deleteSeerrRequest(config, seerrReq.id);
+    invalidateRequestCaches(user.userId);
+    return { success: true };
+  });
+}
+
 // server/search/pending.ts
 var REFRESH_MS = 1e4;
 var keys = /* @__PURE__ */ new Set();
@@ -3755,6 +3815,7 @@ function markLocallyPending(mediaType, tmdbId) {
 function registerRequestRoutes(app, prisma, getWorkerConfig2) {
   registerRequestReadRoutes(app, prisma, getWorkerConfig2);
   registerRequestActionRoutes(app, prisma, getWorkerConfig2);
+  registerRequestForgetRoute(app, prisma, getWorkerConfig2);
   app.post("/requests", async (request, reply) => {
     const user = getUser(request);
     const body = request.body;

@@ -144,6 +144,8 @@ export default {
   action_mark: "Mark as…",
   action_retryDelete: "Retry removal",
   action_retryDeleteForce: "Force removal",
+  action_forget: "Remove the request only",
+  action_forgetHint: "Nothing is touched in Jellyfin, Sonarr or Radarr",
   action_delete: "Delete request",
 
   calendarScope: "Which releases",
