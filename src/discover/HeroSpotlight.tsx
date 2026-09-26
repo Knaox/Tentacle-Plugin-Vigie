@@ -8,12 +8,17 @@
  * aux flèches — JAMAIS tout seuls : une vitrine qui tourne en permanence est
  * une animation infinie (règle GPU du projet), et un titre qui change sous le
  * pouce au moment d'appuyer fait ouvrir le mauvais.
+ *
+ * Au téléphone, c'est une CARTE, comme partout ailleurs — elle débordait de
+ * bord à bord — et elle montre l'AFFICHE du titre : une image large recadrée
+ * en 4:3 sur un petit écran ne laissait voir qu'un morceau de décor. C'est
+ * aussi ce que fait la carte à la une de l'accueil mobile de Tentacle.
  */
 
 import { memo, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SeerrSearchResult } from "../api/types";
-import { backdropUrl, mediaTitle, mediaYear } from "../utils/media-helpers";
+import { backdropUrl, mediaTitle, mediaYear, posterUrl } from "../utils/media-helpers";
 import { mediaStateOf } from "../utils/media-status";
 import { navigateToMedia } from "../utils/navigate-media";
 import { CTA_PRIMARY, CTA_SECONDARY, CTA_SIZE_LG } from "../styles/cta";
@@ -21,6 +26,12 @@ import { useHub } from "../hub/HubContext";
 import { ChevronLeft, ChevronRight, PlayIcon, PlusIcon, StarIcon } from "../components/ui/icons";
 
 const SHOWN = 6;
+/* Au-delà, l'image large ; en deçà, l'affiche (même seuil que `sm`). */
+const WIDE_QUERY = "(min-width: 640px)";
+
+function isWide(): boolean {
+  return typeof window !== "undefined" && window.matchMedia(WIDE_QUERY).matches;
+}
 
 export const HeroSpotlight = memo(function HeroSpotlight({ items }: { items: SeerrSearchResult[] }) {
   const { t } = useTranslation("seer");
@@ -31,7 +42,9 @@ export const HeroSpotlight = memo(function HeroSpotlight({ items }: { items: See
   if (slides.length === 0) return null;
 
   const current = slides[index % slides.length];
-  const nextBackdrop = backdropUrl(slides[(index + 1) % slides.length].backdropPath, "w1280");
+  const next = slides[(index + 1) % slides.length];
+  // L'image suivante qu'on verra vraiment : l'affiche au téléphone, le décor au-delà.
+  const nextImage = isWide() || !next.posterPath ? backdropUrl(next.backdropPath, "w1280") : posterUrl(next.posterPath, "w780");
   const go = (delta: number) => setIndex((i) => (i + delta + slides.length) % slides.length);
   const state = mediaStateOf(current.mediaInfo?.status);
   const meta = [
@@ -43,7 +56,7 @@ export const HeroSpotlight = memo(function HeroSpotlight({ items }: { items: See
     <section
       aria-roledescription="carousel"
       aria-label={t("seer:heroLabel")}
-      className="group/hero relative -mx-4 overflow-hidden bg-tentacle-surface-1 md:mx-0 md:rounded-3xl md:ring-1 md:ring-tentacle-border-subtle"
+      className="group/hero relative overflow-hidden rounded-3xl bg-tentacle-surface-1 ring-1 ring-tentacle-border-subtle"
       onTouchStart={(e) => { touchX.current = e.touches[0]?.clientX ?? null; }}
       onTouchEnd={(e) => {
         const start = touchX.current;
@@ -52,16 +65,18 @@ export const HeroSpotlight = memo(function HeroSpotlight({ items }: { items: See
         if (start !== null && end !== undefined && Math.abs(end - start) > 50) go(end < start ? 1 : -1);
       }}
     >
-      <div className="relative aspect-[4/3] max-h-[60vh] w-full sm:aspect-[16/9] md:aspect-[2/1] lg:aspect-[21/9] lg:max-h-[480px]">
-        <img
-          key={current.id}
-          src={backdropUrl(current.backdropPath, "w1280")}
-          alt=""
-          aria-hidden
-          className="absolute inset-0 h-full w-full object-cover"
-          style={{ animation: "viewCrossfade 400ms ease both" }}
-        />
-        <Preload src={nextBackdrop} />
+      <div className="relative aspect-[2/3] max-h-[64vh] w-full sm:aspect-[16/9] sm:max-h-[60vh] md:aspect-[2/1] lg:aspect-[21/9] lg:max-h-[480px]">
+        <picture key={current.id}>
+          <source media={WIDE_QUERY} srcSet={backdropUrl(current.backdropPath, "w1280")} />
+          <img
+            src={current.posterPath ? posterUrl(current.posterPath, "w780") : backdropUrl(current.backdropPath, "w1280")}
+            alt=""
+            aria-hidden
+            className="absolute inset-0 h-full w-full object-cover object-top sm:object-center"
+            style={{ animation: "viewCrossfade 400ms ease both" }}
+          />
+        </picture>
+        <Preload src={nextImage} />
         <div aria-hidden className="absolute inset-0" style={{ background: "linear-gradient(to top, var(--surface-0) 0%, rgba(var(--scrim-media-rgb),0.55) 45%, rgba(var(--scrim-media-rgb),0.1) 80%)" }} />
         <div aria-hidden className="absolute inset-0 hidden md:block" style={{ background: "linear-gradient(90deg, rgba(var(--scrim-media-rgb),0.7) 0%, transparent 60%)" }} />
 
@@ -96,7 +111,8 @@ export const HeroSpotlight = memo(function HeroSpotlight({ items }: { items: See
         {slides.length > 1 && (
           <>
             {/* Des points fins, mais des cibles de 24 px : on les vise au doigt. */}
-            <div className="absolute bottom-4 right-3 flex sm:bottom-6 sm:right-7">
+            {/* En haut au téléphone : en bas, ils butaient sur les boutons de la carte. */}
+            <div className="absolute right-3 top-3 flex sm:bottom-6 sm:right-7 sm:top-auto">
               {slides.map((s, i) => (
                 <button
                   key={s.id}
