@@ -1,5 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getUsersOverview, updateAdminUser, syncAdminUsers, syncRequestsOwnership } from "../api/client-admin";
+import {
+  getUsersOverview, updateAdminUser, syncAdminUsers, syncRequestsOwnership,
+  linkAdminUser, forgetAdminUser, deleteSeerrUser,
+} from "../api/client-admin";
 import type { UpdateAdminUserBody, UsersOverview } from "../api/types";
 
 export function useAdminUsers() {
@@ -10,8 +13,23 @@ export function useAdminUsers() {
     gcTime: 30 * 60_000,
     refetchOnWindowFocus: false,
     placeholderData: (prev) => prev,
+    // Une synchro tourne (celle du worker, ou lancée d'un autre onglet) : on
+    // suit son avancement plutôt que d'afficher un état figé.
+    refetchInterval: (query) => (query.state.data?.sync.running ? 2_000 : false),
   });
 }
+
+function useAdminUsersMutation<TArg, TResult>(fn: (arg: TArg) => Promise<TResult>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["seer-admin-users"] }); },
+  });
+}
+
+export const useLinkAdminUser = () => useAdminUsersMutation(linkAdminUser);
+export const useForgetAdminUser = () => useAdminUsersMutation(forgetAdminUser);
+export const useDeleteSeerrUser = () => useAdminUsersMutation(deleteSeerrUser);
 
 export function useUpdateAdminUser() {
   const qc = useQueryClient();

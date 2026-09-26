@@ -15,6 +15,28 @@ export function getSeerBackendUrl(): string {
   return _backendBase;
 }
 
+/**
+ * Base ABSOLUE d'une ressource que le navigateur charge lui-même (une image),
+ * sans passer par le pont `fetch` de l'hôte.
+ *
+ * Sur le web, l'hôte est à la même origine : sa base est vide, et il sert
+ * l'iframe en `srcdoc` sandboxé — un document SANS base, où « /api/… » ne se
+ * résout pas (la photo des comptes ne s'affichait pas). L'origine de la page
+ * hôte est alors la première de `ancestorOrigins` (Chromium, WebKit) ; faute
+ * de mieux, le référent. Vide si rien ne la donne : l'appelant se replie.
+ */
+export function getAssetBaseUrl(): string {
+  if (_backendBase) return _backendBase;
+  const ancestors = (window.location as Location & { ancestorOrigins?: DOMStringList }).ancestorOrigins;
+  const parent = ancestors && ancestors.length > 0 ? ancestors[0] : "";
+  if (parent && parent !== "null") return parent;
+  try {
+    return document.referrer ? new URL(document.referrer).origin : "";
+  } catch {
+    return "";
+  }
+}
+
 export function setConfigured(value: boolean) {
   _isConfigured = value;
 }

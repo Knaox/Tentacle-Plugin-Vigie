@@ -81,3 +81,8 @@ export const LayersIcon = (p: IconProps) => <Svg {...p}><path d="M12 4l8.5 4.5L1
 export const SelectIcon = (p: IconProps) => <Svg {...p}><rect x="4" y="4" width="16" height="16" rx="4.5" /><path d="M8.5 12.3l2.4 2.4 4.6-5" /></Svg>;
 export const ArrowUpIcon = (p: IconProps) => <Svg {...p}><path d="M12 19V5.5M5.5 12L12 5.5 18.5 12" /></Svg>;
 export const SortIcon = (p: IconProps) => <Svg {...p}><path d="M7 5v14M4 16l3 3 3-3M17 19V5M14 8l3-3 3 3" /></Svg>;
+/* Administration : réglages, comptes, liens. */
+export const MinusIcon = (p: IconProps) => <Svg {...p}><path d="M5 12h14" /></Svg>;
+export const LinkIcon = (p: IconProps) => <Svg {...p}><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1" /></Svg>;
+export const SlidersIcon = (p: IconProps) => <Svg {...p}><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></Svg>;
+export const UsersIcon = (p: IconProps) => <Svg {...p}><circle cx="9" cy="8.5" r="3.3" /><path d="M3 19.5c.9-3 3.2-4.8 6-4.8s5.1 1.8 6 4.8" /><path d="M15.5 5.4a3.3 3.3 0 010 6.2M18 14.9c1.4.7 2.4 2.3 3 4.6" /></Svg>;

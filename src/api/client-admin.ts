@@ -18,7 +18,7 @@ export async function getUsersOverview(): Promise<UsersOverview> {
 export async function updateAdminUser(
   jellyfinUserId: string,
   patch: UpdateAdminUserBody,
-): Promise<AdminUserRow> {
+): Promise<Partial<AdminUserRow>> {
   return backendFetch(`/admin/users/${encodeURIComponent(jellyfinUserId)}`, {
     method: "PUT",
     body: JSON.stringify(patch),
@@ -30,6 +30,21 @@ export async function syncAdminUsers(importMissing?: boolean | string[]): Promis
     method: "POST",
     body: JSON.stringify({ importMissing: importMissing ?? false }),
   });
+}
+
+/** Relie le compte à Jellyseerr : retrouvé, rattaché, ou créé. */
+export async function linkAdminUser(jellyfinUserId: string): Promise<{ seerrId: number }> {
+  return backendFetch(`/admin/users/${encodeURIComponent(jellyfinUserId)}/link`, { method: "POST" });
+}
+
+/** Oublie un compte supprimé de Jellyfin : ses permissions partent, son historique reste. */
+export async function forgetAdminUser(jellyfinUserId: string): Promise<{ ok: true }> {
+  return backendFetch(`/admin/users/${encodeURIComponent(jellyfinUserId)}`, { method: "DELETE" });
+}
+
+/** Supprime un compte Jellyseerr orphelin (et, dans Jellyseerr, ses demandes). */
+export async function deleteSeerrUser(seerrId: number): Promise<{ ok: true }> {
+  return backendFetch(`/admin/seerr-users/${seerrId}`, { method: "DELETE" });
 }
 
 export interface SyncRequestsOwnershipResult {

@@ -13,6 +13,7 @@ import catalog from "./fr/catalog";
 import requests from "./fr/requests";
 import releases from "./fr/releases";
 import admin from "./fr/admin";
+import adminPage from "./fr/admin-page";
 import hub from "./fr/hub";
 import states from "./fr/states";
 
@@ -22,6 +23,7 @@ export default {
   ...requests,
   ...releases,
   ...admin,
+  ...adminPage,
   ...hub,
   ...states,
 } as const;

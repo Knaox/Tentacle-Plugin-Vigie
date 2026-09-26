@@ -61,6 +61,8 @@ export interface UserSyncReport {
   created: string[];
   renamed: Array<{ from: string; to: string }>;
   linked: string[];
+  /** Repris par leur nom : l'ancien compte Jellyseerr d'un compte Jellyfin recréé. */
+  adopted: string[];
   unlinked: string[];
   removed: string[];
   imported: string[];
