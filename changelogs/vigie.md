@@ -19,6 +19,24 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.17.0]
+### FR
+- **Les arrivées s'annoncent dès que Sonarr ou Radarr rangent le fichier.** « Est sorti sur Tentacle TV » n'attend plus Jellyseerr (le relais de sa file, son scan de Jellyfin, puis la synchro de Vigie) : un film rangé, une saison complète s'annoncent à la minute, une entrée dans la file dit « en route ». Chaque saison demandée s'annonce à son arrivée. Jellyseerr garde la parole sur la validation, les refus et les suppressions
+- **Le nom de l'onglet se choisit**, en français et en anglais, avec l'aperçu de l'onglet et des suggestions (« Demander », « Ajouter »…). Aucune mise à jour de Tentacle n'est nécessaire : les applications le prennent à leur prochain rafraîchissement ; sur téléphone, l'onglet porte le nom français
+- **Une synchro des comptes qui suit vraiment Jellyfin et Jellyseerr** : comptes ajoutés, renommés, désactivés, supprimés d'un côté ou de l'autre. Un lien vers un compte Jellyseerr supprimé est retiré — une demande ne part plus au nom d'un compte disparu —, et un compte recréé dans Jellyfin sous le même nom reprend son ancien compte Jellyseerr. Elle passe seule toutes les demi-heures ; ce qui détruit (supprimer un compte Jellyseerr, oublier un compte qui a encore des demandes) reste une décision, proposée dans « À vérifier »
+- **Une page d'administration refaite** : des réglages en liste qui s'enregistrent d'eux-mêmes ; la connexion testée avant d'être enregistrée, clé comprise, avec l'état de Sonarr, de Radarr et de la connexion de Jellyseerr à Jellyfin ; les comptes avec leur photo, leur lien Jellyseerr et une fiche chacun ; les profils de qualité en cartes, chacun édité dans sa fenêtre. Les confirmations et les messages s'affichent enfin
+- **La synchro retrouve les comptes Jellyfin** sur les serveurs configurés par l'assistant de Tentacle : elle cherchait l'adresse et la clé de Jellyfin dans l'environnement, où Tentacle ne les met plus
+- **« Approuver automatiquement » et la limite par défaut s'appliquent enfin** : l'une valide dès l'envoi la demande d'un compte sans droit d'approbation dans Jellyseerr, l'autre vaut pour les comptes sans limite propre (0 : aucune). Les deux étaient enregistrées sans effet
+- **Au téléphone, la vitrine de Découvrir est une carte** qui montre l'affiche du titre, au lieu d'une image large recadrée de bord à bord
+### EN
+- **Arrivals are announced as soon as Sonarr or Radarr file them away.** "Now on Tentacle TV" no longer waits for Jellyseerr (its queue relay, its Jellyfin scan, then Vigie's sync): a filed movie or a complete season is announced within the minute, and a queue entry reads "on its way". Each requested season is announced when it arrives. Jellyseerr still has the final word on approvals, declines and deletions
+- **The tab name is yours to choose**, in French and English, with a preview of the tab and suggestions ("Request", "Add"…). No Tentacle update needed: apps pick it up on their next refresh; on phones, the tab uses the French name
+- **An account sync that truly follows Jellyfin and Jellyseerr**: accounts added, renamed, disabled, removed on either side. A link to a deleted Jellyseerr account is cleared — requests no longer go out under a vanished account — and an account recreated in Jellyfin under the same name takes back its old Jellyseerr account. It runs on its own every half hour; anything destructive (deleting a Jellyseerr account, forgetting an account that still has requests) stays a decision, offered under "To review"
+- **A redesigned admin page**: settings as a list that save on their own; the connection tested before it is saved, key included, with the status of Sonarr, Radarr and Jellyseerr's link to Jellyfin; accounts with their photo, their Jellyseerr link and a sheet each; quality profiles as cards, each edited in its own window. Confirmations and messages finally show up
+- **The sync finds Jellyfin accounts again** on servers set up with Tentacle's wizard: it looked for Jellyfin's address and key in the environment, where Tentacle no longer puts them
+- **"Approve automatically" and the default limit finally apply**: the first approves, as soon as it is sent, a request from an account without approval rights in Jellyseerr; the second covers accounts without their own limit (0: none). Both were saved without any effect
+- **On phones, the Discover showcase is a card** showing the title's poster, instead of a wide image cropped edge to edge
+
 ## [1.16.0]
 ### FR
 - **Au téléphone, Vigie se parcourt au pouce.** L'en-tête se fait compact et le contenu commence bien plus haut ; les onglets restent accrochés en haut de l'écran, et une loupe y apparaît dès que le champ de recherche a défilé. Toucher l'onglet ouvert remonte en haut de sa page
