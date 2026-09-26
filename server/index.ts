@@ -4,10 +4,11 @@
 /* ------------------------------------------------------------------ */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { resolve, dirname } from "path";
-import { existsSync, readFileSync, writeFileSync, statSync } from "fs";
+import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { ensureTables } from "./db";
+import { readPluginConfig, writePluginConfig } from "./plugin-config";
+import { applyNavLabel, cleanNavLabel } from "./nav-label";
 import { startWorker, stopWorker } from "./worker";
 import { registerRequestRoutes } from "./routes-requests";
 import { registerBulkRoutes } from "./routes-bulk";
@@ -29,31 +30,8 @@ interface PluginBackendContext {
   requireAdmin: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
 }
 
-/*
- * `installed.json` était relu et re-parsé À CHAQUE requête HTTP (et à chaque
- * tick du worker) : ~300 µs de lecture synchrone sur le thread d'événements,
- * sur le chemin de /requests, /seerr/*, /proxy et /config. On garde le contenu
- * en mémoire, invalidé par la date de modification du fichier — le PUT /config
- * réécrit le fichier, donc le mtime change et la relecture se fait toute seule.
- */
-let cfgCache: { mtimeMs: number; value: Record<string, unknown> } | null = null;
-
 function getPluginConfig(ctx: PluginBackendContext): Record<string, unknown> {
-  try {
-    const installedPath = resolve(__pluginDir, "..", "installed.json");
-    if (!existsSync(installedPath)) return {};
-    const mtimeMs = statSync(installedPath).mtimeMs;
-    if (cfgCache && cfgCache.mtimeMs === mtimeMs) return cfgCache.value;
-
-    const installed = JSON.parse(readFileSync(installedPath, "utf-8"));
-    const plugin = installed.find(
-      (p: { pluginId?: string; id?: string }) =>
-        p.pluginId === ctx.pluginId || p.id === ctx.pluginId,
-    );
-    const value = plugin?.config || {};
-    cfgCache = { mtimeMs, value };
-    return value;
-  } catch { return {}; }
+  return readPluginConfig(__pluginDir, ctx.pluginId);
 }
 
 async function getWorkerConfig(ctx: PluginBackendContext) {
@@ -76,6 +54,10 @@ export default async function seerBackend(
   await ensureTables(prisma);
   console.log("[SeerBackend] Database tables ready");
 
+  // Une mise à jour vient peut-être de remplacer le manifeste : le nom choisi
+  // pour l'onglet y est réécrit à chaque démarrage (cf. nav-label.ts).
+  applyNavLabel(__pluginDir, ctx.pluginId, getPluginConfig(ctx).navLabel);
+
   startWorker(prisma, () => getWorkerConfig(ctx));
   app.addHook("onClose", async () => { stopWorker(); });
   app.addHook("preHandler", ctx.requireAuth);
@@ -89,23 +71,18 @@ export default async function seerBackend(
     if (user?.isAdmin) {
       return { ...config, isAdmin: true };
     }
-    // Non-admins : infos non-sensibles. `isAdmin` dit au client quoi proposer.
-    return { url: config.url || "", enabled: !!config.enabled, hasApiKey: !!config.apiKey, isAdmin: false };
+    // Non-admins : infos non-sensibles. `isAdmin` dit au client quoi proposer ;
+    // `navLabel`, le nom que l'administrateur a donné à l'onglet.
+    return {
+      url: config.url || "", enabled: !!config.enabled, hasApiKey: !!config.apiKey, isAdmin: false,
+      navLabel: cleanNavLabel(config.navLabel),
+    };
   });
 
-  app.put("/config", { preHandler: ctx.requireAdmin }, async (request) => {
-    // Sauvegarder la config dans installed.json via le host
-    const installedPath = resolve(__pluginDir, "..", "installed.json");
-    if (!existsSync(installedPath)) return { error: "installed.json not found" };
-    const installed = JSON.parse(readFileSync(installedPath, "utf-8"));
-    const plugin = installed.find(
-      (p: { pluginId?: string; id?: string }) =>
-        p.pluginId === ctx.pluginId || p.id === ctx.pluginId,
-    );
-    if (!plugin) return { error: "Plugin not found" };
-    plugin.config = request.body;
-    writeFileSync(installedPath, JSON.stringify(installed, null, 2));
-    return plugin.config;
+  app.put("/config", { preHandler: ctx.requireAdmin }, async (request, reply) => {
+    const saved = writePluginConfig(__pluginDir, ctx.pluginId, request.body);
+    if (!saved) return reply.status(404).send({ error: "Plugin not found in installed.json" });
+    return saved;
   });
 
   /* ── Proxys Jellyseerr (routes-proxy.ts) ───────────────────────── */
