@@ -14,7 +14,14 @@ export function getUser(request: FastifyRequest): JellyfinUser {
   return (request as any).user;
 }
 
-export type WorkerCfg = { seerrUrl: string; seerrApiKey: string };
+export type WorkerCfg = {
+  seerrUrl: string;
+  seerrApiKey: string;
+  /** Plafond quotidien par défaut (page d'administration) ; `null` : aucun. */
+  defaultDailyLimit?: number | null;
+  /** Valider d'office les demandes restées « en attente » dans Jellyseerr. */
+  autoApprove?: boolean;
+};
 
 export interface SeerrRequestRow {
   id: number;

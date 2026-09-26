@@ -20,6 +20,7 @@ import { registerRequestReadRoutes } from "./routes-requests-read";
 import { registerRequestActionRoutes } from "./routes-requests-actions";
 import { registerRequestForgetRoute } from "./routes-requests-forget";
 import { markLocallyPending } from "./search/pending";
+import { effectiveDailyLimit } from "./plugin-config";
 
 export function registerRequestRoutes(
   app: FastifyInstance,
@@ -66,14 +67,16 @@ export function registerRequestRoutes(
       return reply.status(403).send({ errorKey: "seer:errTvDenied", message: "TV denied" });
     }
 
-    // 5) Quota quotidien
-    if (settings.dailyLimit !== null && settings.dailyLimit !== undefined) {
+    // 5) Quota quotidien — le plafond du compte, sinon celui par défaut (qui
+    //    était enregistré par la page d'administration mais jamais appliqué).
+    const limit = effectiveDailyLimit(settings.dailyLimit, config?.defaultDailyLimit ?? null);
+    if (limit !== null) {
       const todayCount = await countRequestsToday(prisma, user.userId);
-      if (todayCount >= settings.dailyLimit) {
+      if (todayCount >= limit) {
         return reply.status(429).send({
           errorKey: "seer:errQuotaReached",
-          limit: settings.dailyLimit,
-          message: `Daily quota reached (${settings.dailyLimit})`,
+          limit,
+          message: `Daily quota reached (${limit})`,
         });
       }
     }

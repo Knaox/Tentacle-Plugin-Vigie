@@ -19,6 +19,8 @@ export interface WorkerConfig {
   interval: number;
   syncEvery: number;
   profiles?: SeerProfile[];
+  autoApprove?: boolean;
+  defaultDailyLimit?: number | null;
 }
 
 /* ── Sync statuses with Seerr ──────────────────────────────────────── */

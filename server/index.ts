@@ -7,7 +7,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { ensureTables } from "./db";
-import { readPluginConfig, writePluginConfig } from "./plugin-config";
+import { readPluginConfig, writePluginConfig, defaultDailyLimit } from "./plugin-config";
 import { applyNavLabel, cleanNavLabel } from "./nav-label";
 import { startWorker, stopWorker } from "./worker";
 import { registerRequestRoutes } from "./routes-requests";
@@ -40,7 +40,11 @@ async function getWorkerConfig(ctx: PluginBackendContext) {
   const apiKey = config.apiKey as string;
   if (!url || !apiKey) return null;
   const profiles = (config.profiles as any[] | undefined) ?? [];
-  return { seerrUrl: url.replace(/\/$/, ""), seerrApiKey: apiKey, interval: 60_000, syncEvery: 2, profiles };
+  return {
+    seerrUrl: url.replace(/\/$/, ""), seerrApiKey: apiKey, interval: 60_000, syncEvery: 2, profiles,
+    autoApprove: config.autoApprove === true,
+    defaultDailyLimit: defaultDailyLimit(config),
+  };
 }
 
 /* ── Main plugin registration ────────────────────────────────────── */
