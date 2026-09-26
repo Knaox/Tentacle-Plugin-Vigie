@@ -16,6 +16,7 @@ import { registerProfileRoutes } from "./routes-profiles";
 import { registerUsersRoutes } from "./routes-users";
 import { registerUserSyncRoutes } from "./routes-user-sync";
 import { registerOwnershipRoutes } from "./routes-ownership";
+import { registerConnectionRoutes } from "./routes-connection";
 import { registerAvailabilityRoutes } from "./routes-availability";
 import { registerProgressRoutes } from "./routes-progress";
 import { registerCalendarRoutes } from "./routes-calendar";
@@ -109,6 +110,7 @@ export default async function seerBackend(
   registerUsersRoutes(app, prisma, gwc, ctx.requireAdmin, () => defaultDailyLimit(getPluginConfig(ctx)));
   registerUserSyncRoutes(app, prisma, gwc, ctx.requireAdmin);
   registerOwnershipRoutes(app, prisma, gwc, ctx.requireAdmin);
+  registerConnectionRoutes(app, ctx.requireAdmin);
   registerAvailabilityRoutes(app, prisma, gwc);
   registerProgressRoutes(app, prisma, gwc, ctx.requireAdmin);
   registerCalendarRoutes(app, prisma, gwc);
