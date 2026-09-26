@@ -63,11 +63,6 @@ export interface SeerUserSettings {
   updatedAt: string;
 }
 
-export interface AdminUserRow extends SeerUserSettings {
-  requestsToday: number;
-  requestsTotal: number;
-}
-
 /**
  * Avancement réel d'un téléchargement, dérivé de `media.downloadStatus` que
  * Jellyseerr renvoie DÉJÀ dans la liste des demandes (alimenté par Sonarr /
