@@ -11,7 +11,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import { getUserSettings } from "./db";
-import { deleteJellyseerrUser, resolveJellyseerrUserId } from "./jellyseerr-user";
+import { deleteJellyseerrUser, resolveJellyseerrUserId, SeerrAccountError } from "./jellyseerr-user";
 import { fetchJellyfinAccounts, normalizeJellyfinId } from "./jellyfin-users";
 import { runUserSync } from "./user-sync";
 import { invalidateRequestCaches } from "./cache";
@@ -60,7 +60,9 @@ export function registerUserSyncRoutes(
       invalidateRequestCaches(jellyfinUserId);
       return { seerrId };
     } catch (err) {
-      return reply.status(502).send({ message: errorText(err) });
+      // Une cause connue a sa phrase traduite côté page (clé i18n), et le détail brut reste dans `message`.
+      const errorKey = err instanceof SeerrAccountError ? `seer:admErr_${err.code.replace(/-/g, "_")}` : undefined;
+      return reply.status(502).send({ message: errorText(err), errorKey });
     }
   });
 

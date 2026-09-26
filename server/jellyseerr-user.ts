@@ -10,6 +10,17 @@ interface SeerConfig {
   seerrApiKey: string;
 }
 
+/**
+ * Jellyseerr refuse de créer le compte : par import (sa connexion à Jellyfin
+ * ne liste plus les comptes) ET en compte local (il exige alors ses
+ * notifications e-mail). Le code dit à la page quoi conseiller.
+ */
+export class SeerrAccountError extends Error {
+  constructor(message: string, readonly code: "import-and-local-refused" | "local-needs-email") {
+    super(message);
+  }
+}
+
 export interface JellyseerrUser {
   id: number;
   email?: string;
@@ -144,10 +155,11 @@ export async function resolveJellyseerrUserId(
     return local.id;
   } catch (err) {
     const why = err instanceof Error ? err.message : String(err);
-    throw new Error(
+    throw new SeerrAccountError(
       `Jellyseerr refuse d'importer ce compte depuis Jellyfin${importError ? ` (${importError})` : ""}, `
       + `et n'a pas voulu créer de compte local (${why}). Vérifiez la connexion de Jellyseerr à Jellyfin `
       + `(Jellyseerr → Paramètres → Jellyfin).`,
+      /Email notifications must be enabled/i.test(why) ? "local-needs-email" : "import-and-local-refused",
     );
   }
 }

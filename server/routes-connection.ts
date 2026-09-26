@@ -24,6 +24,11 @@ export interface ConnectionTest {
   error: string | null;
   version: string | null;
   arr: { sonarr: ArrProbe; radarr: ArrProbe } | null;
+  /**
+   * Jellyseerr sait-il lister les comptes Jellyfin ? Sans cela, aucun compte
+   * ne s'importe (constaté le 26 sept. 2026 : erreur 500 au message vide).
+   */
+  jellyfin: "ok" | "unreachable" | null;
 }
 
 const TIMEOUT_MS = 8_000;
@@ -66,18 +71,30 @@ async function probeArr(seerrUrl: string, apiKey: string, type: "sonarr" | "rada
   }
 }
 
+async function probeJellyfin(seerrUrl: string, apiKey: string): Promise<"ok" | "unreachable"> {
+  try {
+    const res = await fetch(`${seerrUrl}/api/v1/settings/jellyfin/users`, {
+      headers: { "X-Api-Key": apiKey },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    return res.ok ? "ok" : "unreachable";
+  } catch {
+    return "unreachable";
+  }
+}
+
 export async function testSeerrConnection(rawUrl: unknown, rawKey: unknown): Promise<ConnectionTest> {
   const url = cleanUrl(rawUrl);
   const apiKey = typeof rawKey === "string" ? rawKey.trim() : "";
-  if (!url) return { ok: false, error: "bad-url", version: null, arr: null };
+  if (!url) return { ok: false, error: "bad-url", version: null, arr: null, jellyfin: null };
 
   let version: string | null = null;
   try {
     const res = await fetch(`${url}/api/v1/status`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
-    if (!res.ok) return { ok: false, error: "unreachable", version: null, arr: null };
+    if (!res.ok) return { ok: false, error: "unreachable", version: null, arr: null, jellyfin: null };
     version = ((await res.json()) as { version?: string }).version ?? null;
   } catch {
-    return { ok: false, error: "unreachable", version: null, arr: null };
+    return { ok: false, error: "unreachable", version: null, arr: null, jellyfin: null };
   }
 
   // `/status` répond sans clé : c'est une page réservée qui dit si elle est bonne.
@@ -86,14 +103,16 @@ export async function testSeerrConnection(rawUrl: unknown, rawKey: unknown): Pro
       headers: { "X-Api-Key": apiKey },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (res.status === 401 || res.status === 403) return { ok: false, error: "invalid-key", version, arr: null };
-    if (!res.ok) return { ok: false, error: "unreachable", version, arr: null };
+    if (res.status === 401 || res.status === 403) return { ok: false, error: "invalid-key", version, arr: null, jellyfin: null };
+    if (!res.ok) return { ok: false, error: "unreachable", version, arr: null, jellyfin: null };
   } catch {
-    return { ok: false, error: "unreachable", version, arr: null };
+    return { ok: false, error: "unreachable", version, arr: null, jellyfin: null };
   }
 
-  const [sonarr, radarr] = await Promise.all([probeArr(url, apiKey, "sonarr"), probeArr(url, apiKey, "radarr")]);
-  return { ok: true, error: null, version, arr: { sonarr, radarr } };
+  const [sonarr, radarr, jellyfin] = await Promise.all([
+    probeArr(url, apiKey, "sonarr"), probeArr(url, apiKey, "radarr"), probeJellyfin(url, apiKey),
+  ]);
+  return { ok: true, error: null, version, arr: { sonarr, radarr }, jellyfin };
 }
 
 export function registerConnectionRoutes(
