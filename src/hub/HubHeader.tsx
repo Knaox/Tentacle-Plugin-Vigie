@@ -20,6 +20,7 @@ import { memo, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { searchShortcutLabel, showsKeyboardHints } from "../utils/host-env";
 import { useSearchHotkey } from "../hooks/useSearchHotkey";
+import { usePluginLabel } from "../hooks/useIsAdmin";
 import { CalendarIcon, CloseIcon, CompassIcon, LayersIcon, ListIcon, SearchIcon } from "../components/ui/icons";
 import type { HubTab } from "./HubContext";
 
@@ -59,6 +60,8 @@ function useInView(target: React.RefObject<HTMLElement | null>): boolean {
 export const HubHeader = memo(function HubHeader(props: HubHeaderProps) {
   const { query, onQuery, searching, tab, searchActive, onTab, activeRequests, weekReleases } = props;
   const { t } = useTranslation("seer");
+  // Le nom choisi pour l'onglet, que la barre de Tentacle affiche déjà.
+  const title = usePluginLabel() ?? t("seer:hubTitle");
   const input = useRef<HTMLInputElement>(null);
   const field = useRef<HTMLDivElement>(null);
   const fieldInView = useInView(field);
@@ -95,7 +98,7 @@ export const HubHeader = memo(function HubHeader(props: HubHeaderProps) {
         {/* Halo de marque, fixe — rien ne s'anime (règle GPU du projet). */}
         <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-56" style={{ background: "radial-gradient(60% 100% at 20% 0%, rgba(var(--brand-rgb),0.22), transparent 70%)" }} />
         <div className="relative">
-          <h1 className="sr-only text-2xl font-extrabold tracking-tight text-tentacle-text-primary sm:not-sr-only sm:block sm:text-3xl">{t("seer:hubTitle")}</h1>
+          <h1 className="sr-only text-2xl font-extrabold tracking-tight text-tentacle-text-primary sm:not-sr-only sm:block sm:text-3xl">{title}</h1>
           <p className="mt-1 hidden max-w-2xl text-sm text-tentacle-text-tertiary sm:block">{t("seer:hubSubtitle")}</p>
           <div
             ref={field}
@@ -140,7 +143,7 @@ export const HubHeader = memo(function HubHeader(props: HubHeaderProps) {
       </header>
 
       <nav
-        aria-label={t("seer:hubTitle")}
+        aria-label={title}
         className="sticky top-0 z-30 border-b border-tentacle-border-subtle bg-tentacle-surface-0 px-4 md:px-8"
       >
         <div className="flex items-center">

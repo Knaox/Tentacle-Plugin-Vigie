@@ -21,8 +21,12 @@ function hubRoute(routePath: string) {
 const DiscoverHub = hubRoute("/discover");
 const RequestsHub = hubRoute("/requests");
 const ReleasesHub = hubRoute("/releases");
+/* La page d'administration a ses toasts, comme le hub : sans ce fournisseur,
+ * « Synchro terminée » ou « Configuration sauvegardée » ne s'affichaient pas. */
 const SeerConfigPage = lazy(() =>
-  import("./components/admin/SeerConfigPage").then((m) => ({ default: m.SeerConfigPage }))
+  import("./components/admin/SeerConfigPage").then((m) => ({
+    default: () => <ToastProvider><m.SeerConfigPage /></ToastProvider>,
+  }))
 );
 
 /* ---- Icons ---- */

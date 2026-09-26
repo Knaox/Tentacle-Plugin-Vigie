@@ -1,5 +1,30 @@
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { backendFetch } from "../api/seer-client";
+import { DEFAULT_NAV_LABEL, labelFor } from "../utils/nav-labels";
+
+interface PublicConfig {
+  isAdmin?: boolean;
+  /** Les noms donnés à l'onglet par l'administrateur, par langue ; vides : « Vigie ». */
+  navLabels?: { fr?: string; en?: string };
+}
+
+/**
+ * `GET /config`, lu une fois par session : ce qu'un client a le droit d'en
+ * savoir (drapeau administrateur, nom de l'onglet). Invalidé par la page
+ * d'administration quand elle enregistre.
+ */
+function usePublicConfig(): PublicConfig | undefined {
+  const { data } = useQuery({
+    queryKey: ["seer-is-admin"],
+    queryFn: () => backendFetch<PublicConfig>("/config"),
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+  return data;
+}
 
 /**
  * L'utilisateur est-il administrateur du serveur ?
@@ -12,14 +37,18 @@ import { backendFetch } from "../api/seer-client";
  * Le statut ne change pas en cours de session : une seule requête suffit.
  */
 export function useIsAdmin(): boolean {
-  const { data } = useQuery({
-    queryKey: ["seer-is-admin"],
-    queryFn: () => backendFetch<{ isAdmin?: boolean }>("/config"),
-    staleTime: Infinity,
-    gcTime: Infinity,
-    refetchOnWindowFocus: false,
-    retry: 1,
-  });
+  return usePublicConfig()?.isAdmin === true;
+}
 
-  return data?.isAdmin === true;
+/**
+ * Le nom de l'onglet choisi par l'administrateur dans la langue de
+ * l'utilisateur, pour que le titre du hub dise la même chose que la barre de
+ * Tentacle. `null` : le nom d'origine.
+ */
+export function usePluginLabel(): string | null {
+  const { i18n } = useTranslation("seer");
+  const labels = usePublicConfig()?.navLabels;
+  if (!labels) return null;
+  const label = labelFor({ fr: labels.fr ?? "", en: labels.en ?? "" }, i18n.language);
+  return label === DEFAULT_NAV_LABEL ? null : label;
 }

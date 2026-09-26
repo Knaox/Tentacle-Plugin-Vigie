@@ -12,7 +12,6 @@ export default {
   profileTagManual: "Tag ID...",
 
   // Config
-  configTitle: "Vigie Configuration",
   statusConnected: "Connected",
   statusError: "Error",
   statusTesting: "Testing...",
@@ -23,18 +22,12 @@ export default {
   apiKeyLabel: "API Key",
   apiKeyPlaceholder: "Jellyseerr / Overseerr API key",
   toggleEnabled: "Enable Vigie",
-  toggleEnabledDesc: "Enable the media requests plugin",
-  toggleAutoApprove: "Auto-approval",
-  toggleAutoApproveDesc: "Automatically approve requests",
-  userLimitLabel: "Limit per user (0 = unlimited)",
+  toggleEnabledDesc: "Shows the tab in Tentacle and lets people make requests",
+  toggleAutoApprove: "Approve automatically",
+  toggleAutoApproveDesc: "A request from an account without approval rights in Jellyseerr is approved as soon as it is sent",
   saving: "Saving...",
   save: "Save",
-  connectionSuccess: "Connection successful",
-  connectionFailed: "Connection failed",
-  connectionUnreachable: "Unable to reach server",
-  configSaved: "Configuration saved",
   configSaveError: "Error saving configuration",
-  networkError: "Network error",
 
   // Reassign request ownership
   adminReassignButton: "Sync local requests",
