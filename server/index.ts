@@ -7,8 +7,8 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { ensureTables } from "./db";
-import { readPluginConfig, writePluginConfig, defaultDailyLimit } from "./plugin-config";
-import { applyNavLabel, cleanNavLabel } from "./nav-label";
+import { readPluginConfig, writePluginConfig, defaultDailyLimit, navLabelsOf } from "./plugin-config";
+import { applyNavLabel } from "./nav-label";
 import { startWorker, stopWorker } from "./worker";
 import { registerRequestRoutes } from "./routes-requests";
 import { registerBulkRoutes } from "./routes-bulk";
@@ -63,7 +63,7 @@ export default async function seerBackend(
 
   // Une mise à jour vient peut-être de remplacer le manifeste : le nom choisi
   // pour l'onglet y est réécrit à chaque démarrage (cf. nav-label.ts).
-  applyNavLabel(__pluginDir, ctx.pluginId, getPluginConfig(ctx).navLabel);
+  applyNavLabel(__pluginDir, ctx.pluginId, navLabelsOf(getPluginConfig(ctx)));
 
   startWorker(prisma, () => getWorkerConfig(ctx));
   app.addHook("onClose", async () => { stopWorker(); });
@@ -76,13 +76,13 @@ export default async function seerBackend(
     const user = (request as any).user;
     // Admins voient toute la config (pour la page admin)
     if (user?.isAdmin) {
-      return { ...config, isAdmin: true };
+      return { ...config, navLabels: navLabelsOf(config), isAdmin: true };
     }
     // Non-admins : infos non-sensibles. `isAdmin` dit au client quoi proposer ;
-    // `navLabel`, le nom que l'administrateur a donné à l'onglet.
+    // `navLabels`, les noms que l'administrateur a donnés à l'onglet.
     return {
       url: config.url || "", enabled: !!config.enabled, hasApiKey: !!config.apiKey, isAdmin: false,
-      navLabel: cleanNavLabel(config.navLabel),
+      navLabels: navLabelsOf(config),
     };
   });
 

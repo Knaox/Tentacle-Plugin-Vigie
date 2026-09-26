@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "fs";
 import { resolve } from "path";
-import { applyNavLabel, cleanNavLabel } from "./nav-label";
+import { applyNavLabel, cleanNavLabels } from "./nav-label";
 
 export type PluginConfig = Record<string, unknown>;
 
@@ -50,16 +50,23 @@ export function readPluginConfig(pluginDir: string, pluginId: string): PluginCon
 export function normalizeConfig(body: unknown): PluginConfig {
   const input = (body && typeof body === "object" ? body : {}) as PluginConfig;
   const limit = Math.floor(Number(input.userLimit));
+  const { navLabel: legacyLabel, ...rest } = input;
   return {
-    ...input,
+    ...rest,
     url: typeof input.url === "string" ? input.url.trim() : "",
     apiKey: typeof input.apiKey === "string" ? input.apiKey.trim() : "",
     enabled: input.enabled === true,
     autoApprove: input.autoApprove === true,
     userLimit: Number.isFinite(limit) && limit > 0 ? limit : 0,
-    navLabel: cleanNavLabel(input.navLabel),
+    // Un nom par langue ; l'ancienne forme (un seul nom) est reprise pour les deux.
+    navLabels: cleanNavLabels(input.navLabels ?? legacyLabel),
     profiles: Array.isArray(input.profiles) ? input.profiles : [],
   };
+}
+
+/** Les noms d'onglet d'une configuration, ancienne forme comprise. */
+export function navLabelsOf(config: PluginConfig) {
+  return cleanNavLabels(config.navLabels ?? config.navLabel);
 }
 
 /** Enregistre la configuration et applique le nom d'onglet. `null` : extension introuvable. */
@@ -74,7 +81,7 @@ export function writePluginConfig(pluginDir: string, pluginId: string, body: unk
   const tmp = `${path}.vigie-${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(installed, null, 2));
   renameSync(tmp, path);
-  applyNavLabel(pluginDir, pluginId, config.navLabel);
+  applyNavLabel(pluginDir, pluginId, config.navLabels);
   return config;
 }
 
