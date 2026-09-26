@@ -12,6 +12,7 @@ import { resolveJellyseerrUserId } from "./jellyseerr-user";
 import { warmTmdbCache, seedTmdbCacheOnce, discoverSeerrRefs } from "./worker-tmdb";
 import { invalidateRequestCaches } from "./cache";
 import { runUserSync, AUTO_SYNC_EVERY_MINUTES } from "./user-sync";
+import { advanceFromArr } from "./arr-advance";
 import type { SeerProfile } from "./types";
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -64,6 +65,10 @@ export function startWorker(
 
     try { await runRequestQueue(prisma, config); }
     catch (err) { console.error("[SeerWorker] Error processing request:", err); }
+
+    // Sonarr et Radarr d'abord : ce qu'ils savent n'attend plus Jellyseerr.
+    try { await advanceFromArr(prisma, config); }
+    catch (err) { console.error("[SeerWorker] Error reading Sonarr/Radarr:", err); }
 
     if (cycleCount % config.syncEvery === 0) {
       try { await syncStatuses(prisma, config); }

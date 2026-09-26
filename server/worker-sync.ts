@@ -9,6 +9,8 @@ import { fetchMediaDetail } from "./anime";
 import { releasedSuffix } from "./season-availability";
 import { notifyAvailableSeasons, releaseGoneSeasons } from "./seer-availability-notify";
 import { triggerSeerrJob } from "./arr-service";
+import { arrKnows } from "./arr-advance";
+import { isDowngrade } from "./arr-advance-plan";
 import type { SeerRequest, SeerProfile } from "./types";
 
 const CLAIM_TTL_SECONDS = 1800; // 30 min — anti-doublon notif biblio (TTL glissant)
@@ -107,6 +109,9 @@ async function syncGlobal(
   newStatus: SeerRequest["status"], mediaStatus?: number,
 ): Promise<void> {
   if (newStatus === request.status) return;
+  // Sonarr ou Radarr ont déjà fait avancer la demande (arr-advance.ts) : un
+  // Jellyseerr en retard ne la fait pas reculer, ni ne réannonce son départ.
+  if (arrKnows(request.mediaType) && isDowngrade(request.status, newStatus)) return;
   const extra: Record<string, unknown> = { seerrMediaStatus: mediaStatus };
   if (newStatus === "available") extra.completedAt = new Date();
   await updateRequestStatus(prisma, request.id, newStatus, extra as any);
@@ -151,7 +156,7 @@ async function syncTvSeasons(
   }
 
   // Statut : toutes les saisons demandées dispo → available ; sinon partiel.
-  if (newStatus !== request.status) {
+  if (newStatus !== request.status && !(arrKnows("tv") && isDowngrade(request.status, newStatus))) {
     const extra: Record<string, unknown> = { seerrMediaStatus: mediaStatus };
     if (newStatus === "available") extra.completedAt = new Date();
     await updateRequestStatus(prisma, request.id, newStatus, extra as any);
@@ -284,8 +289,10 @@ function statusNotification(
   request: SeerRequest, newStatus: string,
 ): { type: string; title: string; message: string } | null {
   switch (newStatus) {
+    // « En route », jamais « téléchargement » : l'application mobile affiche
+    // ces notifications et n'écrit ce mot nulle part (cf. CLAUDE.md du core).
     case "downloading":
-      return { type: "request_downloading", title: request.title, message: `« ${request.title} » est en cours de téléchargement` };
+      return { type: "request_downloading", title: request.title, message: `« ${request.title} » est en route` };
     case "available": {
       const suffix = releasedSuffix(request.mediaType === "movie" ? "m" : "f", false);
       return { type: "request_available", title: request.title, message: `« ${request.title} » ${suffix}` };

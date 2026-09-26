@@ -33,7 +33,10 @@ export async function notifyAvailableSeasons(
         title: n.title, body: n.message, refId: request.id,
       },
     });
-    await setNotifiedSeasons(prisma, request.id, ev.available);
+    // Union, pas remplacement : Sonarr a pu annoncer une saison que
+    // Jellyseerr ne voit pas encore (arr-advance.ts) — l'oublier la
+    // réannoncerait à la passe suivante.
+    await setNotifiedSeasons(prisma, request.id, [...new Set([...notified, ...ev.available])].sort((a, b) => a - b));
     console.log(`[SeerWorker] "${request.title}" saisons dispo [${newly.join(",")}] → notif`);
   }
   return ev.allAvailable ? "available" : "partially_available";
