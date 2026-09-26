@@ -142,7 +142,12 @@ export async function processNextRequest(
       throw new Error(`Seerr returned ${res.status}: ${text.slice(0, 200)}`);
     }
 
-    const data = (await res.json()) as { id: number; media?: { id: number; status: number } };
+    const data = (await res.json()) as { id: number; status?: number; media?: { id: number; status: number } };
+
+    // Auto-approbation : Jellyseerr laisse « en attente » (statut 1) la demande
+    // d'un compte sans droit d'approbation. L'interrupteur de la page
+    // d'administration était enregistré mais jamais appliqué.
+    if (config.autoApprove && data.status === 1) await approveSeerrRequest(config, data.id, request.title);
 
     await updateRequestStatus(prisma, request.id, "sent_to_seer", {
       seerrRequestId: data.id,
@@ -189,4 +194,19 @@ export async function processNextRequest(
     }
   }
   return request.id;
+}
+
+/** Valide une demande restée « en attente » dans Jellyseerr. Un échec n'empêche rien : elle attend, comme avant. */
+async function approveSeerrRequest(config: WorkerConfig, seerrRequestId: number, title: string): Promise<void> {
+  try {
+    const res = await fetch(`${config.seerrUrl}/api/v1/request/${seerrRequestId}/approve`, {
+      method: "POST",
+      headers: { "X-Api-Key": config.seerrApiKey },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.ok) console.log(`[SeerWorker] "${title}" approuvée d'office`);
+    else console.warn(`[SeerWorker] Auto-approbation refusée par Jellyseerr pour "${title}" (${res.status})`);
+  } catch (err) {
+    console.warn(`[SeerWorker] Auto-approbation impossible pour "${title}" :`, err);
+  }
 }
