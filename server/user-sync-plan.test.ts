@@ -30,7 +30,7 @@ test("un nouveau compte Jellyfin obtient sa ligne, et son compte Jellyseerr s'il
     activeRequests: NO_REQUESTS,
   });
   assert.deepEqual(plan.createRows, [{ id: "aaa", name: "Alice" }]);
-  assert.deepEqual(plan.setLinks, [{ id: "aaa", username: "Alice", seerrId: 7, previous: null }]);
+  assert.deepEqual(plan.setLinks, [{ id: "aaa", username: "Alice", seerrId: 7, previous: null, reason: "id" }]);
   assert.deepEqual(plan.missingSeerr, []);
 });
 
@@ -55,7 +55,7 @@ test("un compte Jellyseerr supprimé puis réimporté ailleurs : le nouveau est 
     activeRequests: NO_REQUESTS,
   });
   assert.equal(plan.clearLinks.length, 1);
-  assert.deepEqual(plan.setLinks, [{ id: "aaa", username: "Alice", seerrId: 30, previous: 12 }]);
+  assert.deepEqual(plan.setLinks, [{ id: "aaa", username: "Alice", seerrId: 30, previous: 12, reason: "id" }]);
 });
 
 test("relié au compte Jellyseerr de quelqu'un d'autre : le lien est corrigé", () => {
@@ -170,3 +170,60 @@ test("le propriétaire de Jellyseerr n'est jamais proposé à la suppression", (
   });
   assert.deepEqual(plan.orphanSeerr, []);
 });
+
+/* Vu en vrai le 26 sept. 2026 : « Knaoxtest » supprimé puis recréé dans
+ * Jellyfin. Son ancien compte Jellyseerr pointait vers l'identifiant disparu ;
+ * la synchro le proposait à la suppression, et le nouveau compte restait sans
+ * compte Jellyseerr — que Jellyseerr refusait alors d'importer. */
+test("un compte Jellyfin recréé sous le même nom reprend son ancien compte Jellyseerr", () => {
+  const plan = planUserSync({
+    accounts: [account("new", "Knaoxtest")],
+    seerr: [seerr(1, null), seerr(11, "old-dead", { name: "Knaoxtest", email: "knaoxtest" })],
+    rows: [row("new", "Knaoxtest", null)],
+    activeRequests: NO_REQUESTS,
+  });
+  assert.deepEqual(plan.setLinks, [{ id: "new", username: "Knaoxtest", seerrId: 11, previous: null, reason: "name" }]);
+  assert.deepEqual(plan.missingSeerr, []);
+  assert.deepEqual(plan.orphanSeerr, []);
+});
+
+test("relié à un compte Jellyseerr dont le maître a disparu : le lien est gardé", () => {
+  const plan = planUserSync({
+    accounts: [account("new", "Knaoxtest")],
+    seerr: [seerr(11, "old-dead", { name: "Knaoxtest" })],
+    rows: [row("new", "Knaoxtest", 11)],
+    activeRequests: NO_REQUESTS,
+  });
+  assert.equal(pendingFixes(plan), 0);
+  assert.deepEqual(plan.orphanSeerr, []);
+});
+
+test("la reprise par nom ignore la casse et les accents, et renonce au moindre doute", () => {
+  const recreated = planUserSync({
+    accounts: [account("n1", "Élodie")],
+    seerr: [seerr(5, "dead", { name: "elodie" })],
+    rows: [],
+    activeRequests: NO_REQUESTS,
+  });
+  assert.deepEqual(recreated.setLinks.map((l) => [l.seerrId, l.reason]), [[5, "name"]]);
+
+  // Deux anciens comptes du même nom : on ne choisit pas.
+  const twoCandidates = planUserSync({
+    accounts: [account("n1", "Alex")],
+    seerr: [seerr(5, "dead1", { name: "Alex" }), seerr(6, "dead2", { name: "alex" })],
+    rows: [],
+    activeRequests: NO_REQUESTS,
+  });
+  assert.deepEqual(twoCandidates.setLinks, []);
+  assert.deepEqual(twoCandidates.missingSeerr.map((m) => m.username), ["Alex"]);
+
+  // Un compte Jellyseerr qui appartient à un compte VIVANT n'est jamais repris.
+  const alive = planUserSync({
+    accounts: [account("n1", "Alex"), account("n2", "Sam")],
+    seerr: [seerr(5, "n2", { name: "Alex" })],
+    rows: [],
+    activeRequests: NO_REQUESTS,
+  });
+  assert.deepEqual(alive.setLinks.map((l) => [l.username, l.seerrId, l.reason]), [["Sam", 5, "id"]]);
+});
+

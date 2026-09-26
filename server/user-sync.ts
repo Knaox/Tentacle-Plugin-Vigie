@@ -33,6 +33,8 @@ export interface UserSyncReport {
   created: string[];
   renamed: Array<{ from: string; to: string }>;
   linked: string[];
+  /** Repris par leur nom : l'ancien compte Jellyseerr d'un compte Jellyfin recréé. */
+  adopted: string[];
   /** Liens retirés : le compte Jellyseerr n'existe plus (ou appartenait à un autre). */
   unlinked: string[];
   /** Comptes supprimés de Jellyfin, sans demande en cours : oubliés. */
@@ -69,8 +71,8 @@ export function isUserSyncRunning(): boolean {
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export function toSeerrAccount(u: {
-  id: number; username?: string; displayName?: string; jellyfinUsername?: string;
-  email?: string; jellyfinUserId?: string; requestCount?: number;
+  id: number; username?: string | null; displayName?: string | null; jellyfinUsername?: string | null;
+  email?: string | null; jellyfinUserId?: string | null; requestCount?: number;
 }): SeerrAccount {
   return {
     id: u.id,
@@ -78,6 +80,7 @@ export function toSeerrAccount(u: {
     email: u.email ?? null,
     jellyfinUserId: u.jellyfinUserId || null,
     requestCount: typeof u.requestCount === "number" ? u.requestCount : null,
+    aliases: [u.displayName, u.jellyfinUsername, u.username].filter((n): n is string => !!n),
   };
 }
 
@@ -168,13 +171,13 @@ async function syncOnce(prisma: PrismaClient, cfg: SeerCfg | null, opts: RunOpti
   const report: UserSyncReport = {
     at: new Date().toISOString(), trigger: opts.trigger, durationMs: 0,
     jellyfinError: snap.jellyfinError, seerrError: snap.seerrError,
-    created: [], renamed: [], linked: [], unlinked: [], removed: [], imported: [], failures: [],
+    created: [], renamed: [], linked: [], adopted: [], unlinked: [], removed: [], imported: [], failures: [],
   };
   if (snap.plan) await applyPlan(prisma, snap.plan, report);
   if (cfg && snap.plan && opts.importMissing) await importMissing(prisma, cfg, snap.plan, opts.importMissing, report);
   if (pendingFixes(snap.plan ?? emptyPlan()) > 0 || report.imported.length > 0) invalidateRequestCaches();
   report.durationMs = Date.now() - started;
-  const touched = report.created.length + report.renamed.length + report.linked.length
+  const touched = report.created.length + report.renamed.length + report.linked.length + report.adopted.length
     + report.unlinked.length + report.removed.length + report.imported.length;
   if (touched > 0 || report.failures.length > 0) {
     console.log(`[SeerUsers] Synchro ${opts.trigger} : ${touched} correction(s), ${report.failures.length} échec(s)`);
@@ -210,7 +213,7 @@ async function applyPlan(prisma: PrismaClient, plan: UserSyncPlan, report: UserS
   }
   for (const l of plan.setLinks) {
     await attempt(l.username, () => updateUserSettings(prisma, l.id, { jellyseerrUserId: l.seerrId, jellyseerrLastSync: new Date() }),
-      () => report.linked.push(l.username));
+      () => (l.reason === "name" ? report.adopted : report.linked).push(l.username));
   }
   for (const r of plan.removeRows) {
     // Relu au dernier moment : une demande a pu arriver depuis la collecte.

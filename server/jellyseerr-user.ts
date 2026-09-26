@@ -102,6 +102,7 @@ export async function resolveJellyseerrUserId(
   }
 
   // Import depuis Jellyfin (suppose que le user Jellyfin existe encore)
+  let importError: string | null = null;
   try {
     const imported = await importJellyseerrUserFromJellyfin(config, jellyfinUserId);
     if (imported) {
@@ -111,8 +112,8 @@ export async function resolveJellyseerrUserId(
       });
       return imported.id;
     }
-  } catch {
-    // Tomberons sur le re-lookup ou l'erreur finale
+  } catch (err) {
+    importError = err instanceof Error ? err.message : String(err);
   }
 
   // Dernier essai après import : Jellyseerr peut avoir importé sans renvoyer l'objet
@@ -125,7 +126,30 @@ export async function resolveJellyseerrUserId(
     return refreshed.id;
   }
 
-  throw new Error(`Unable to resolve Jellyseerr user for jellyfinUserId=${jellyfinUserId}`);
+  /*
+   * Jellyseerr refuse l'import : sa propre connexion à Jellyfin ne sait plus
+   * lister les comptes (erreur 500 au message vide, constatée le 26 sept.
+   * 2026 — et alors AUCUN compte ne s'importe). Un compte Jellyseerr local, au
+   * nom du compte Jellyfin, garde les demandes possibles : elles partent sous
+   * ce nom. Il se crée comme les fantômes des comptes supprimés, et la
+   * synchro le reconnaît comme le sien.
+   */
+  try {
+    const local = await createPlaceholderJellyseerrUser(config, username || jellyfinUserId);
+    await updateUserSettings(prisma, jellyfinUserId, {
+      jellyseerrUserId: local.id,
+      jellyseerrLastSync: new Date(),
+    });
+    console.warn(`[SeerUsers] Import refusé par Jellyseerr (${importError ?? "sans réponse"}) : compte local #${local.id} pour ${username}`);
+    return local.id;
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Jellyseerr refuse d'importer ce compte depuis Jellyfin${importError ? ` (${importError})` : ""}, `
+      + `et n'a pas voulu créer de compte local (${why}). Vérifiez la connexion de Jellyseerr à Jellyfin `
+      + `(Jellyseerr → Paramètres → Jellyfin).`,
+    );
+  }
 }
 
 /** Cherche un user Jellyseerr local ("placeholder") par username, sans jellyfinUserId attaché. */
