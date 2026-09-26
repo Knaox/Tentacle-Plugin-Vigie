@@ -14,6 +14,7 @@ import { registerRequestRoutes } from "./routes-requests";
 import { registerBulkRoutes } from "./routes-bulk";
 import { registerProfileRoutes } from "./routes-profiles";
 import { registerUsersRoutes } from "./routes-users";
+import { registerOwnershipRoutes } from "./routes-ownership";
 import { registerAvailabilityRoutes } from "./routes-availability";
 import { registerProgressRoutes } from "./routes-progress";
 import { registerCalendarRoutes } from "./routes-calendar";
@@ -105,6 +106,7 @@ export default async function seerBackend(
     return { seerrUrl: url.replace(/\/$/, ""), seerrApiKey: apiKey };
   });
   registerUsersRoutes(app, prisma, gwc, ctx.requireAdmin);
+  registerOwnershipRoutes(app, prisma, gwc, ctx.requireAdmin);
   registerAvailabilityRoutes(app, prisma, gwc);
   registerProgressRoutes(app, prisma, gwc, ctx.requireAdmin);
   registerCalendarRoutes(app, prisma, gwc);
