@@ -14,6 +14,7 @@ import { registerRequestRoutes } from "./routes-requests";
 import { registerBulkRoutes } from "./routes-bulk";
 import { registerProfileRoutes } from "./routes-profiles";
 import { registerUsersRoutes } from "./routes-users";
+import { registerUserSyncRoutes } from "./routes-user-sync";
 import { registerOwnershipRoutes } from "./routes-ownership";
 import { registerAvailabilityRoutes } from "./routes-availability";
 import { registerProgressRoutes } from "./routes-progress";
@@ -105,7 +106,8 @@ export default async function seerBackend(
     if (!url || !apiKey) return null;
     return { seerrUrl: url.replace(/\/$/, ""), seerrApiKey: apiKey };
   });
-  registerUsersRoutes(app, prisma, gwc, ctx.requireAdmin);
+  registerUsersRoutes(app, prisma, gwc, ctx.requireAdmin, () => defaultDailyLimit(getPluginConfig(ctx)));
+  registerUserSyncRoutes(app, prisma, gwc, ctx.requireAdmin);
   registerOwnershipRoutes(app, prisma, gwc, ctx.requireAdmin);
   registerAvailabilityRoutes(app, prisma, gwc);
   registerProgressRoutes(app, prisma, gwc, ctx.requireAdmin);

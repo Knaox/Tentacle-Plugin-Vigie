@@ -10,13 +10,48 @@ interface SeerConfig {
   seerrApiKey: string;
 }
 
-interface JellyseerrUser {
+export interface JellyseerrUser {
   id: number;
   email?: string;
   username?: string;
+  displayName?: string;
   jellyfinUserId?: string;
   jellyfinUsername?: string;
   userType?: number;
+  requestCount?: number;
+}
+
+/*
+ * Le lien gardé en base était rendu tel quel, sans vérification : un compte
+ * supprimé dans Jellyseerr faisait échouer chaque demande de son titulaire
+ * (au nom d'un compte disparu) jusqu'à la synchro suivante. On le vérifie
+ * désormais, et on garde la réponse dix minutes pour ne pas interroger
+ * Jellyseerr à chaque demande.
+ */
+const LINK_CHECK_TTL_MS = 10 * 60_000;
+const checkedLinks = new Map<number, number>();
+
+/** Oublie les vérifications en mémoire : une synchro à la main repart du réel. */
+export function forgetSeerrUserChecks(): void {
+  checkedLinks.clear();
+}
+
+/** Le compte Jellyseerr existe-t-il encore ? `null` : Jellyseerr n'a pas su le dire. */
+async function seerrUserExists(config: SeerConfig, id: number): Promise<boolean | null> {
+  const until = checkedLinks.get(id);
+  if (until && until > Date.now()) return true;
+  try {
+    const res = await fetch(`${config.seerrUrl}/api/v1/user/${id}`, {
+      headers: { "X-Api-Key": config.seerrApiKey },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (res.status === 404) return false;
+    if (!res.ok) return null;
+    checkedLinks.set(id, Date.now() + LINK_CHECK_TTL_MS);
+    return true;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -37,7 +72,11 @@ export async function resolveJellyseerrUserId(
   username: string,
 ): Promise<number> {
   const settings = await getOrCreateUserSettings(prisma, jellyfinUserId, username);
-  if (settings.jellyseerrUserId) return settings.jellyseerrUserId;
+  if (settings.jellyseerrUserId) {
+    // Jellyseerr muet : on garde le lien, la demande échouera ou passera d'elle-même.
+    if ((await seerrUserExists(config, settings.jellyseerrUserId)) !== false) return settings.jellyseerrUserId;
+    await updateUserSettings(prisma, jellyfinUserId, { jellyseerrUserId: null, jellyseerrLastSync: null });
+  }
 
   // Lookup live par jellyfinUserId
   const found = await findJellyseerrUserByJellyfinId(config, jellyfinUserId);
@@ -206,6 +245,23 @@ export async function listAllJellyseerrUsers(config: SeerConfig): Promise<Jellys
     skip += take;
   }
   return out;
+}
+
+/**
+ * Supprime un compte Jellyseerr. Jellyseerr efface avec lui SES demandes :
+ * l'appelant ne le propose qu'à un administrateur prévenu.
+ */
+export async function deleteJellyseerrUser(config: SeerConfig, id: number): Promise<void> {
+  const res = await fetch(`${config.seerrUrl}/api/v1/user/${id}`, {
+    method: "DELETE",
+    headers: { "X-Api-Key": config.seerrApiKey },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok && res.status !== 404) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Jellyseerr DELETE /user/${id} a répondu ${res.status}: ${text.slice(0, 200)}`);
+  }
+  checkedLinks.delete(id);
 }
 
 async function importJellyseerrUserFromJellyfin(

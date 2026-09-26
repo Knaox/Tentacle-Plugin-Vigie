@@ -6,11 +6,12 @@
  * servent qu'à la page d'administration, jamais aux trois pages publiques. */
 
 import { backendFetch } from "./seer-client";
-import type { AdminUserRow, UpdateAdminUserBody } from "./types";
+import type { AdminUserRow, UpdateAdminUserBody, UserSyncReport, UsersOverview } from "./types";
 
 /* ── Admin users (permissions / quotas) ──────────────────────────── */
 
-export async function getAdminUsers(): Promise<AdminUserRow[]> {
+/** Les comptes, l'état de la synchro et ce qui attend une décision. */
+export async function getUsersOverview(): Promise<UsersOverview> {
   return backendFetch("/admin/users");
 }
 
@@ -24,8 +25,11 @@ export async function updateAdminUser(
   });
 }
 
-export async function syncAdminUsers(): Promise<{ synced: number; failed: number; created: number; total: number }> {
-  return backendFetch("/admin/users/sync", { method: "POST" });
+export async function syncAdminUsers(importMissing?: boolean | string[]): Promise<UserSyncReport> {
+  return backendFetch("/admin/users/sync", {
+    method: "POST",
+    body: JSON.stringify({ importMissing: importMissing ?? false }),
+  });
 }
 
 export interface SyncRequestsOwnershipResult {

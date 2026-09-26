@@ -11,6 +11,7 @@ import { processCleanupQueue } from "./worker-cleanup";
 import { resolveJellyseerrUserId } from "./jellyseerr-user";
 import { warmTmdbCache, seedTmdbCacheOnce, discoverSeerrRefs } from "./worker-tmdb";
 import { invalidateRequestCaches } from "./cache";
+import { runUserSync, AUTO_SYNC_EVERY_MINUTES } from "./user-sync";
 import type { SeerProfile } from "./types";
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -74,6 +75,14 @@ export function startWorker(
 
     try { await runCleanupQueue(prisma, config); }
     catch (err) { console.error("[SeerWorker] Error processing cleanup queue:", err); }
+
+    /* La synchro des comptes (user-sync.ts) : une passe peu après le démarrage,
+     * puis toutes les demi-heures. Un compte supprimé dans Jellyseerr ou dans
+     * Jellyfin n'attend plus qu'un administrateur pense au bouton. */
+    if (cycleCount === 2 || cycleCount % AUTO_SYNC_EVERY_MINUTES === 0) {
+      try { await runUserSync(prisma, config, { trigger: "auto" }); }
+      catch (err) { console.error("[SeerWorker] Error syncing users:", err); }
+    }
 
     // Réchauffage des fiches TMDB — 1 tick sur 5 (~5 min), budget borné.
     if (cycleCount % 5 === 0) {

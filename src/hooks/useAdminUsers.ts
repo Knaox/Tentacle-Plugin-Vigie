@@ -1,11 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getAdminUsers, updateAdminUser, syncAdminUsers, syncRequestsOwnership } from "../api/client-admin";
-import type { AdminUserRow, UpdateAdminUserBody } from "../api/types";
+import { getUsersOverview, updateAdminUser, syncAdminUsers, syncRequestsOwnership } from "../api/client-admin";
+import type { UpdateAdminUserBody, UsersOverview } from "../api/types";
 
 export function useAdminUsers() {
-  return useQuery<AdminUserRow[]>({
+  return useQuery<UsersOverview>({
     queryKey: ["seer-admin-users"],
-    queryFn: getAdminUsers,
+    queryFn: getUsersOverview,
     staleTime: 60_000,
     gcTime: 30 * 60_000,
     refetchOnWindowFocus: false,
@@ -27,7 +27,7 @@ export function useUpdateAdminUser() {
 export function useSyncAdminUsers() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => syncAdminUsers(),
+    mutationFn: (importMissing?: boolean | string[]) => syncAdminUsers(importMissing),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["seer-admin-users"] });
     },

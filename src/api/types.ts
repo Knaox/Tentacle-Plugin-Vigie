@@ -254,6 +254,7 @@ export interface LocalRequest {
  * tenir sous 300 lignes, ré-exportés ici pour ne rien casser côté appelants. */
 export type {
   AdminUserRow, UpdateAdminUserBody, SeerBackendError,
+  SeerLinkState, SeerrAccountRef, UserSyncReport, UsersOverview,
   ProfileTargetMedia, SeerProfile, QualityOption, ArrTag, ArrServerInfo,
 } from "./types-admin";
 

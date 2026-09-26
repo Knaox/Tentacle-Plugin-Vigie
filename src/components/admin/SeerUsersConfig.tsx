@@ -13,7 +13,8 @@ interface SeerUsersConfigProps {
 export function SeerUsersConfig({ seerrConfigured = true }: SeerUsersConfigProps) {
   const { t } = useTranslation("seer");
   const toast = useToast();
-  const { data: users, isLoading } = useAdminUsers();
+  const { data: overview, isLoading } = useAdminUsers();
+  const users = overview?.users;
   const updateMutation = useUpdateAdminUser();
   const syncMutation = useSyncAdminUsers();
   const reassignMutation = useSyncRequestsOwnership();
@@ -24,13 +25,13 @@ export function SeerUsersConfig({ seerrConfigured = true }: SeerUsersConfigProps
       return;
     }
     syncMutation.mutate(undefined, {
-      onSuccess: (data) => {
+      onSuccess: (report) => {
         toast.show("success", t("seer:adminUsersSyncDone", {
-          created: data.created ?? 0,
-          synced: data.synced,
-          failed: data.failed,
-          removed: (data as { removed?: number }).removed ?? 0,
-          invalidatedLinks: (data as { invalidatedLinks?: number }).invalidatedLinks ?? 0,
+          created: report.created.length,
+          synced: report.linked.length + report.renamed.length,
+          failed: report.failures.length,
+          removed: report.removed.length,
+          invalidatedLinks: report.unlinked.length,
         }));
       },
       onError: (err) => toast.show("error", formatSeerError(err, t)),
