@@ -12,6 +12,7 @@ import {
   listAllJellyseerrUsers,
   invalidateStaleJellyseerrCache,
 } from "./jellyseerr-user";
+import { fetchJellyfinAccounts } from "./jellyfin-users";
 
 interface JellyfinUser { userId: string; username: string; isAdmin: boolean; }
 
@@ -43,7 +44,7 @@ export function registerUsersRoutes(
       let jellyfinUsers: Array<{ id: string; name: string }> = [];
       let jellyfinError: string | null = null;
       try {
-        jellyfinUsers = await fetchJellyfinUsers();
+        jellyfinUsers = await fetchJellyfinUsers(prisma);
       } catch (err) {
         jellyfinError = err instanceof Error ? err.message : "Jellyfin fetch failed";
       }
@@ -130,7 +131,7 @@ export function registerUsersRoutes(
       let users: Array<{ id: string; name: string }> = [];
       let jellyfinError: string | null = null;
       try {
-        users = await fetchJellyfinUsers();
+        users = await fetchJellyfinUsers(prisma);
       } catch (err) {
         jellyfinError = err instanceof Error ? err.message : "Jellyfin fetch failed";
       }
@@ -222,27 +223,11 @@ export function registerUsersRoutes(
 }
 
 /**
- * Récupère la liste de tous les utilisateurs Jellyfin via l'API admin.
- * Utilise JELLYFIN_URL + JELLYFIN_ADMIN_API_KEY depuis l'env du backend Tentacle.
+ * Les comptes Jellyfin actifs, lus avec l'adresse et la clé que le serveur
+ * Tentacle garde dans sa configuration (cf. jellyfin-users.ts) — plus dans
+ * des variables d'environnement qu'il ne fournit plus.
  */
-async function fetchJellyfinUsers(): Promise<Array<{ id: string; name: string }>> {
-  const baseUrl = (process.env.JELLYFIN_URL || "").replace(/\/$/, "");
-  const apiKey = process.env.JELLYFIN_ADMIN_API_KEY || "";
-  if (!baseUrl || !apiKey) {
-    throw new Error("Jellyfin not configured on Tentacle backend (JELLYFIN_URL or JELLYFIN_ADMIN_API_KEY missing)");
-  }
-  const res = await fetch(`${baseUrl}/Users`, {
-    headers: { "X-Emby-Token": apiKey },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) {
-    throw new Error(`Jellyfin GET /Users failed: ${res.status}`);
-  }
-  const data = (await res.json()) as Array<{
-    Id: string; Name: string;
-    Policy?: { IsDisabled?: boolean };
-  }>;
-  return data
-    .filter((u) => !u.Policy?.IsDisabled)
-    .map((u) => ({ id: u.Id, name: u.Name }));
+async function fetchJellyfinUsers(prisma: PrismaClient): Promise<Array<{ id: string; name: string }>> {
+  const accounts = await fetchJellyfinAccounts(prisma);
+  return accounts.filter((a) => !a.isDisabled).map((a) => ({ id: a.id, name: a.name }));
 }
