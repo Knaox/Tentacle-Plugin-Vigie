@@ -10,7 +10,8 @@ import type { PrismaClient } from "@prisma/client";
 import { getQueueStatus, getUserStats, getGlobalStats } from "./db";
 import { isWorkerRunning } from "./worker";
 import { cached } from "./cache";
-import type { WorkerCfg } from "./seerr-unified";
+import { getUser, type WorkerCfg } from "./seerr-unified";
+import { userMarks } from "./user-marks";
 
 export function registerMiscRoutes(
   app: FastifyInstance,
@@ -18,6 +19,10 @@ export function registerMiscRoutes(
   getWorkerConfig: () => Promise<WorkerCfg | null>,
   requireAdmin: (req: FastifyRequest, reply: FastifyReply) => Promise<void>,
 ): void {
+
+/* ── Ce que le compte a fait de chaque titre (user-marks.ts) ─────── */
+
+app.get("/marks", async (request) => userMarks(prisma, getUser(request).userId));
 
 /* ── Watch providers, queue, stats, worker control ─────────────── */
 

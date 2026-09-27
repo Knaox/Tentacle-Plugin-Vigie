@@ -46,7 +46,7 @@ export function normalizeJellyfinId(id: string | null | undefined): string {
   return (id ?? "").toLowerCase().replace(/-/g, "");
 }
 
-async function jellyfinCredentials(prisma: PrismaClient): Promise<{ url: string; apiKey: string } | null> {
+export async function jellyfinCredentials(prisma: PrismaClient): Promise<{ url: string; apiKey: string } | null> {
   try {
     const rows = await prisma.$queryRawUnsafe<Array<{ k: string; v: string }>>(
       "SELECT `key` AS k, `value` AS v FROM server_config WHERE `key` IN ('jellyfin_url', 'jellyfin_api_key')",
