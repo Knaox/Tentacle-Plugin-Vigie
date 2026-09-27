@@ -127,6 +127,8 @@ export interface SeerrMovieDetail {
   productionCountries?: { iso_3166_1: string; name: string }[];
   /** Ses demandes : une qui tient encore garde le film pris, même retombé au statut 1. */
   mediaInfo?: { status: number; requests?: { id: number; status: number }[] };
+  /** La saga TMDB du film (Twilight, Harry Potter…), quand il en a une. */
+  collection?: { id: number; name: string; posterPath?: string; backdropPath?: string };
   credits?: {
     cast?: SeerrCastMember[];
     crew?: SeerrCrewMember[];

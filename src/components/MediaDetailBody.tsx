@@ -6,8 +6,8 @@
  * Sous l'en-tête : l'histoire, le prochain épisode, les saisons (leur état,
  * celui de chaque épisode, et leur demande), les extras, la distribution —
  * et, en colonne à droite sur grand écran, où le regarder, par où il est
- * sorti, sa fiche. Les titres semblables ferment la page, sur toute la
- * largeur.
+ * sorti, sa fiche. La saga du film (tous ses volets et leur état), puis les
+ * titres semblables ferment la page, sur toute la largeur.
  */
 
 import { useContext, useMemo } from "react";
@@ -24,6 +24,7 @@ import { NextEpisodeBanner } from "./NextEpisodeBanner";
 import { ExtrasRow } from "./ExtrasRow";
 import { CastRow } from "./CastRow";
 import { SeasonsSection } from "./detail/SeasonsSection";
+import { CollectionRail } from "./detail/CollectionRail";
 import { DetailInfo, type WatchProviderEntry } from "./detail/DetailInfo";
 import { Rail, SectionHeader } from "./ui/Rail";
 import { PosterCard } from "./ui/PosterCard";
@@ -66,6 +67,7 @@ export function MediaDetailBody(props: Props) {
   const { t } = useTranslation("seer");
   const hub = useContext(HubContext);
   const tv = mediaType === "tv" ? (detail as SeerrTvDetail | undefined) : undefined;
+  const movie = mediaType === "movie" ? (detail as SeerrMovieDetail | undefined) : undefined;
   const tagline = (detail as { tagline?: string } | undefined)?.tagline;
   const next = useNextEpisode(tv?.nextEpisodeToAir, tvSeasons);
   const sameNumbering = numberingMatches(episodeStates, tvSeasons.filter((s) => s.seasonNumber > 0).length);
@@ -132,6 +134,10 @@ export function MediaDetailBody(props: Props) {
           <DetailInfo detail={detail} mediaType={mediaType} verdict={verdict} providers={providers} inLibrary={inLibrary} />
         </aside>
       </div>
+
+      {movie?.collection && (
+        <CollectionRail collectionId={movie.collection.id} currentId={currentItem.id} onSelect={onSelectSimilar} />
+      )}
 
       {similar && similar.length > 0 && (
         <div className="mt-10">
