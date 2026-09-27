@@ -15,6 +15,8 @@
  *   GET /search/person    — même contrat, pour une filmographie : ce qu'une
  *                           personne a fait et que la bibliothèque n'a pas.
  *                           Déclaré dans `plugin.json` → `search.person`.
+ *                           `role` (facultatif) : le crédit Jellyfin par
+ *                           lequel on arrive — ses œuvres passent devant.
  */
 
 import type { FastifyInstance } from "fastify";
@@ -25,7 +27,7 @@ import { presentHub, presentProvider } from "./search/respond";
 import { genreFacets, providerFacets } from "./search/facets";
 import { titleIndexBuilding } from "./search/title-crawl";
 import { ensureSearchTables } from "./search/title-store";
-import { personProvider } from "./search/person-credits";
+import { personProvider, readRole } from "./search/person-credits";
 
 const MAX_QUERY = 120;
 const MAX_PAGE = 20;
@@ -41,6 +43,8 @@ interface SearchQuery {
   showBlocked?: string;
   type?: string;
   limit?: string;
+  /** Filmographie : le type Jellyfin du crédit par lequel Tentacle arrive. */
+  role?: string;
 }
 
 function readLang(raw: string | undefined): string {
@@ -117,6 +121,7 @@ export async function registerSearchRoutes(
         lang: readLang(query.lang),
         limit: Math.min(Math.max(1, Number(query.limit) || 20), 40),
         type: query.type === "movie" || query.type === "series" ? query.type : null,
+        role: readRole(query.role),
       });
     } catch {
       // Jellyseerr injoignable : la filmographie de Tentacle s'affiche sans nous.

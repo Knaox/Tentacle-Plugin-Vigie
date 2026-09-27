@@ -34,6 +34,8 @@ interface Credit {
   voteCount: number;
   popularity: number;
   role: string | null;
+  /** Crédit technique (réaliser, écrire…) plutôt qu'un rôle joué. */
+  crew: boolean;
   status: number | undefined;
 }
 
@@ -41,6 +43,26 @@ interface Credit {
 const SELF = /^(himself|herself|themselves|self|lui-même|elle-même|eux-mêmes)\b/i;
 /* Au générique, ce qui fait une œuvre : jouer, réaliser, écrire, créer. */
 const CREW_JOBS = new Set(["Director", "Screenplay", "Writer", "Creator", "Novel", "Story"]);
+/*
+ * Le métier par lequel Tentacle arrive (`role` : le type Jellyfin du crédit
+ * sur lequel on a cliqué) et ce qui lui répond au générique de TMDB. Produire
+ * et composer ne font pas une filmographie par défaut : on ne les montre que
+ * si l'on vient d'eux — la page d'un compositeur, ce sont ses musiques.
+ */
+const ROLE_JOBS: Readonly<Record<string, ReadonlySet<string>>> = {
+  Director: new Set(["Director"]),
+  Writer: new Set(["Screenplay", "Writer", "Novel", "Story", "Teleplay", "Author"]),
+  Creator: new Set(["Creator"]),
+  Producer: new Set(["Producer", "Executive Producer"]),
+  Composer: new Set(["Original Music Composer", "Music", "Composer"]),
+};
+const KNOWN_JOBS = new Set([...CREW_JOBS, ...Object.values(ROLE_JOBS).flatMap((jobs) => [...jobs])]);
+
+/** Le rôle d'arrivée, validé : `Actor`, un métier connu, ou rien. */
+export function readRole(raw: unknown): string | null {
+  if (raw === "Actor" || raw === "GuestStar") return "Actor";
+  return typeof raw === "string" && Object.prototype.hasOwnProperty.call(ROLE_JOBS, raw) ? raw : null;
+}
 /* Talk-shows et journaux : on y passe, on n'y joue pas. */
 const TALK_OR_NEWS = new Set([10767, 10763]);
 
@@ -53,7 +75,7 @@ export function toCredit(r: Raw, crew: boolean): Credit | null {
   if (!mediaType || id <= 0) return null;
   const role = crew ? str(r.job) : str(r.character);
   if (!crew && role && SELF.test(role)) return null;
-  if (crew && !CREW_JOBS.has(String(r.job ?? ""))) return null;
+  if (crew && !KNOWN_JOBS.has(String(r.job ?? ""))) return null;
   const genres = Array.isArray(r.genreIds) ? (r.genreIds as unknown[]) : [];
   if (genres.some((g) => typeof g === "number" && TALK_OR_NEWS.has(g))) return null;
   const info = r.mediaInfo as { status?: number } | undefined;
@@ -66,8 +88,34 @@ export function toCredit(r: Raw, crew: boolean): Credit | null {
     voteCount: num(r.voteCount),
     popularity: num(r.popularity),
     role,
+    crew,
     status: typeof info?.status === "number" ? info.status : undefined,
   };
+}
+
+/** Ce crédit répond-il au métier d'arrivée ? */
+function matchesRole(credit: Credit, role: string | null): boolean {
+  if (role === null) return false;
+  if (role === "Actor") return !credit.crew;
+  return credit.crew && (ROLE_JOBS[role]?.has(credit.role ?? "") ?? false);
+}
+
+/**
+ * Une ligne par œuvre. Celle du métier d'arrivée gagne (le film qu'un acteur
+ * a aussi réalisé, vu depuis la réalisation, se lit « Réalisation ») ; sans
+ * rôle d'arrivée, la première — jouer avant réaliser, comme avant. Produire
+ * et composer n'entrent que par leur propre porte.
+ */
+export function pickCredits(credits: readonly Credit[], role: string | null): Array<{ credit: Credit; matches: boolean }> {
+  const byKey = new Map<string, { credit: Credit; matches: boolean }>();
+  for (const credit of credits) {
+    const matches = matchesRole(credit, role);
+    if (!matches && credit.crew && !CREW_JOBS.has(credit.role ?? "")) continue;
+    const key = `${credit.mediaType}:${credit.id}`;
+    const known = byKey.get(key);
+    if (!known || (matches && !known.matches)) byKey.set(key, { credit, matches });
+  }
+  return [...byKey.values()];
 }
 
 async function seerrGet(cfg: WorkerCfg, path: string, lang: string): Promise<Raw> {
@@ -79,22 +127,20 @@ async function seerrGet(cfg: WorkerCfg, path: string, lang: string): Promise<Raw
   return (await res.json()) as Raw;
 }
 
-/** Tout ce que la personne a fait, une ligne par œuvre, mis en commun une demi-heure. */
+/**
+ * Tout ce que la personne a fait, crédit par crédit, mis en commun une
+ * demi-heure. Une œuvre peut y figurer deux fois (jouée ET réalisée) : c'est
+ * `pickCredits`, selon le rôle d'arrivée, qui n'en garde qu'une.
+ */
 async function personCredits(cfg: WorkerCfg, personId: number, lang: string): Promise<Credit[]> {
-  return cached(`vigie:person:${personId}:${lang}`, CREDITS_TTL_MS, async () => {
+  // `v2` : l'entrée de cache ne dédoublonne plus — l'ancienne forme ne doit pas être relue.
+  return cached(`vigie:person:v2:${personId}:${lang}`, CREDITS_TTL_MS, async () => {
     const raw = await seerrGet(cfg, `/api/v1/person/${personId}/combined_credits?language=${lang}`, lang);
     const all = [
       ...(Array.isArray(raw.cast) ? (raw.cast as Raw[]).map((r) => toCredit(r, false)) : []),
       ...(Array.isArray(raw.crew) ? (raw.crew as Raw[]).map((r) => toCredit(r, true)) : []),
     ];
-    const byKey = new Map<string, Credit>();
-    for (const credit of all) {
-      if (!credit || !credit.title) continue;
-      const key = `${credit.mediaType}:${credit.id}`;
-      // Jouer ET réaliser le même film : une seule ligne, le premier rôle gagne.
-      if (!byKey.has(key)) byKey.set(key, credit);
-    }
-    const credits = [...byKey.values()];
+    const credits = all.filter((c): c is Credit => c !== null && c.title !== "");
     for (const c of credits) noteStatus(c.mediaType, c.id, c.status);
     return credits;
   }, { staleMs: CREDITS_STALE_MS });
@@ -120,11 +166,32 @@ const LABELS = {
   en: { movie: "Movie", series: "Series", requested: "Requested", processing: "In progress" },
 };
 
+/* Le métier au générique, dit dans la langue de l'interface (TMDB le rend en anglais). */
+const JOB_LABELS: Record<"fr" | "en", Record<string, string>> = {
+  fr: {
+    Director: "Réalisation", Screenplay: "Scénario", Writer: "Scénario", Teleplay: "Scénario", Novel: "Roman",
+    Story: "Histoire", Author: "Auteur", Creator: "Création", Producer: "Production",
+    "Executive Producer": "Production exécutive", "Original Music Composer": "Musique", Music: "Musique", Composer: "Musique",
+  },
+  en: {
+    Director: "Director", Screenplay: "Screenplay", Writer: "Writer", Teleplay: "Teleplay", Novel: "Novel",
+    Story: "Story", Author: "Author", Creator: "Creator", Producer: "Producer",
+    "Executive Producer": "Executive Producer", "Original Music Composer": "Music", Music: "Music", Composer: "Music",
+  },
+};
+
+/** Ce que la personne a fait sur l'œuvre : son personnage, ou son métier traduit. */
+export function creditLabel(c: Pick<Credit, "crew" | "role">, lang: string): string | null {
+  if (!c.role) return null;
+  if (!c.crew) return c.role;
+  return JOB_LABELS[lang === "fr" ? "fr" : "en"][c.role] ?? c.role;
+}
+
 function toItem(c: Credit, status: number | undefined, lang: string): ProviderItem {
   const l = lang === "fr" ? LABELS.fr : LABELS.en;
   const kind = c.mediaType === "movie" ? "movie" : "series";
   const year = c.releaseDate ? Number(c.releaseDate.slice(0, 4)) || null : null;
-  const subtitle = [kind === "movie" ? l.movie : l.series, year, c.role].filter(Boolean).join(" · ");
+  const subtitle = [kind === "movie" ? l.movie : l.series, year, creditLabel(c, lang)].filter(Boolean).join(" · ");
   return {
     id: `${c.mediaType}:${c.id}`,
     kind,
@@ -147,6 +214,8 @@ export interface PersonQuery {
   lang: string;
   limit: number;
   type: "movie" | "series" | null;
+  /** Le métier d'arrivée (cf. `readRole`) — ses œuvres passent devant. */
+  role: string | null;
 }
 
 /** Le contrat générique : ce que la personne a fait et que la bibliothèque n'a PAS. */
@@ -155,12 +224,13 @@ export async function personProvider(cfg: WorkerCfg, q: PersonQuery): Promise<Pr
   const personId = await resolvePerson(cfg, q.name, q.tmdbId, q.lang);
   if (personId === null) return empty;
   const credits = await personCredits(cfg, personId, q.lang);
-  const items = credits
-    .filter((c) => q.type === null || (q.type === "movie") === (c.mediaType === "movie"))
-    .map((c) => ({ c, status: statusOf(c.mediaType, c.id) ?? c.status }))
+  const items = pickCredits(credits, q.role)
+    .filter(({ credit: c }) => q.type === null || (q.type === "movie") === (c.mediaType === "movie"))
+    .map(({ credit: c, matches }) => ({ c, matches, status: statusOf(c.mediaType, c.id) ?? c.status }))
     .filter(({ status }) => !inLibraryOrBlocked(status))
-    // Les œuvres qu'on connaît d'abord : c'est d'elles qu'on se souvient.
-    .sort((a, b) => b.c.voteCount - a.c.voteCount || b.c.popularity - a.c.popularity)
+    // Le métier d'arrivée d'abord, puis les œuvres qu'on connaît : c'est
+    // d'elles qu'on se souvient.
+    .sort((a, b) => Number(b.matches) - Number(a.matches) || b.c.voteCount - a.c.voteCount || b.c.popularity - a.c.popularity)
     .slice(0, q.limit)
     .map(({ c, status }) => toItem(c, status, q.lang));
   return { ...empty, items, moreHref: `/discover?person=${personId}` };
