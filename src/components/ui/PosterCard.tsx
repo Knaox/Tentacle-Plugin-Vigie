@@ -4,11 +4,13 @@
 
 /*
  * UNE carte pour tout le plugin : rangées, grille du catalogue, recherche,
- * filmographies. Elle répond aux deux questions qui comptent ici :
+ * filmographies. Elle répond aux trois questions qui comptent ici :
  *
  *   - où en est ce titre ? — le bandeau au pied de l'affiche : demandé, en
  *     route (son filet avance), bloqué, disponible, en partie. Posé sur une
  *     plaque presque opaque : aucune affiche ne peut en avaler la couleur ;
+ *   - qu'en a-t-on fait ? — en haut de l'affiche : dans la bibliothèque, vu,
+ *     dans « Ma liste », aimé, et sa propre note (cf. MarkPlate) ;
  *   - par où est-il sorti ? — sous le titre, sur la page : au cinéma, en
  *     streaming, potentiellement disponible… Pour une série en partie là,
  *     cette ligne dit plutôt ce qui lui manque : « Il manque 1 saison ».
@@ -23,16 +25,18 @@
 import { memo, useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SeerrSearchResult } from "../../api/types";
-import { mediaTitle, mediaYear, posterUrl } from "../../utils/media-helpers";
+import { getCurrentLanguage, mediaTitle, mediaYear, posterUrl } from "../../utils/media-helpers";
 import { statusText } from "../../utils/state-labels";
 import type { TitleStatus } from "../../utils/title-state";
 import { useTitleGaps, useTitleStatus } from "../../hub/TitleStates";
+import { useTitleMarks } from "../../hub/UserMarks";
 import { gapText } from "../../utils/series-gaps";
 import { useVerdict } from "../../hooks/useVerdict";
 import { ChannelLine, channelOf } from "./ChannelLine";
 import { GapLine } from "./GapLine";
 import { StateBadge } from "./StateBadge";
-import { PlusIcon, StarIcon } from "./icons";
+import { MarkPlate, RatingChip, marksText } from "./MarkPlate";
+import { PlusIcon } from "./icons";
 
 /** Pointeur fin (souris) : la demande rapide au survol n'a de sens que là. */
 const FINE_POINTER = typeof window !== "undefined" && window.matchMedia?.("(hover: hover) and (pointer: fine)").matches;
@@ -72,13 +76,20 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
   const canQuickRequest = FINE_POINTER && !!onQuickRequest
     && (item.mediaType === "movie" ? status === null : item.mediaType === "tv" && status?.state !== "available");
   const rating = item.voteAverage ?? 0;
+  const marks = useTitleMarks(item);
+  const lang = getCurrentLanguage();
+  // Le bandeau dit déjà « là » : la plaque ne le répète pas.
+  const bandSaysHere = status?.state === "available" || status?.state === "partial";
   // Une affiche déjà en cache a fini de charger avant que React n'écoute `load`.
   const imgRef = useCallback((node: HTMLImageElement | null) => {
     if (node?.complete && node.naturalWidth > 0) setLoaded(true);
   }, []);
 
-  const label = [title, status ? statusText(status, t) : "", caption ?? gap ?? channel?.label ?? [typeLabel, year].filter(Boolean).join(" · ")]
-    .filter(Boolean).join(" — ");
+  const label = [
+    title, status ? statusText(status, t) : "",
+    ...marksText(marks, bandSaysHere, t, lang),
+    caption ?? gap ?? channel?.label ?? [typeLabel, year].filter(Boolean).join(" · "),
+  ].filter(Boolean).join(" — ");
 
   return (
     <div
@@ -110,15 +121,8 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
               {title}
             </div>
           )}
-          {rating > 0 && (
-            <span
-              className="absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-tentacle-on-media-primary"
-              style={{ background: "var(--vg-plate)" }}
-            >
-              <StarIcon className="h-2.5 w-2.5 text-[var(--seer-st-rating-solid)]" />
-              {rating.toFixed(1)}
-            </span>
-          )}
+          <RatingChip score={marks?.score ?? null} publicRating={rating} lang={lang} />
+          {marks && <MarkPlate marks={marks} bandSaysHere={bandSaysHere} />}
           {status && <StateBadge status={status} variant="band" />}
         </div>
         <p className="mt-2 truncate text-[13px] font-semibold leading-5 text-tentacle-text-primary">{title}</p>

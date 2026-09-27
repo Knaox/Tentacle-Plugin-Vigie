@@ -15,12 +15,14 @@ import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import type { SeerrSearchResult } from "../api/types";
 import type { SearchPerson } from "../api/types-search";
-import { backdropUrl, mediaTitle, mediaYear, posterUrl, profileUrl } from "../utils/media-helpers";
+import { backdropUrl, getCurrentLanguage, mediaTitle, mediaYear, posterUrl, profileUrl } from "../utils/media-helpers";
 import { mediaStateOf } from "../utils/media-status";
 import { navigateToMedia } from "../utils/navigate-media";
 import { CTA_PRIMARY, CTA_SECONDARY, CTA_SIZE_MD } from "../styles/cta";
 import { useHub } from "../hub/HubContext";
 import { useTitleGaps, useTitleStatus } from "../hub/TitleStates";
+import { useTitleMarks } from "../hub/UserMarks";
+import { MarkLine } from "../components/ui/MarkPlate";
 import { gapText } from "../utils/series-gaps";
 import { StateBadge } from "../components/ui/StateBadge";
 import { PlayIcon, PlusIcon, StarIcon, UserIcon } from "../components/ui/icons";
@@ -32,6 +34,7 @@ export const TopMediaResult = memo(function TopMediaResult({ item }: { item: See
   const state = mediaStateOf(item.mediaInfo?.status);
   const status = useTitleStatus(item);
   const gaps = useTitleGaps(item);
+  const marks = useTitleMarks(item);
   const gap = status?.state === "partial" ? gapText(gaps, t, "long") : null;
   const backdrop = backdropUrl(item.backdropPath, "w780");
   const poster = posterUrl(item.posterPath, "w342");
@@ -64,6 +67,11 @@ export const TopMediaResult = memo(function TopMediaResult({ item }: { item: See
             <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
               <StateBadge status={status} variant="chip" />
               {gap && <span className="text-xs font-medium text-tentacle-text-secondary">{gap}</span>}
+            </div>
+          )}
+          {marks && (
+            <div className="mt-2">
+              <MarkLine marks={marks} bandSaysHere={status?.state === "available" || status?.state === "partial"} t={t} lang={getCurrentLanguage()} />
             </div>
           )}
           {item.overview && <p className="mt-2 hidden text-sm leading-relaxed text-tentacle-text-tertiary sm:line-clamp-2">{item.overview}</p>}

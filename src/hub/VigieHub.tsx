@@ -40,6 +40,7 @@ import { HubHeader } from "./HubHeader";
 import { hostQuery, readHubEntry } from "./deepLink";
 import { useHubData } from "./useHubData";
 import { TitleStatesProvider } from "./TitleStates";
+import { UserMarksProvider } from "./UserMarks";
 
 const MIN_SEARCH = 2;
 
@@ -192,6 +193,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
   return (
     <HubContext.Provider value={api}>
       <TitleStatesProvider data={data}>
+      <UserMarksProvider>
         <div className="min-h-screen bg-tentacle-surface-0" style={{ paddingBottom: `calc(2.5rem + ${CHROME_BOTTOM})` }}>
           <HubHeader
             query={query}
@@ -257,6 +259,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
             onOpenDetail={(item) => { setQuickSeasons(null); openMedia(item); }}
           />
         )}
+      </UserMarksProvider>
       </TitleStatesProvider>
     </HubContext.Provider>
   );
