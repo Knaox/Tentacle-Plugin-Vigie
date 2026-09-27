@@ -7,7 +7,7 @@ export default {
   markYourRating: "Your rating: {{score}} out of 5",
   markPublicRating: "TMDB rating: {{score}} out of 10",
   maskedResult: "Hidden",
-  maskedResultLabel: "Hidden by the content filter",
+  maskedResultLabel: "Hidden, shown because you searched for it",
   blockedShownCount_one: "{{count}} hidden result shown, because you searched for it.",
   blockedShownCount_other: "{{count}} hidden results shown, because you searched for them.",
   collectionSubtitle_one: "{{count}} film",

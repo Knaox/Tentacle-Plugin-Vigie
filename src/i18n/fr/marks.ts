@@ -7,7 +7,7 @@ export default {
   markYourRating: "Votre note : {{score}} sur 5",
   markPublicRating: "Note TMDB : {{score}} sur 10",
   maskedResult: "Masqué",
-  maskedResultLabel: "Masqué par le filtre de contenu",
+  maskedResultLabel: "Masqué, montré parce que vous l'avez cherché",
   blockedShownCount_one: "{{count}} résultat masqué affiché, car vous l'avez cherché.",
   blockedShownCount_other: "{{count}} résultats masqués affichés, car vous les avez cherchés.",
   collectionSubtitle_one: "{{count}} film",

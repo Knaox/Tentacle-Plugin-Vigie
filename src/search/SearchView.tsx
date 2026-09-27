@@ -58,7 +58,7 @@ export const SearchView = memo(function SearchView({ query, search, showBlocked,
     <div className="space-y-8" style={{ animation: "viewCrossfade 180ms ease both" }}>
       <Notices data={data} typed={query} onSearchExact={onSearchExact} />
       {/* Montrés d'office : dit tout de suite, avec le geste qui les re-masque. */}
-      {showBlocked && data.blockedActive && masked > 0 && (
+      {showBlocked && masked > 0 && (
         <BlockedResultsBanner blockedCount={masked} showBlocked onToggle={onToggleBlocked} />
       )}
       {data.facets.length > 0 && <SearchFacets facets={data.facets} />}
@@ -92,7 +92,7 @@ export const SearchView = memo(function SearchView({ query, search, showBlocked,
         </>
       )}
       {/* Re-masqués : après ce qu'on cherchait — ou sous « aucun résultat ». */}
-      {!showBlocked && data.blockedActive && masked > 0 && (
+      {!showBlocked && masked > 0 && (
         <BlockedResultsBanner blockedCount={masked} showBlocked={false} onToggle={onToggleBlocked} />
       )}
     </div>

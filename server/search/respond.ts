@@ -37,8 +37,15 @@ export function statusFor(c: Pick<Candidate, "key" | "mediaType" | "tmdbId" | "r
   return known;
 }
 
-function visible(media: readonly Candidate[]): Candidate[] {
-  return media.filter((c) => statusFor(c) !== MEDIA_STATUS.BLOCKLISTED);
+/**
+ * Ce que le hub montre. Jellyseerr range lui-même au statut « blocklisté »
+ * les titres des mots-clés bloqués (et ceux qu'on y a mis à la main) : pour
+ * lui aussi, c'est masqué. `showMasked` les garde, MARQUÉS — sinon, ils
+ * disparaissent comme avant.
+ */
+function visible(media: readonly Candidate[], showMasked: boolean): Candidate[] {
+  if (!showMasked) return media.filter((c) => !c.masked && statusFor(c) !== MEDIA_STATUS.BLOCKLISTED);
+  return media.map((c) => (statusFor(c) === MEDIA_STATUS.BLOCKLISTED && !c.masked ? { ...c, masked: true } : c));
 }
 
 function toPerson(p: Ranked["people"][number]): SearchPerson {
@@ -69,8 +76,9 @@ export function presentHub(
   facets: Facet[],
   indexing: boolean,
   startedAt: number,
+  showMasked = false,
 ): HubSearchResponse {
-  const media = visible(ranked.media);
+  const media = visible(ranked.media, showMasked);
   const tokens = tokenize(ranked.searched);
   const facetQuery = facetNamed(facets, ranked.parsed.raw);
   const bestMedia = media[0];
