@@ -6,9 +6,11 @@ import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import type { LocalRequest } from "../api/types";
 import type { ProgressItem } from "../api/types-releases";
-import { posterUrl } from "../utils/media-helpers";
+import { getCurrentLanguage, posterUrl } from "../utils/media-helpers";
 import { gapText, restrictGaps } from "../utils/series-gaps";
 import { useTitleGaps } from "../hub/TitleStates";
+import { useTitleMarks } from "../hub/UserMarks";
+import { MarkPlate, RatingChip, marksText } from "../components/ui/MarkPlate";
 import { GapLine } from "../components/ui/GapLine";
 import { statusText } from "../utils/state-labels";
 import { useInterpolatedProgress } from "../hooks/useDownloadProgress";
@@ -35,8 +37,15 @@ export const RequestTile = memo(function RequestTile({ request, progress, receiv
   const gaps = useTitleGaps({ id: request.tmdbId, mediaType: request.mediaType });
   const gap = !detail && shown?.state === "partial" ? gapText(restrictGaps(gaps, request.seasons), t, "short") : null;
   const poster = posterUrl(request.posterPath);
+  // Les mêmes marques que sur toutes les affiches ; la note, seulement la sienne.
+  const marks = useTitleMarks({ id: request.tmdbId, mediaType: request.mediaType });
+  const lang = getCurrentLanguage();
+  const bandSaysHere = shown?.state === "available" || shown?.state === "partial";
   const typeLine = [request.mediaType === "tv" ? t("seer:typeSeries") : t("seer:typeMovie"), request.year].filter(Boolean).join(" · ");
-  const label = [request.title, shown ? statusText(shown, t) : "", detail ? t(detail.key, detail.params) : gap ?? ""].filter(Boolean).join(" — ");
+  const label = [
+    request.title, shown ? statusText(shown, t) : "", ...marksText(marks, bandSaysHere, t, lang),
+    detail ? t(detail.key, detail.params) : gap ?? "",
+  ].filter(Boolean).join(" — ");
 
   return (
     <button type="button" onClick={() => onOpen(request)} aria-label={label} className="group block w-full text-left focus-visible:outline-none">
@@ -44,6 +53,8 @@ export const RequestTile = memo(function RequestTile({ request, progress, receiv
         {poster
           ? <img src={poster} alt="" loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
           : <span className="flex h-full items-end p-3 pb-8 text-sm font-semibold text-tentacle-text-tertiary">{request.title}</span>}
+        {marks && <MarkPlate marks={marks} bandSaysHere={bandSaysHere} />}
+        {marks?.score != null && <RatingChip score={marks.score} publicRating={0} lang={lang} />}
         {shown && <StateBadge status={shown} variant="band" />}
       </div>
       <p className="mt-2 truncate text-[13px] font-semibold leading-5 text-tentacle-text-primary">{request.title}</p>
