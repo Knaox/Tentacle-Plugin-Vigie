@@ -30,14 +30,15 @@ const FULL_MS = 220;
 const isEmpty = (q: string) => q.length < MIN_LENGTH;
 
 interface SearchFlags {
-  showBlocked: boolean;
   /** « Rechercher X quand même » : pas de correction. */
   exact: boolean;
 }
 
 function searchPath(q: string, mode: "instant" | "full", page: number, flags: SearchFlags): string {
   const params = new URLSearchParams({ q, mode, page: String(page), lang: getCurrentLanguage() });
-  if (flags.showBlocked) params.set("showBlocked", "1");
+  // Toujours : le serveur rend les titres masqués MARQUÉS, et c'est le hub qui
+  // décide de les montrer — les retirer ne coûte alors aucune requête.
+  params.set("showBlocked", "1");
   if (flags.exact) params.set("exact", "1");
   return `/search?${params}`;
 }
@@ -67,14 +68,14 @@ export interface VigieSearchState {
 }
 
 export function useVigieSearch(query: string, flags: SearchFlags): VigieSearchState {
-  const { showBlocked, exact } = flags;
+  const { exact } = flags;
   const q = query.trim();
   const instantQ = useDebounced(q, INSTANT_MS, isEmpty);
   const fullQ = useDebounced(q, FULL_MS, isEmpty);
   const lang = getCurrentLanguage();
 
   const instant = useQuery({
-    queryKey: ["vigie-search", "instant", instantQ, lang, showBlocked, exact],
+    queryKey: ["vigie-search", "instant", instantQ, lang, exact],
     queryFn: ({ signal }) => backendFetch<VigieSearchResponse>(searchPath(instantQ, "instant", 1, flags), { signal }),
     enabled: instantQ.length >= MIN_LENGTH,
     staleTime: 30_000,
@@ -82,7 +83,7 @@ export function useVigieSearch(query: string, flags: SearchFlags): VigieSearchSt
   });
 
   const full = useInfiniteQuery({
-    queryKey: ["vigie-search", "full", fullQ, lang, showBlocked, exact],
+    queryKey: ["vigie-search", "full", fullQ, lang, exact],
     queryFn: ({ pageParam, signal }) =>
       backendFetch<VigieSearchResponse>(searchPath(fullQ, "full", pageParam, flags), { signal }),
     initialPageParam: 1,

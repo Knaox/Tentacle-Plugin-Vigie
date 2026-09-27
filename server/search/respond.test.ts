@@ -80,3 +80,15 @@ test("quand aucun nom ne contient les mots tapés, le plus connu des premiers ch
   assert.equal(hub.top?.kind, "media");
   assert.equal(hub.top?.kind === "media" ? hub.top.item.id : null, 1429);
 });
+
+test("un titre masqué garde sa marque dans le hub, jamais dans la recherche de Tentacle", () => {
+  const r = ranked("twilight", [
+    candidate({ tmdbId: 1, title: "Twilight", text: 1000, masked: true }),
+    candidate({ tmdbId: 2, title: "Twilight Zone", text: 900 }),
+  ]);
+  const hub = presentHub(r, 1, [], false, Date.now());
+  const all = [...hub.movies, ...(hub.top?.kind === "media" ? [hub.top.item] : [])];
+  assert.equal(all.find((m) => m.id === 1)?.masked, true);
+  assert.equal(all.find((m) => m.id === 2)?.masked, undefined);
+  assert.deepEqual(titles(r), ["Twilight Zone"]);
+});

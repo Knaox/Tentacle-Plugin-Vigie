@@ -49,6 +49,8 @@ export interface SeerrSearchResult {
     /** Ce qui descend en ce moment, relayé de la file *arr par Jellyseerr. */
     downloadStatus?: Array<{ status?: string; size?: number; sizeLeft?: number }>;
   };
+  /** Recherche seulement : masqué d'ordinaire par le filtre de contenu, montré parce qu'on l'a cherché. */
+  masked?: boolean;
 }
 
 export interface SeerrPagedResponse {

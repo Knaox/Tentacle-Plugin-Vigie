@@ -36,7 +36,7 @@ import { ChannelLine, channelOf } from "./ChannelLine";
 import { GapLine } from "./GapLine";
 import { StateBadge } from "./StateBadge";
 import { MarkPlate, RatingChip, marksText } from "./MarkPlate";
-import { PlusIcon } from "./icons";
+import { EyeOffIcon, PlusIcon } from "./icons";
 
 /** Pointeur fin (souris) : la demande rapide au survol n'a de sens que là. */
 const FINE_POINTER = typeof window !== "undefined" && window.matchMedia?.("(hover: hover) and (pointer: fine)").matches;
@@ -86,7 +86,7 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
   }, []);
 
   const label = [
-    title, status ? statusText(status, t) : "",
+    title, item.masked ? t("seer:maskedResultLabel") : "", status ? statusText(status, t) : "",
     ...marksText(marks, bandSaysHere, t, lang),
     caption ?? gap ?? channel?.label ?? [typeLabel, year].filter(Boolean).join(" · "),
   ].filter(Boolean).join(" — ");
@@ -122,7 +122,17 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
             </div>
           )}
           <RatingChip score={marks?.score ?? null} publicRating={rating} lang={lang} />
-          {marks && <MarkPlate marks={marks} bandSaysHere={bandSaysHere} />}
+          {item.masked ? (
+            // Masqué d'ordinaire par le filtre de contenu, montré par une recherche.
+            <span
+              aria-hidden
+              className="absolute left-1.5 top-1.5 inline-flex h-5 items-center gap-1 rounded-full px-1.5 text-[10px] font-bold text-tentacle-on-media-primary"
+              style={{ background: "var(--vg-plate)" }}
+            >
+              <EyeOffIcon className="h-3 w-3" />
+              {t("seer:maskedResult")}
+            </span>
+          ) : marks && <MarkPlate marks={marks} bandSaysHere={bandSaysHere} />}
           {status && <StateBadge status={status} variant="band" />}
         </div>
         <p className="mt-2 truncate text-[13px] font-semibold leading-5 text-tentacle-text-primary">{title}</p>

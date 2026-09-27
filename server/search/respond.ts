@@ -156,6 +156,8 @@ export function presentProvider(
     .filter((c) => !libraryHasIt || c.voteCount >= NOTABLE_VOTES || c.popularity >= NOTABLE_POPULARITY)
     .filter((c) => type === null || (type === "movie") === (c.mediaType === "movie"))
     .filter((c) => !inLibraryOrBlocked(statusFor(c)))
+    // La recherche de Tentacle n'a pas de geste pour re-masquer : jamais de titre masqué.
+    .filter((c) => !c.masked)
     .slice(0, limit)
     .map((c) => toProviderItem(c, statusFor(c), lang, today));
   const q = ranked.parsed.raw;

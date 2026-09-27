@@ -25,7 +25,7 @@ import { useTitleMarks } from "../hub/UserMarks";
 import { MarkLine } from "../components/ui/MarkPlate";
 import { gapText } from "../utils/series-gaps";
 import { StateBadge } from "../components/ui/StateBadge";
-import { PlayIcon, PlusIcon, StarIcon, UserIcon } from "../components/ui/icons";
+import { EyeOffIcon, PlayIcon, PlusIcon, StarIcon, UserIcon } from "../components/ui/icons";
 
 export const TopMediaResult = memo(function TopMediaResult({ item }: { item: SeerrSearchResult }) {
   const { t } = useTranslation("seer");
@@ -55,7 +55,14 @@ export const TopMediaResult = memo(function TopMediaResult({ item }: { item: See
       <div className="pointer-events-none relative z-10 flex gap-4 p-4 sm:gap-6 sm:p-6">
         {poster && <img src={poster} alt="" className="h-36 w-24 shrink-0 rounded-xl object-cover shadow-tentacle-elev-2 sm:h-48 sm:w-32" />}
         <div className="flex min-w-0 flex-1 flex-col justify-center">
-          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--brand-light)]">{t("seer:topResult")}</p>
+          <p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--brand-light)]">
+            {t("seer:topResult")}
+            {item.masked && (
+              <span className="inline-flex items-center gap-1 normal-case tracking-normal text-tentacle-text-tertiary">
+                <EyeOffIcon className="h-3.5 w-3.5" />{t("seer:maskedResultLabel")}
+              </span>
+            )}
+          </p>
           <h2 className="mt-1 line-clamp-2 text-xl font-bold leading-tight text-tentacle-text-primary sm:text-3xl">{title}</h2>
           <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-tentacle-text-secondary">
             <span>{meta}</span>

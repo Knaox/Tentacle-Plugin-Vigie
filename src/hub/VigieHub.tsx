@@ -77,7 +77,8 @@ export function VigieHub({ routePath }: { routePath: string }) {
   const [fresh, setFresh] = useState<Record<HubTab, number>>({ discover: 0, catalog: 0, requests: 0, calendar: 0 });
   const [query, setQueryState] = useState(entry.query);
   const [exact, setExact] = useState(false);
-  const [showBlocked, setShowBlocked] = useState(false);
+  // Une recherche montre ce qu'on cherche, même masqué ; un geste le re-masque.
+  const [showBlocked, setShowBlocked] = useState(true);
   const [catalog, setCatalog] = useState<CatalogEntry>(() => ({ nonce: 0, preset: catalogPreset(t), filters: false, from: null }));
   const [detail, setDetail] = useState<{ item: SeerrSearchResult; options?: OpenMediaOptions } | null>(
     entry.media ? { item: { id: entry.media.id, mediaType: entry.media.mediaType } } : null,
@@ -87,7 +88,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
   const [calendarFocus, setCalendarFocus] = useState<CalendarFocus | null>(null);
 
   const data = useHubData();
-  const search = useVigieSearch(query, { showBlocked, exact });
+  const search = useVigieSearch(query, { exact });
   const searching = query.trim().length >= MIN_SEARCH;
 
   // Un onglet s'ouvre en haut de sa page. Seuls un RETOUR (« Retour à
