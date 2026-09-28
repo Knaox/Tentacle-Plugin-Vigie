@@ -5,11 +5,14 @@
 /*
  * Au doigt, pas de survol : c'est l'appui long qui ouvre les gestes d'une
  * affiche (la feuille), comme sur les cartes de Tentacle. Un appui qui glisse
- * (on fait défiler la rangée) n'en est pas un, et le toucher qui suit un
- * appui long n'ouvre pas la fiche. La souris n'est jamais concernée.
+ * (on fait défiler la rangée) n'en est pas un, et le clic qui suit un appui
+ * long est avalé, où qu'il tombe — sur l'affiche (la fiche ne s'ouvre pas)
+ * comme sur la feuille qui vient de s'ouvrir sous le doigt (son « Demander »
+ * ne part pas tout seul, cf. ghostClick.ts). La souris n'est jamais concernée.
  */
 
 import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { swallowGhostClick } from "./ghostClick";
 
 const HOLD_MS = 480;
 /** Au-delà, le doigt défile : ce n'est plus un appui. */
@@ -38,6 +41,9 @@ export function useLongPress(onLongPress: () => void) {
       timer.current = setTimeout(() => {
         timer.current = null;
         fired.current = true;
+        swallowGhostClick(document, () => {
+          fired.current = false;
+        });
         navigator.vibrate?.(10);
         latest.current();
       }, HOLD_MS);
