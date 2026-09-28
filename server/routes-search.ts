@@ -17,6 +17,10 @@
  *                           Déclaré dans `plugin.json` → `search.person`.
  *                           `role` (facultatif) : le crédit Jellyfin par
  *                           lequel on arrive — ses œuvres passent devant.
+ *   GET /search/collection — même contrat, pour une saga : les volets que la
+ *                           bibliothèque n'a pas (`tmdb` = la saga TMDB),
+ *                           chacun avec son `tmdbId` pour prendre son rang
+ *                           sur la fiche d'un film. `search.collection`.
  */
 
 import type { FastifyInstance } from "fastify";
@@ -28,6 +32,7 @@ import { genreFacets, providerFacets } from "./search/facets";
 import { titleIndexBuilding } from "./search/title-crawl";
 import { ensureSearchTables } from "./search/title-store";
 import { personProvider, readRole } from "./search/person-credits";
+import { collectionProvider } from "./search/collection-parts";
 
 const MAX_QUERY = 120;
 const MAX_PAGE = 20;
@@ -125,6 +130,26 @@ export async function registerSearchRoutes(
       });
     } catch {
       // Jellyseerr injoignable : la filmographie de Tentacle s'affiche sans nous.
+      return empty;
+    }
+  });
+
+  app.get("/search/collection", async (request, reply) => {
+    const query = request.query as SearchQuery;
+    const tmdb = Number(query.tmdb);
+    const ctx = await context();
+    if (!ctx) return reply.status(503).send({ message: "Vigie is not configured" });
+    const empty = { query: String(query.tmdb ?? ""), correction: null, complete: true, items: [], moreHref: null };
+    if (!Number.isInteger(tmdb) || tmdb <= 0) return empty;
+    try {
+      return await collectionProvider(ctx.cfg, {
+        collectionId: tmdb,
+        lang: readLang(query.lang),
+        limit: Math.min(Math.max(1, Number(query.limit) || 20), 40),
+        today: todayIso(),
+      });
+    } catch {
+      // Jellyseerr injoignable : la saga de Tentacle s'affiche sans nous.
       return empty;
     }
   });

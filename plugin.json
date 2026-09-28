@@ -45,6 +45,7 @@
   "search": {
     "path": "/search/provider",
     "person": "/search/person",
+    "collection": "/search/collection",
     "types": [
       "movie",
       "series"

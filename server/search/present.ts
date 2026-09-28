@@ -139,7 +139,10 @@ export function toSearchItem(c: Candidate, status: number | undefined): SearchIt
 export interface ProviderItem {
   id: string;
   kind: "movie" | "series";
-  /** L'identité TMDB : Tentacle en tire la note, Ma liste à l'arrivée et le geste « Demander ». */
+  /**
+   * L'identité TMDB : Tentacle en tire la note, Ma liste à l'arrivée et le
+   * geste « Demander » — et le rang d'un volet de saga sur la fiche d'un film.
+   */
   tmdbId: number;
   title: string;
   year: number | null;
