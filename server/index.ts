@@ -23,6 +23,7 @@ import { registerCalendarRoutes } from "./routes-calendar";
 import { registerMiscRoutes } from "./routes-misc";
 import { registerProxyRoutes } from "./routes-proxy";
 import { registerSearchRoutes } from "./routes-search";
+import { registerTitleRoutes } from "./routes-titles";
 
 const __pluginDir = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -117,6 +118,8 @@ export default async function seerBackend(
 
   registerMiscRoutes(app, prisma, gwc, ctx.requireAdmin);
   await registerSearchRoutes(app, prisma, gwc);
+  // Le contrat `titles` de Tentacle : l'état et la demande d'un titre, pour ses cartes.
+  registerTitleRoutes(app, prisma, gwc);
 
   console.log("[SeerBackend] Routes registered");
 }

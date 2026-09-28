@@ -53,5 +53,9 @@
       "fr": "Pas encore sur le serveur",
       "en": "Not on the server yet"
     }
+  },
+  "titles": {
+    "state": "/titles/state",
+    "request": "/titles/request"
   }
 }

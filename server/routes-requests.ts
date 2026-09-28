@@ -5,22 +5,19 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import {
-  createRequest, getRequestById,
-  findDuplicate, enqueueCleanup,
+  getRequestById,
+  enqueueCleanup,
   updateRequestStatus,
-  findExistingTvRequest, addSeasonsToRequest,
-  getOrCreateUserSettings, countRequestsToday,
+  addSeasonsToRequest,
 } from "./db";
 import type { CreateRequestBody } from "./types";
-import { fetchMediaDetail, isAnimeFromKeywords } from "./anime";
 import { invalidateRequestCaches } from "./cache";
 import { kickWorkerNow } from "./worker";
 import { getUser, type WorkerCfg, parseRequestId, fetchSeerrRequestById } from "./seerr-unified";
 import { registerRequestReadRoutes } from "./routes-requests-read";
 import { registerRequestActionRoutes } from "./routes-requests-actions";
 import { registerRequestForgetRoute } from "./routes-requests-forget";
-import { markLocallyPending } from "./search/pending";
-import { effectiveDailyLimit } from "./plugin-config";
+import { submitRequest } from "./request-submit";
 
 export function registerRequestRoutes(
   app: FastifyInstance,
@@ -31,107 +28,10 @@ export function registerRequestRoutes(
   registerRequestActionRoutes(app, prisma, getWorkerConfig);
   registerRequestForgetRoute(app, prisma, getWorkerConfig);
 
-  /* ── POST /requests — validation user (block/quota/type) ─────────── */
+  /* ── POST /requests — les règles du compte, puis la file (request-submit.ts) ── */
   app.post("/requests", async (request, reply) => {
-    const user = getUser(request);
-    const body = request.body as CreateRequestBody;
-
-    if (!body.mediaType || !body.tmdbId || !body.title) {
-      return reply.status(400).send({ message: "mediaType, tmdbId, and title are required" });
-    }
-
-    // 1) Charge ou crée les settings du user
-    const settings = await getOrCreateUserSettings(prisma, user.userId, user.username);
-
-    // 2) Blocage
-    if (settings.blocked) {
-      return reply.status(403).send({ errorKey: "seer:errUserBlocked", message: "User is blocked" });
-    }
-
-    // 3) Détection du type réel (anime ?)
-    let isAnime = false;
-    const config = await getWorkerConfig();
-    if (body.mediaType === "tv" && config) {
-      const detail = await fetchMediaDetail(config.seerrUrl, config.seerrApiKey, "tv", body.tmdbId);
-      if (detail && isAnimeFromKeywords(detail)) isAnime = true;
-    }
-
-    // 4) Permission par type
-    if (body.mediaType === "movie" && !settings.allowMovies) {
-      return reply.status(403).send({ errorKey: "seer:errMoviesDenied", message: "Movies denied" });
-    }
-    if (body.mediaType === "tv" && isAnime && !settings.allowAnime) {
-      return reply.status(403).send({ errorKey: "seer:errAnimeDenied", message: "Anime denied" });
-    }
-    if (body.mediaType === "tv" && !isAnime && !settings.allowTv) {
-      return reply.status(403).send({ errorKey: "seer:errTvDenied", message: "TV denied" });
-    }
-
-    // 5) Quota quotidien — le plafond du compte, sinon celui par défaut (qui
-    //    était enregistré par la page d'administration mais jamais appliqué).
-    const limit = effectiveDailyLimit(settings.dailyLimit, config?.defaultDailyLimit ?? null);
-    if (limit !== null) {
-      const todayCount = await countRequestsToday(prisma, user.userId);
-      if (todayCount >= limit) {
-        return reply.status(429).send({
-          errorKey: "seer:errQuotaReached",
-          limit,
-          message: `Daily quota reached (${limit})`,
-        });
-      }
-    }
-
-    // 6) TV : fusion saisons (existant)
-    if (body.mediaType === "tv" && body.seasons?.length) {
-      const existing = await findExistingTvRequest(prisma, user.userId, body.tmdbId);
-      if (existing) {
-        const existingSeasons = new Set(existing.seasons ?? []);
-        const newSeasons = body.seasons.filter((s) => !existingSeasons.has(s));
-        if (newSeasons.length === 0) {
-          return reply.status(409).send({ message: "All seasons already requested", existing });
-        }
-
-        const merged = [...(existing.seasons ?? []), ...newSeasons].sort((a, b) => a - b);
-        await addSeasonsToRequest(prisma, existing.id, merged);
-
-        await createRequest(prisma, {
-          jellyfinUserId: user.userId, username: user.username,
-          mediaType: body.mediaType, tmdbId: body.tmdbId, title: body.title,
-          posterPath: body.posterPath, backdropPath: body.backdropPath,
-          overview: body.overview, year: body.year,
-          seasons: newSeasons,
-          profileId: body.profileId ?? existing.profileId,
-          isAnime,
-        });
-
-        const updated = await getRequestById(prisma, existing.id);
-        invalidateRequestCaches(user.userId);
-        markLocallyPending(body.mediaType, body.tmdbId);
-        kickWorkerNow();
-        return reply.status(201).send(updated);
-      }
-    }
-
-    // 7) Doublon film / 1ère TV
-    const dup = await findDuplicate(prisma, user.userId, body.tmdbId, body.mediaType, body.seasons);
-    if (dup) {
-      return reply.status(409).send({ message: "A request for this media is already active", existing: dup });
-    }
-
-    const req = await createRequest(prisma, {
-      jellyfinUserId: user.userId, username: user.username,
-      mediaType: body.mediaType, tmdbId: body.tmdbId, title: body.title,
-      posterPath: body.posterPath, backdropPath: body.backdropPath,
-      overview: body.overview, year: body.year, seasons: body.seasons,
-      profileId: body.profileId,
-      isAnime,
-    });
-
-    invalidateRequestCaches(user.userId);
-    // La recherche dit « Demandé » tout de suite, sans attendre le worker.
-    markLocallyPending(body.mediaType, body.tmdbId);
-    kickWorkerNow();
-    return reply.status(201).send(req);
+    const result = await submitRequest(prisma, getWorkerConfig, getUser(request), request.body as CreateRequestBody);
+    return reply.status(result.status).send(result.body);
   });
 
   app.delete("/requests/:id", async (request, reply) => {

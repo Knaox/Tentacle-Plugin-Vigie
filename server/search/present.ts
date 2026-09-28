@@ -14,6 +14,7 @@
  */
 
 import { MEDIA_STATUS } from "./status-map";
+import { titleBadge } from "../titles/title-state";
 import type { Facet } from "./facets";
 
 export interface Candidate {
@@ -138,6 +139,8 @@ export function toSearchItem(c: Candidate, status: number | undefined): SearchIt
 export interface ProviderItem {
   id: string;
   kind: "movie" | "series";
+  /** L'identité TMDB : Tentacle en tire la note, Ma liste à l'arrivée et le geste « Demander ». */
+  tmdbId: number;
   title: string;
   year: number | null;
   subtitle: string | null;
@@ -155,8 +158,8 @@ export interface ProviderResponse {
 }
 
 const LABELS = {
-  fr: { movie: "Film", series: "Série", requested: "Demandé", processing: "En cours", release: "sortie le" },
-  en: { movie: "Movie", series: "Series", requested: "Requested", processing: "In progress", release: "out" },
+  fr: { movie: "Film", series: "Série", release: "sortie le" },
+  en: { movie: "Movie", series: "Series", release: "out" },
 };
 
 /** Sur le serveur, en tout ou en partie. */
@@ -184,14 +187,12 @@ export function toProviderItem(c: Candidate, status: number | undefined, lang: s
   const subtitle = upcoming && c.releaseDate
     ? `${kindLabel} · ${l.release} ${shortDate(c.releaseDate, lang)}`
     : c.year !== null ? `${kindLabel} · ${c.year}` : kindLabel;
-  const badge = status === MEDIA_STATUS.PENDING
-    ? { label: l.requested, tone: "info" as const }
-    : status === MEDIA_STATUS.PROCESSING
-      ? { label: l.processing, tone: "warning" as const }
-      : null;
+  // Les mots de l'affiche du hub, les mêmes que sur toutes les cartes de Tentacle.
+  const badge = titleBadge(status, lang);
   return {
     id: c.key,
     kind,
+    tmdbId: c.tmdbId,
     title: c.title,
     year: c.year,
     subtitle,

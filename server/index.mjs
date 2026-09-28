@@ -1,8 +1,7 @@
 // Seer Plugin — Server module (auto-generated, do not edit)
 
 // server/index.ts
-import { resolve, dirname } from "path";
-import { existsSync, readFileSync, writeFileSync, statSync } from "fs";
+import { dirname } from "path";
 import { fileURLToPath } from "url";
 
 // server/db-helpers.ts
@@ -567,6 +566,96 @@ async function purgeExpiredContentClaims(prisma) {
   await prisma.$executeRawUnsafe(`DELETE FROM content_claims WHERE expiresAt < NOW(3)`);
 }
 
+// server/db-users.ts
+async function getOrCreateUserSettings(prisma, jellyfinUserId, username) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM seer_user_settings WHERE jellyfin_user_id = ?`,
+    jellyfinUserId
+  );
+  if (rows.length > 0) {
+    if (username && rows[0].username !== username) {
+      await prisma.$executeRawUnsafe(
+        `UPDATE seer_user_settings SET username = ? WHERE jellyfin_user_id = ?`,
+        username,
+        jellyfinUserId
+      );
+      rows[0].username = username;
+    }
+    return rowToUserSettings(rows[0]);
+  }
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO seer_user_settings
+      (jellyfin_user_id, username, blocked, daily_limit, allow_movies, allow_tv, allow_anime)
+     VALUES (?, ?, 0, NULL, 1, 1, 1)`,
+    jellyfinUserId,
+    username || jellyfinUserId
+  );
+  const created = await prisma.$queryRawUnsafe(
+    `SELECT * FROM seer_user_settings WHERE jellyfin_user_id = ?`,
+    jellyfinUserId
+  );
+  return rowToUserSettings(created[0]);
+}
+async function getUserSettings(prisma, jellyfinUserId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM seer_user_settings WHERE jellyfin_user_id = ?`,
+    jellyfinUserId
+  );
+  return rows.length > 0 ? rowToUserSettings(rows[0]) : null;
+}
+async function updateUserSettings(prisma, jellyfinUserId, patch) {
+  const sets = [];
+  const params = [];
+  if (patch.blocked !== void 0) {
+    sets.push("blocked = ?");
+    params.push(patch.blocked ? 1 : 0);
+  }
+  if (patch.dailyLimit !== void 0) {
+    sets.push("daily_limit = ?");
+    params.push(patch.dailyLimit);
+  }
+  if (patch.allowMovies !== void 0) {
+    sets.push("allow_movies = ?");
+    params.push(patch.allowMovies ? 1 : 0);
+  }
+  if (patch.allowTv !== void 0) {
+    sets.push("allow_tv = ?");
+    params.push(patch.allowTv ? 1 : 0);
+  }
+  if (patch.allowAnime !== void 0) {
+    sets.push("allow_anime = ?");
+    params.push(patch.allowAnime ? 1 : 0);
+  }
+  if (patch.jellyseerrUserId !== void 0) {
+    sets.push("jellyseerr_user_id = ?");
+    params.push(patch.jellyseerrUserId);
+  }
+  if (patch.jellyseerrLastSync !== void 0) {
+    sets.push("jellyseerr_last_sync = ?");
+    params.push(patch.jellyseerrLastSync);
+  }
+  if (patch.username !== void 0) {
+    sets.push("username = ?");
+    params.push(patch.username);
+  }
+  if (sets.length === 0) return;
+  params.push(jellyfinUserId);
+  await prisma.$executeRawUnsafe(
+    `UPDATE seer_user_settings SET ${sets.join(", ")} WHERE jellyfin_user_id = ?`,
+    ...params
+  );
+}
+async function countRequestsToday(prisma, jellyfinUserId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT COUNT(*) as cnt FROM seer_requests
+     WHERE jellyfin_user_id = ?
+       AND created_at >= CURDATE()
+       AND status NOT IN ('failed', 'deleted')`,
+    jellyfinUserId
+  );
+  return Number(rows[0].cnt);
+}
+
 // server/db.ts
 async function ensureTables(prisma) {
   let existingCount = 0;
@@ -705,191 +794,6 @@ async function createRequest(prisma, data) {
   );
   return rowToRequest(rows[0]);
 }
-async function getOrCreateUserSettings(prisma, jellyfinUserId, username) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM seer_user_settings WHERE jellyfin_user_id = ?`,
-    jellyfinUserId
-  );
-  if (rows.length > 0) {
-    if (username && rows[0].username !== username) {
-      await prisma.$executeRawUnsafe(
-        `UPDATE seer_user_settings SET username = ? WHERE jellyfin_user_id = ?`,
-        username,
-        jellyfinUserId
-      );
-      rows[0].username = username;
-    }
-    return rowToUserSettings(rows[0]);
-  }
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO seer_user_settings
-      (jellyfin_user_id, username, blocked, daily_limit, allow_movies, allow_tv, allow_anime)
-     VALUES (?, ?, 0, NULL, 1, 1, 1)`,
-    jellyfinUserId,
-    username || jellyfinUserId
-  );
-  const created = await prisma.$queryRawUnsafe(
-    `SELECT * FROM seer_user_settings WHERE jellyfin_user_id = ?`,
-    jellyfinUserId
-  );
-  return rowToUserSettings(created[0]);
-}
-async function getUserSettings(prisma, jellyfinUserId) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM seer_user_settings WHERE jellyfin_user_id = ?`,
-    jellyfinUserId
-  );
-  return rows.length > 0 ? rowToUserSettings(rows[0]) : null;
-}
-async function updateUserSettings(prisma, jellyfinUserId, patch) {
-  const sets = [];
-  const params = [];
-  if (patch.blocked !== void 0) {
-    sets.push("blocked = ?");
-    params.push(patch.blocked ? 1 : 0);
-  }
-  if (patch.dailyLimit !== void 0) {
-    sets.push("daily_limit = ?");
-    params.push(patch.dailyLimit);
-  }
-  if (patch.allowMovies !== void 0) {
-    sets.push("allow_movies = ?");
-    params.push(patch.allowMovies ? 1 : 0);
-  }
-  if (patch.allowTv !== void 0) {
-    sets.push("allow_tv = ?");
-    params.push(patch.allowTv ? 1 : 0);
-  }
-  if (patch.allowAnime !== void 0) {
-    sets.push("allow_anime = ?");
-    params.push(patch.allowAnime ? 1 : 0);
-  }
-  if (patch.jellyseerrUserId !== void 0) {
-    sets.push("jellyseerr_user_id = ?");
-    params.push(patch.jellyseerrUserId);
-  }
-  if (patch.jellyseerrLastSync !== void 0) {
-    sets.push("jellyseerr_last_sync = ?");
-    params.push(patch.jellyseerrLastSync);
-  }
-  if (patch.username !== void 0) {
-    sets.push("username = ?");
-    params.push(patch.username);
-  }
-  if (sets.length === 0) return;
-  params.push(jellyfinUserId);
-  await prisma.$executeRawUnsafe(
-    `UPDATE seer_user_settings SET ${sets.join(", ")} WHERE jellyfin_user_id = ?`,
-    ...params
-  );
-}
-async function countRequestsToday(prisma, jellyfinUserId) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(*) as cnt FROM seer_requests
-     WHERE jellyfin_user_id = ?
-       AND created_at >= CURDATE()
-       AND status NOT IN ('failed', 'deleted')`,
-    jellyfinUserId
-  );
-  return Number(rows[0].cnt);
-}
-async function listUsersWithStats(prisma) {
-  const settingsRows = await prisma.$queryRawUnsafe(
-    `SELECT s.*,
-       (SELECT COUNT(*) FROM seer_requests r
-          WHERE r.jellyfin_user_id = s.jellyfin_user_id
-            AND r.created_at >= CURDATE()
-            AND r.status NOT IN ('failed', 'deleted')) AS requests_today,
-       (SELECT COUNT(*) FROM seer_requests r
-          WHERE r.jellyfin_user_id = s.jellyfin_user_id
-            AND r.status != 'deleted') AS requests_total
-     FROM seer_user_settings s
-     ORDER BY s.username ASC`
-  );
-  const known = new Set(settingsRows.map((r) => r.jellyfin_user_id));
-  const orphanRows = await prisma.$queryRawUnsafe(
-    `SELECT
-       r.jellyfin_user_id,
-       MAX(r.username) AS username,
-       SUM(CASE WHEN r.created_at >= CURDATE() AND r.status NOT IN ('failed','deleted') THEN 1 ELSE 0 END) AS requests_today,
-       SUM(CASE WHEN r.status != 'deleted' THEN 1 ELSE 0 END) AS requests_total
-     FROM seer_requests r
-     GROUP BY r.jellyfin_user_id`
-  );
-  const result = settingsRows.map((r) => ({
-    ...rowToUserSettings(r),
-    requestsToday: Number(r.requests_today) || 0,
-    requestsTotal: Number(r.requests_total) || 0
-  }));
-  for (const o of orphanRows) {
-    if (known.has(o.jellyfin_user_id)) continue;
-    const userId = o.jellyfin_user_id;
-    const username = o.username || userId;
-    result.push({
-      jellyfinUserId: userId,
-      username,
-      blocked: false,
-      dailyLimit: null,
-      allowMovies: true,
-      allowTv: true,
-      allowAnime: true,
-      jellyseerrUserId: null,
-      jellyseerrLastSync: null,
-      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      requestsToday: Number(o.requests_today) || 0,
-      requestsTotal: Number(o.requests_total) || 0
-    });
-  }
-  return result.sort((a, b) => a.username.localeCompare(b.username));
-}
-async function listJellyfinUsersWithStats(prisma, jellyfinUsers) {
-  if (jellyfinUsers.length === 0) return [];
-  const ids = jellyfinUsers.map((u) => u.id);
-  const placeholders = ids.map(() => "?").join(",");
-  const settingsRows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM seer_user_settings WHERE jellyfin_user_id IN (${placeholders})`,
-    ...ids
-  );
-  const settingsByUserId = /* @__PURE__ */ new Map();
-  for (const row of settingsRows) {
-    const s = rowToUserSettings(row);
-    settingsByUserId.set(s.jellyfinUserId, s);
-  }
-  const statsRows = await prisma.$queryRawUnsafe(
-    `SELECT
-       jellyfin_user_id,
-       SUM(CASE WHEN created_at >= CURDATE() AND status NOT IN ('failed','deleted') THEN 1 ELSE 0 END) AS requests_today,
-       SUM(CASE WHEN status != 'deleted' THEN 1 ELSE 0 END) AS requests_total
-     FROM seer_requests
-     WHERE jellyfin_user_id IN (${placeholders})
-     GROUP BY jellyfin_user_id`,
-    ...ids
-  );
-  const statsByUserId = /* @__PURE__ */ new Map();
-  for (const r of statsRows) {
-    statsByUserId.set(r.jellyfin_user_id, {
-      today: Number(r.requests_today) || 0,
-      total: Number(r.requests_total) || 0
-    });
-  }
-  const result = [];
-  for (const u of jellyfinUsers) {
-    let settings = settingsByUserId.get(u.id);
-    if (!settings) {
-      settings = await getOrCreateUserSettings(prisma, u.id, u.name);
-    } else if (u.name && u.name !== u.id && settings.username !== u.name) {
-      const isUuid = /^[0-9a-f]{8,}(-[0-9a-f]+)*$/i;
-      if (isUuid.test(settings.username) || settings.username === u.id) {
-        await updateUserSettings(prisma, u.id, { username: u.name });
-        settings = { ...settings, username: u.name };
-      }
-    }
-    const s = statsByUserId.get(u.id) ?? { today: 0, total: 0 };
-    result.push({ ...settings, requestsToday: s.today, requestsTotal: s.total });
-  }
-  return result.sort((a, b) => a.username.localeCompare(b.username));
-}
 async function getRequestById(prisma, id) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM seer_requests WHERE id = ?`,
@@ -1001,6 +905,234 @@ async function getRequestsToSync(prisma) {
   return rows.map(rowToRequest);
 }
 
+// server/plugin-config.ts
+import { existsSync as existsSync2, readFileSync as readFileSync2, renameSync as renameSync2, statSync, writeFileSync as writeFileSync2 } from "fs";
+import { resolve as resolve2 } from "path";
+
+// server/nav-label.ts
+import { existsSync, readFileSync, renameSync, writeFileSync } from "fs";
+import { resolve } from "path";
+var DEFAULT_NAV_LABEL = "Vigie";
+var NAV_LABEL_MAX = 24;
+var NAME_SUFFIX_FALLBACK = " \u2014 Jellyseerr (unofficial)";
+function cleanNavLabel(raw) {
+  if (typeof raw !== "string") return "";
+  const cleaned = raw.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+[—–-]\s+/g, " \xB7 ").replace(/\s+/g, " ").trim();
+  return Array.from(cleaned).slice(0, NAV_LABEL_MAX).join("").trim();
+}
+function cleanNavLabels(raw) {
+  if (typeof raw === "string") {
+    const one = cleanNavLabel(raw);
+    return { fr: one, en: one };
+  }
+  const input = raw && typeof raw === "object" ? raw : {};
+  return { fr: cleanNavLabel(input.fr), en: cleanNavLabel(input.en) };
+}
+function resolvedLabels(labels) {
+  return {
+    fr: labels.fr || labels.en || DEFAULT_NAV_LABEL,
+    en: labels.en || labels.fr || DEFAULT_NAV_LABEL
+  };
+}
+var sameLabels = (value, wanted) => {
+  const labels = value ?? {};
+  return labels.fr === wanted.fr && labels.en === wanted.en && Object.keys(labels).length === 2;
+};
+function manifestWithLabels(manifest, labels) {
+  if (!Array.isArray(manifest.navItems)) return null;
+  const wanted = resolvedLabels(labels);
+  let changed = false;
+  const navItems = manifest.navItems.map((item) => {
+    if (item.admin === true || sameLabels(item.labels, wanted)) return item;
+    changed = true;
+    return { ...item, labels: { ...wanted } };
+  });
+  let tab = manifest.tab;
+  if (tab && !sameLabels(tab.labels, wanted)) {
+    tab = { ...tab, labels: { ...wanted } };
+    changed = true;
+  }
+  return changed ? { ...manifest, navItems, ...tab ? { tab } : {} } : null;
+}
+function displayNameWithLabel(manifestName, label) {
+  const wanted = label || DEFAULT_NAV_LABEL;
+  const name = manifestName ?? "";
+  const dash = name.indexOf(" \u2014 ");
+  return `${wanted}${dash >= 0 ? name.slice(dash) : NAME_SUFFIX_FALLBACK}`;
+}
+function writeJsonAtomic(path, value) {
+  const tmp = `${path}.vigie-${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(value, null, 2));
+  renameSync(tmp, path);
+}
+function applyNavLabel(pluginDir, pluginId, rawLabels) {
+  const labels = cleanNavLabels(rawLabels);
+  try {
+    const manifestPath = resolve(pluginDir, "plugin.json");
+    if (!existsSync(manifestPath)) return;
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    let changed = false;
+    const nextManifest = manifestWithLabels(manifest, labels);
+    if (nextManifest) {
+      writeJsonAtomic(manifestPath, nextManifest);
+      changed = true;
+    }
+    const installedPath2 = resolve(pluginDir, "..", "installed.json");
+    if (existsSync(installedPath2)) {
+      const installed = JSON.parse(readFileSync(installedPath2, "utf-8"));
+      const entry = installed.find((p) => p.pluginId === pluginId || p.id === pluginId);
+      const name = displayNameWithLabel(manifest.name, labels.fr || labels.en);
+      if (entry && entry.name !== name) {
+        entry.name = name;
+        writeJsonAtomic(installedPath2, installed);
+        changed = true;
+      }
+    }
+    if (changed) {
+      const shown = resolvedLabels(labels);
+      console.log(`[SeerBackend] Nom de l'onglet : \xAB ${shown.fr} \xBB / \xAB ${shown.en} \xBB`);
+    }
+  } catch (err) {
+    console.warn("[SeerBackend] Nom de l'onglet non appliqu\xE9 :", err);
+  }
+}
+
+// server/plugin-config.ts
+var cfgCache = null;
+function installedPath(pluginDir) {
+  return resolve2(pluginDir, "..", "installed.json");
+}
+function findEntry(installed, pluginId) {
+  if (!Array.isArray(installed)) return void 0;
+  return installed.find(
+    (p) => p.pluginId === pluginId || p.id === pluginId
+  );
+}
+function readPluginConfig(pluginDir, pluginId) {
+  try {
+    const path = installedPath(pluginDir);
+    if (!existsSync2(path)) return {};
+    const mtimeMs = statSync(path).mtimeMs;
+    if (cfgCache && cfgCache.mtimeMs === mtimeMs) return cfgCache.value;
+    const entry = findEntry(JSON.parse(readFileSync2(path, "utf-8")), pluginId);
+    const value = entry?.config || {};
+    cfgCache = { mtimeMs, value };
+    return value;
+  } catch {
+    return {};
+  }
+}
+function normalizeConfig(body) {
+  const input = body && typeof body === "object" ? body : {};
+  const limit = Math.floor(Number(input.userLimit));
+  const { navLabel: legacyLabel, ...rest } = input;
+  return {
+    ...rest,
+    url: typeof input.url === "string" ? input.url.trim() : "",
+    apiKey: typeof input.apiKey === "string" ? input.apiKey.trim() : "",
+    enabled: input.enabled === true,
+    autoApprove: input.autoApprove === true,
+    userLimit: Number.isFinite(limit) && limit > 0 ? limit : 0,
+    // Un nom par langue ; l'ancienne forme (un seul nom) est reprise pour les deux.
+    navLabels: cleanNavLabels(input.navLabels ?? legacyLabel),
+    profiles: Array.isArray(input.profiles) ? input.profiles : []
+  };
+}
+function navLabelsOf(config) {
+  return cleanNavLabels(config.navLabels ?? config.navLabel);
+}
+function writePluginConfig(pluginDir, pluginId, body) {
+  const path = installedPath(pluginDir);
+  if (!existsSync2(path)) return null;
+  const installed = JSON.parse(readFileSync2(path, "utf-8"));
+  const entry = findEntry(installed, pluginId);
+  if (!entry) return null;
+  const config = normalizeConfig(body);
+  entry.config = config;
+  const tmp = `${path}.vigie-${process.pid}.tmp`;
+  writeFileSync2(tmp, JSON.stringify(installed, null, 2));
+  renameSync2(tmp, path);
+  applyNavLabel(pluginDir, pluginId, config.navLabels);
+  return config;
+}
+function defaultDailyLimit(config) {
+  const n = Math.floor(Number(config.userLimit));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+function effectiveDailyLimit(own, fallback) {
+  if (own === -1) return null;
+  return own ?? fallback;
+}
+
+// server/cache.ts
+var store = /* @__PURE__ */ new Map();
+var inflight = /* @__PURE__ */ new Map();
+var REFRESH_BACKOFF_MS = 3e4;
+async function cached(key, ttlMs, loader, opts) {
+  const now = Date.now();
+  const hit = store.get(key);
+  if (hit && hit.expires > now) return hit.value;
+  if (hit && hit.stale > now) {
+    const backoffOver = !hit.failedAt || now - hit.failedAt > REFRESH_BACKOFF_MS;
+    if (backoffOver && !inflight.has(key)) {
+      void refresh(key, ttlMs, loader, opts).catch(() => {
+      });
+    }
+    return hit.value;
+  }
+  const pending2 = inflight.get(key);
+  if (pending2) return pending2;
+  return refresh(key, ttlMs, loader, opts);
+}
+function refresh(key, ttlMs, loader, opts) {
+  const p = (async () => {
+    try {
+      const value = await loader();
+      put(key, value, opts?.ttlFor?.(value) ?? ttlMs, opts?.staleMs ?? 0);
+      return value;
+    } catch (err) {
+      const prev = store.get(key);
+      if (prev) prev.failedAt = Date.now();
+      throw err;
+    } finally {
+      inflight.delete(key);
+    }
+  })();
+  inflight.set(key, p);
+  return p;
+}
+function put(key, value, ttlMs, staleMs = 0) {
+  const expires = Date.now() + ttlMs;
+  store.set(key, { value, expires, stale: expires + staleMs });
+}
+function peek(key, allowStale = false) {
+  const hit = store.get(key);
+  if (!hit) return void 0;
+  const now = Date.now();
+  if (hit.expires > now) return hit.value;
+  if (allowStale && hit.stale > now) return hit.value;
+  return void 0;
+}
+function invalidate(prefix) {
+  for (const key of Array.from(store.keys())) {
+    if (key === prefix || key.startsWith(prefix + ":")) {
+      store.delete(key);
+    }
+  }
+}
+function invalidateRequestCaches(userId) {
+  invalidate(userId ? `seer-cache:${userId}` : "seer-cache");
+  invalidate("seer:rows:everyone");
+  invalidate("seer:cal:everyone");
+  invalidate("seer:requested:index");
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of store.entries()) {
+    if (entry.stale <= now) store.delete(key);
+  }
+}, 6e4).unref?.();
+
 // server/anime.ts
 var overridesCache = null;
 async function fetchMediaDetail(seerrUrl, apiKey, mediaType, tmdbId) {
@@ -1089,75 +1221,6 @@ function seasonNotification(request, newly, totalAvailable) {
   };
 }
 
-// server/cache.ts
-var store = /* @__PURE__ */ new Map();
-var inflight = /* @__PURE__ */ new Map();
-var REFRESH_BACKOFF_MS = 3e4;
-async function cached(key, ttlMs, loader, opts) {
-  const now = Date.now();
-  const hit = store.get(key);
-  if (hit && hit.expires > now) return hit.value;
-  if (hit && hit.stale > now) {
-    const backoffOver = !hit.failedAt || now - hit.failedAt > REFRESH_BACKOFF_MS;
-    if (backoffOver && !inflight.has(key)) {
-      void refresh(key, ttlMs, loader, opts).catch(() => {
-      });
-    }
-    return hit.value;
-  }
-  const pending2 = inflight.get(key);
-  if (pending2) return pending2;
-  return refresh(key, ttlMs, loader, opts);
-}
-function refresh(key, ttlMs, loader, opts) {
-  const p = (async () => {
-    try {
-      const value = await loader();
-      put(key, value, opts?.ttlFor?.(value) ?? ttlMs, opts?.staleMs ?? 0);
-      return value;
-    } catch (err) {
-      const prev = store.get(key);
-      if (prev) prev.failedAt = Date.now();
-      throw err;
-    } finally {
-      inflight.delete(key);
-    }
-  })();
-  inflight.set(key, p);
-  return p;
-}
-function put(key, value, ttlMs, staleMs = 0) {
-  const expires = Date.now() + ttlMs;
-  store.set(key, { value, expires, stale: expires + staleMs });
-}
-function peek(key, allowStale = false) {
-  const hit = store.get(key);
-  if (!hit) return void 0;
-  const now = Date.now();
-  if (hit.expires > now) return hit.value;
-  if (allowStale && hit.stale > now) return hit.value;
-  return void 0;
-}
-function invalidate(prefix) {
-  for (const key of Array.from(store.keys())) {
-    if (key === prefix || key.startsWith(prefix + ":")) {
-      store.delete(key);
-    }
-  }
-}
-function invalidateRequestCaches(userId) {
-  invalidate(userId ? `seer-cache:${userId}` : "seer-cache");
-  invalidate("seer:rows:everyone");
-  invalidate("seer:cal:everyone");
-  invalidate("seer:requested:index");
-}
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of store.entries()) {
-    if (entry.stale <= now) store.delete(key);
-  }
-}, 6e4).unref?.();
-
 // server/seer-availability-notify.ts
 async function notifyAvailableSeasons(prisma, request, mediaSeasons) {
   const ev = evaluateSeasons(request.seasons, mediaSeasons);
@@ -1175,7 +1238,7 @@ async function notifyAvailableSeasons(prisma, request, mediaSeasons) {
         refId: request.id
       }
     });
-    await setNotifiedSeasons(prisma, request.id, ev.available);
+    await setNotifiedSeasons(prisma, request.id, [.../* @__PURE__ */ new Set([...notified, ...ev.available])].sort((a, b) => a - b));
     console.log(`[SeerWorker] "${request.title}" saisons dispo [${newly.join(",")}] \u2192 notif`);
   }
   return ev.allAvailable ? "available" : "partially_available";
@@ -1415,1119 +1478,6 @@ async function triggerSeerrJob(seerrUrl, apiKey, jobId) {
   }
 }
 
-// server/worker-sync.ts
-var CLAIM_TTL_SECONDS = 1800;
-async function syncStatuses(prisma, config) {
-  const requests = await getRequestsToSync(prisma);
-  await purgeExpiredContentClaims(prisma).catch(() => {
-  });
-  if (requests.length === 0) return;
-  let availabilitySyncDone = false;
-  for (const request of requests) {
-    if (!request.seerrRequestId) continue;
-    await upsertContentClaim(
-      prisma,
-      request.tmdbId,
-      request.jellyfinUserId,
-      request.mediaType,
-      request.title,
-      CLAIM_TTL_SECONDS
-    ).catch(() => {
-    });
-    try {
-      const res = await fetch(
-        `${config.seerrUrl}/api/v1/request/${request.seerrRequestId}`,
-        { headers: { "X-Api-Key": config.seerrApiKey }, signal: AbortSignal.timeout(1e4) }
-      );
-      if (!res.ok) {
-        if (res.status === 404) {
-          await updateRequestStatus(prisma, request.id, "deleted", {
-            lastError: "Demande supprim\xE9e c\xF4t\xE9 Jellyseerr"
-          });
-          invalidateRequestCaches(request.jellyfinUserId);
-        }
-        continue;
-      }
-      const data = await res.json();
-      const globalStatus = mapSeerrStatus(data.status, data.media?.status, data.media?.downloadStatus);
-      if (globalStatus === "failed" && request.status !== "failed") {
-        await handleFailedSync(prisma, config, request, data);
-        invalidateRequestCaches(request.jellyfinUserId);
-        continue;
-      }
-      if (request.mediaType === "tv" && (request.seasons?.length ?? 0) > 0) {
-        await syncTvSeasons(prisma, config, request, globalStatus, data.media?.status);
-      } else {
-        await syncGlobal(prisma, request, globalStatus, data.media?.status);
-      }
-      if (!availabilitySyncDone && request.mediaType === "tv" && (globalStatus === "partially_available" || globalStatus === "downloading")) {
-        availabilitySyncDone = true;
-        await triggerSeerrJob(config.seerrUrl, config.seerrApiKey, "availability-sync");
-      }
-    } catch (err) {
-      console.warn(`[SeerWorker] Failed to sync request #${request.seerrRequestId}:`, err);
-    }
-  }
-}
-async function syncGlobal(prisma, request, newStatus, mediaStatus) {
-  if (newStatus === request.status) return;
-  const extra = { seerrMediaStatus: mediaStatus };
-  if (newStatus === "available") extra.completedAt = /* @__PURE__ */ new Date();
-  await updateRequestStatus(prisma, request.id, newStatus, extra);
-  invalidateRequestCaches(request.jellyfinUserId);
-  const notif = statusNotification(request, newStatus);
-  if (notif) {
-    await prisma.notification.create({
-      data: {
-        jellyfinUserId: request.jellyfinUserId,
-        type: "request_status",
-        title: notif.title,
-        body: notif.message,
-        refId: request.id
-      }
-    });
-  }
-  console.log(`[SeerWorker] "${request.title}" status: ${request.status} \u2192 ${newStatus}`);
-}
-async function syncTvSeasons(prisma, config, request, fallbackStatus, mediaStatus) {
-  const detail = await fetchMediaDetail(config.seerrUrl, config.seerrApiKey, "tv", request.tmdbId);
-  const mediaSeasons = detail?.mediaInfo?.seasons;
-  const kept = await releaseGoneSeasons(prisma, request, mediaSeasons);
-  if (!kept) return;
-  request = kept;
-  const newStatus = await notifyAvailableSeasons(prisma, request, mediaSeasons);
-  if (newStatus === null) {
-    await syncGlobal(prisma, request, fallbackStatus, mediaStatus);
-    return;
-  }
-  if (newStatus !== request.status) {
-    const extra = { seerrMediaStatus: mediaStatus };
-    if (newStatus === "available") extra.completedAt = /* @__PURE__ */ new Date();
-    await updateRequestStatus(prisma, request.id, newStatus, extra);
-    invalidateRequestCaches(request.jellyfinUserId);
-    console.log(`[SeerWorker] "${request.title}" status: ${request.status} \u2192 ${newStatus}`);
-  }
-}
-async function handleFailedSync(prisma, config, request, data) {
-  const retryN = request.retryCount + 1;
-  if (retryN < request.maxRetries) {
-    await fetch(`${config.seerrUrl}/api/v1/request/${request.seerrRequestId}`, {
-      method: "DELETE",
-      headers: { "X-Api-Key": config.seerrApiKey },
-      signal: AbortSignal.timeout(1e4)
-    }).catch(() => {
-    });
-    if (request.seerrMediaId) {
-      await fetch(`${config.seerrUrl}/api/v1/media/${request.seerrMediaId}`, {
-        method: "DELETE",
-        headers: { "X-Api-Key": config.seerrApiKey },
-        signal: AbortSignal.timeout(1e4)
-      }).catch(() => {
-      });
-    }
-    await prisma.$executeRawUnsafe(
-      `UPDATE seer_requests SET status = 'retry_pending', seerr_request_id = NULL, seerr_media_id = NULL, seerr_media_status = NULL, retry_count = ? WHERE id = ?`,
-      retryN,
-      request.id
-    );
-    console.log(`[SeerWorker] Auto-retry "${request.title}" (attempt ${retryN}/${request.maxRetries})`);
-  } else {
-    await updateRequestStatus(prisma, request.id, "failed", {
-      seerrMediaStatus: data.media?.status,
-      retryCount: retryN
-    });
-    await prisma.notification.create({
-      data: {
-        jellyfinUserId: request.jellyfinUserId,
-        type: "request_status",
-        title: request.title,
-        body: `\xC9chec d\xE9finitif pour \xAB ${request.title} \xBB apr\xE8s ${request.maxRetries} tentatives`,
-        refId: request.id
-      }
-    });
-    console.log(`[SeerWorker] "${request.title}" PERMANENTLY FAILED after ${request.maxRetries} retries`);
-  }
-}
-async function retryFailedRequests(prisma) {
-  const failed = await prisma.$queryRawUnsafe(
-    // Les lignes héritées de l'ancien classement (404 → « failed ») ne sont
-    // plus recréées non plus : une suppression côté Jellyseerr est acquise.
-    `SELECT id, title, retry_count, max_retries FROM seer_requests
-     WHERE status = 'failed' AND retry_count < max_retries
-       AND (last_error IS NULL OR last_error != 'Request no longer exists on Seerr') LIMIT 3`
-  );
-  for (const req of failed) {
-    const newRetry = req.retry_count + 1;
-    await prisma.$executeRawUnsafe(
-      `UPDATE seer_requests SET status = 'retry_pending', seerr_request_id = NULL, seerr_media_id = NULL, seerr_media_status = NULL, retry_count = ? WHERE id = ?`,
-      newRetry,
-      req.id
-    );
-    console.log(`[SeerWorker] Auto-retry "${req.title}" (attempt ${newRetry}/${req.max_retries})`);
-  }
-}
-function mapSeerrStatus(requestStatus, mediaStatus, downloadStatus) {
-  if (requestStatus === 3) return "failed";
-  if (requestStatus === 4) return "failed";
-  if (mediaStatus === 5) return "available";
-  if (mediaStatus === 4) return "partially_available";
-  if (mediaStatus === 7) return "deleted";
-  if (mediaStatus === 1) return "unavailable";
-  if (mediaStatus === 3) {
-    return downloadStatus && downloadStatus.length > 0 ? "downloading" : "unavailable";
-  }
-  if (requestStatus === 1) return "sent_to_seer";
-  return "approved";
-}
-function statusNotification(request, newStatus) {
-  switch (newStatus) {
-    case "downloading":
-      return { type: "request_downloading", title: request.title, message: `\xAB ${request.title} \xBB est en cours de t\xE9l\xE9chargement` };
-    case "available": {
-      const suffix = releasedSuffix(request.mediaType === "movie" ? "m" : "f", false);
-      return { type: "request_available", title: request.title, message: `\xAB ${request.title} \xBB ${suffix}` };
-    }
-    case "failed":
-      return { type: "request_declined", title: request.title, message: `Votre demande pour \xAB ${request.title} \xBB a \xE9t\xE9 refus\xE9e` };
-    default:
-      return null;
-  }
-}
-
-// server/seerr-reconcile.ts
-async function reconcileSeerrSeasons(prisma, config, tmdbId, removedSeasons) {
-  if (removedSeasons.length === 0) return;
-  const removed = new Set(removedSeasons);
-  const headers = { "X-Api-Key": config.seerrApiKey };
-  const res = await fetch(`${config.seerrUrl}/api/v1/tv/${tmdbId}`, {
-    headers,
-    signal: AbortSignal.timeout(1e4)
-  });
-  if (res.status === 404) return;
-  if (!res.ok) {
-    throw new Error(`Jellyseerr GET /tv/${tmdbId} returned ${res.status}`);
-  }
-  const detail = await res.json();
-  for (const req of detail.mediaInfo?.requests ?? []) {
-    const seasons = (req.seasons ?? []).map((s) => s.seasonNumber).filter((n) => typeof n === "number");
-    if (seasons.length === 0) continue;
-    const remaining = seasons.filter((n) => !removed.has(n));
-    if (remaining.length === seasons.length) continue;
-    if (remaining.length === 0) {
-      const del = await fetch(`${config.seerrUrl}/api/v1/request/${req.id}`, {
-        method: "DELETE",
-        headers,
-        signal: AbortSignal.timeout(1e4)
-      });
-      if (!del.ok && del.status !== 404) {
-        throw new Error(`Jellyseerr DELETE /request/${req.id} returned ${del.status}`);
-      }
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM seer_requests WHERE seerr_request_id = ?`,
-        req.id
-      );
-      console.log(
-        `[SeerReconcile] tv#${tmdbId} : demande Jellyseerr #${req.id} supprim\xE9e (S${seasons.join(", S")} retir\xE9es)`
-      );
-    } else {
-      const put2 = await fetch(`${config.seerrUrl}/api/v1/request/${req.id}`, {
-        method: "PUT",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ mediaType: "tv", seasons: remaining }),
-        signal: AbortSignal.timeout(1e4)
-      });
-      if (!put2.ok && put2.status !== 404) {
-        const text = await put2.text().catch(() => "");
-        throw new Error(
-          `Jellyseerr PUT /request/${req.id} returned ${put2.status} ${text.slice(0, 200)}`
-        );
-      }
-      await prisma.$executeRawUnsafe(
-        `UPDATE seer_requests SET seasons = ? WHERE seerr_request_id = ?`,
-        JSON.stringify(remaining),
-        req.id
-      );
-      console.log(
-        `[SeerReconcile] tv#${tmdbId} : demande Jellyseerr #${req.id} r\xE9duite aux saisons S${remaining.join(", S")}`
-      );
-    }
-  }
-}
-
-// server/worker-cleanup.ts
-var CLEANUP_BATCH = 25;
-async function processCleanupQueue(prisma, config) {
-  for (let pass = 0; pass < 4; pass++) {
-    const jobs = await getPendingCleanups(prisma, CLEANUP_BATCH);
-    if (jobs.length === 0) return;
-    for (const job of jobs) {
-      await processCleanupJob(prisma, config, job);
-    }
-    if (jobs.length < CLEANUP_BATCH) return;
-  }
-}
-function invalidateForJob(job) {
-  invalidateRequestCaches(job.jellyfinUserId);
-}
-async function processCleanupJob(prisma, config, job) {
-  const headers = { "X-Api-Key": config.seerrApiKey };
-  try {
-    if (job.action === "sync") {
-      await triggerSeerrJob(config.seerrUrl, config.seerrApiKey, "availability-sync");
-      await updateCleanupJob(prisma, job.id, "completed");
-      invalidateForJob(job);
-      console.log(`[SeerWorker] availability-sync re-d\xE9clench\xE9e pour "${job.title}"`);
-      return;
-    }
-    const arrType = job.mediaType === "movie" ? "radarr" : "sonarr";
-    const [server, ext] = await Promise.all([
-      getArrServerConfig(config.seerrUrl, config.seerrApiKey, arrType),
-      getMediaExternalId(config.seerrUrl, config.seerrApiKey, job.mediaType, job.tmdbId)
-    ]);
-    if (server && ext?.externalServiceId) {
-      const arrId = ext.externalServiceId;
-      if (job.mediaType === "movie") {
-        await cancelRadarrQueue(server, arrId);
-        const unmon = await unmonitorRadarrMovie(server, arrId);
-        if (!unmon) throw new Error("Radarr unmonitor failed");
-        if (job.deleteFiles) {
-          const del = await deleteRadarrMovieFile(server, arrId);
-          if (!del) throw new Error("Radarr delete file failed");
-        }
-      } else {
-        await cancelSonarrQueue(server, arrId, job.seasons);
-        const unmon = await unmonitorSonarrSeasons(server, arrId, job.seasons);
-        if (!unmon) throw new Error("Sonarr unmonitor failed");
-        if (job.deleteFiles) {
-          const del = await deleteSonarrSeasonFiles(server, arrId, job.seasons);
-          if (!del) throw new Error("Sonarr delete season files failed");
-        }
-      }
-      console.log(
-        `[SeerWorker] *arr cleanup for "${job.title}" (${arrType} #${arrId}, seasons=${job.seasons ? JSON.stringify(job.seasons) : "all"}, deleteFiles=${job.deleteFiles})`
-      );
-    } else {
-      console.log(`[SeerWorker] "${job.title}" : pas de cible *arr (jamais grab\xE9) \u2014 skip ops *arr`);
-    }
-    if (job.seerrRequestId) {
-      const delRes = await fetch(
-        `${config.seerrUrl}/api/v1/request/${job.seerrRequestId}`,
-        { method: "DELETE", headers, signal: AbortSignal.timeout(1e4) }
-      );
-      if (!delRes.ok && delRes.status !== 404) {
-        throw new Error(`Jellyseerr request delete returned ${delRes.status}`);
-      }
-    }
-    if (job.mediaType === "tv" && job.seasons && job.seasons.length > 0) {
-      await reconcileSeerrSeasons(prisma, config, job.tmdbId, job.seasons);
-    }
-    await updateCleanupJob(prisma, job.id, "completed");
-    if (job.requestId) {
-      await deleteRequestById(prisma, job.requestId);
-      console.log(`[SeerWorker] Deleted local request ${job.requestId}`);
-    }
-    await clearPendingCleanup(prisma, job.id);
-    if (job.deleteFiles) {
-      await triggerSeerrJob(config.seerrUrl, config.seerrApiKey, "availability-sync");
-      for (const delay of [120, 600]) {
-        await enqueueCleanup(prisma, {
-          action: "sync",
-          mediaType: job.mediaType,
-          tmdbId: job.tmdbId,
-          title: job.title,
-          deleteFiles: false,
-          seasons: null,
-          delaySeconds: delay,
-          // Propagation obligatoire : sans elle, ces jobs enfants naîtraient
-          // sans propriétaire et retomberaient sur l'invalidation globale.
-          jellyfinUserId: job.jellyfinUserId
-        });
-      }
-    }
-    invalidateForJob(job);
-    console.log(`[SeerWorker] Cleanup completed for "${job.title}"`);
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : "Unknown error";
-    const newRetry = job.retryCount + 1;
-    if (newRetry >= job.maxRetries) {
-      await updateCleanupJob(prisma, job.id, "failed", { lastError: errMsg, retryCount: newRetry });
-      if (job.requestId) {
-        await updateRequestStatus(prisma, job.requestId, "delete_failed", {
-          lastError: `\xC9chec suppression: ${errMsg}`
-        });
-      }
-      await clearPendingCleanup(prisma, job.id);
-      console.warn(`[SeerWorker] Cleanup FAILED permanently for "${job.title}" after ${newRetry} retries`);
-    } else {
-      const delaySec = Math.min(30 * Math.pow(2, newRetry - 1), 1800);
-      const nextRetry = new Date(Date.now() + delaySec * 1e3);
-      await updateCleanupJob(prisma, job.id, "pending", {
-        lastError: errMsg,
-        retryCount: newRetry,
-        nextRetryAt: nextRetry
-      });
-      console.log(`[SeerWorker] Cleanup retry ${newRetry}/${job.maxRetries} for "${job.title}" in ${delaySec}s`);
-    }
-  }
-}
-
-// server/jellyseerr-user.ts
-async function resolveJellyseerrUserId(config, prisma, jellyfinUserId, username) {
-  const settings = await getOrCreateUserSettings(prisma, jellyfinUserId, username);
-  if (settings.jellyseerrUserId) return settings.jellyseerrUserId;
-  const found = await findJellyseerrUserByJellyfinId(config, jellyfinUserId);
-  if (found) {
-    await updateUserSettings(prisma, jellyfinUserId, {
-      jellyseerrUserId: found.id,
-      jellyseerrLastSync: /* @__PURE__ */ new Date()
-    });
-    return found.id;
-  }
-  if (username) {
-    const placeholder = await findOrphanPlaceholderByUsername(config, username);
-    if (placeholder) {
-      await relinkJellyseerrUserToJellyfin(config, placeholder.id, jellyfinUserId);
-      await updateUserSettings(prisma, jellyfinUserId, {
-        jellyseerrUserId: placeholder.id,
-        jellyseerrLastSync: /* @__PURE__ */ new Date()
-      });
-      return placeholder.id;
-    }
-  }
-  try {
-    const imported = await importJellyseerrUserFromJellyfin(config, jellyfinUserId);
-    if (imported) {
-      await updateUserSettings(prisma, jellyfinUserId, {
-        jellyseerrUserId: imported.id,
-        jellyseerrLastSync: /* @__PURE__ */ new Date()
-      });
-      return imported.id;
-    }
-  } catch {
-  }
-  const refreshed = await findJellyseerrUserByJellyfinId(config, jellyfinUserId);
-  if (refreshed) {
-    await updateUserSettings(prisma, jellyfinUserId, {
-      jellyseerrUserId: refreshed.id,
-      jellyseerrLastSync: /* @__PURE__ */ new Date()
-    });
-    return refreshed.id;
-  }
-  throw new Error(`Unable to resolve Jellyseerr user for jellyfinUserId=${jellyfinUserId}`);
-}
-async function findOrphanPlaceholderByUsername(config, username) {
-  const all = await listAllJellyseerrUsers(config);
-  const target = username.trim().toLowerCase();
-  return all.find(
-    (u) => !u.jellyfinUserId && (u.username && u.username.trim().toLowerCase() === target || u.jellyfinUsername && u.jellyfinUsername.trim().toLowerCase() === target)
-  ) ?? null;
-}
-async function createPlaceholderJellyseerrUser(config, username) {
-  const existing = await findOrphanPlaceholderByUsername(config, username);
-  if (existing) return existing;
-  const email = `${username.toLowerCase().replace(/[^a-z0-9._-]+/g, "")}@tentacle.local`;
-  const res = await fetch(`${config.seerrUrl}/api/v1/user`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Api-Key": config.seerrApiKey },
-    body: JSON.stringify({ email, username }),
-    signal: AbortSignal.timeout(15e3)
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Jellyseerr POST /user failed (${res.status}): ${text.slice(0, 200)}`);
-  }
-  return await res.json();
-}
-async function invalidateStaleJellyseerrCache(config, prisma) {
-  const seerUsers = await listAllJellyseerrUsers(config);
-  const validIds = new Set(seerUsers.map((u) => u.id));
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT jellyfin_user_id, jellyseerr_user_id FROM seer_user_settings WHERE jellyseerr_user_id IS NOT NULL`
-  );
-  let invalidated = 0;
-  for (const row of rows) {
-    if (!validIds.has(row.jellyseerr_user_id)) {
-      await prisma.$executeRawUnsafe(
-        `UPDATE seer_user_settings SET jellyseerr_user_id = NULL, jellyseerr_last_sync = NULL WHERE jellyfin_user_id = ?`,
-        row.jellyfin_user_id
-      );
-      invalidated++;
-    }
-  }
-  return invalidated;
-}
-async function relinkJellyseerrUserToJellyfin(config, jellyseerrUserId, jellyfinUserId) {
-  const res = await fetch(`${config.seerrUrl}/api/v1/user/${jellyseerrUserId}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", "X-Api-Key": config.seerrApiKey },
-    body: JSON.stringify({ jellyfinUserId }),
-    signal: AbortSignal.timeout(1e4)
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Jellyseerr PUT /user/${jellyseerrUserId} failed (${res.status}): ${text.slice(0, 200)}`);
-  }
-}
-async function findJellyseerrUserByJellyfinId(config, jellyfinUserId) {
-  const all = await listAllJellyseerrUsers(config);
-  const normalized = (id) => (id || "").toLowerCase().replace(/-/g, "");
-  const target = normalized(jellyfinUserId);
-  return all.find((u) => normalized(u.jellyfinUserId) === target) ?? null;
-}
-async function listAllJellyseerrUsers(config) {
-  const out = [];
-  let skip = 0;
-  const take = 100;
-  for (let i = 0; i < 10; i++) {
-    const res = await fetch(`${config.seerrUrl}/api/v1/user?take=${take}&skip=${skip}`, {
-      headers: { "X-Api-Key": config.seerrApiKey },
-      signal: AbortSignal.timeout(1e4)
-    });
-    if (!res.ok) {
-      throw new Error(`Jellyseerr GET /user failed: ${res.status}`);
-    }
-    const data = await res.json();
-    const page = data.results ?? [];
-    out.push(...page);
-    if (page.length < take) break;
-    skip += take;
-  }
-  return out;
-}
-async function importJellyseerrUserFromJellyfin(config, jellyfinUserId) {
-  const res = await fetch(`${config.seerrUrl}/api/v1/user/import-from-jellyfin`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Api-Key": config.seerrApiKey },
-    body: JSON.stringify({ jellyfinUserIds: [jellyfinUserId] }),
-    signal: AbortSignal.timeout(15e3)
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Jellyseerr import-from-jellyfin failed (${res.status}): ${text.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  if (Array.isArray(data) && data.length > 0) return data[0];
-  if (!Array.isArray(data) && data && typeof data === "object") return data;
-  return null;
-}
-
-// server/tmdb-traits.ts
-var KEYWORD_ANIME = 210024;
-var GENRE_ANIMATION = 16;
-var ORIGINES = /* @__PURE__ */ new Set(["JP", "KR"]);
-var LANGUES = /* @__PURE__ */ new Set(["ja", "ko"]);
-function lireMotsCles(brut) {
-  if (Array.isArray(brut)) return brut;
-  const enveloppe = brut;
-  return Array.isArray(enveloppe?.results) ? enveloppe.results : [];
-}
-function lireGenres(raw) {
-  if (Array.isArray(raw.genreIds)) return raw.genreIds;
-  return (raw.genres ?? []).map((g) => g?.id).filter((id) => typeof id === "number");
-}
-function detectAnime(raw) {
-  if (lireMotsCles(raw.keywords).some((k) => k?.id === KEYWORD_ANIME)) return true;
-  const asiatique = LANGUES.has(raw.originalLanguage ?? "") || (raw.originCountry ?? []).some((c) => ORIGINES.has((c ?? "").toUpperCase()));
-  return asiatique && lireGenres(raw).includes(GENRE_ANIMATION);
-}
-function detectAnimeLoose(m) {
-  if (m.isAnime === true) return true;
-  return detectAnime({
-    genreIds: m.genreIds,
-    originalLanguage: m.originalLanguage ?? void 0,
-    originCountry: m.originCountry
-  });
-}
-
-// server/tmdb-fetch.ts
-var RELEASE_TYPE = {
-  PREMIERE: 1,
-  THEATRICAL_LIMITED: 2,
-  THEATRICAL: 3,
-  DIGITAL: 4,
-  PHYSICAL: 5,
-  TV: 6
-};
-function toDayString(raw) {
-  if (!raw || typeof raw !== "string") return null;
-  const day = raw.slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
-}
-function todayString(now = /* @__PURE__ */ new Date()) {
-  const p = (n) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
-}
-function pickReleaseDates(groups, region) {
-  const empty = { digital: null, theatrical: null, physical: null, region: null };
-  if (!Array.isArray(groups) || groups.length === 0) return empty;
-  const wanted = region.toUpperCase();
-  const group = groups.find((g) => g.iso_3166_1?.toUpperCase() === wanted) ?? groups.find((g) => g.iso_3166_1?.toUpperCase() === "US") ?? groups[0];
-  if (!group?.release_dates?.length) return empty;
-  const earliest = (types) => {
-    let best = null;
-    for (const r of group.release_dates ?? []) {
-      if (typeof r.type !== "number" || !types.includes(r.type)) continue;
-      const day = toDayString(r.release_date);
-      if (day && (best === null || day < best)) best = day;
-    }
-    return best;
-  };
-  return {
-    digital: earliest([RELEASE_TYPE.DIGITAL]),
-    // Une sortie salle limitée ou une avant-première comptent comme « au cinéma ».
-    theatrical: earliest([
-      RELEASE_TYPE.THEATRICAL,
-      RELEASE_TYPE.THEATRICAL_LIMITED,
-      RELEASE_TYPE.PREMIERE
-    ]),
-    physical: earliest([RELEASE_TYPE.PHYSICAL, RELEASE_TYPE.TV]),
-    region: group.iso_3166_1?.toUpperCase() ?? null
-  };
-}
-var DAY = 864e5;
-function computeTtlMs(meta, now = Date.now()) {
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-  const today = todayString(new Date(now));
-  if (meta.mediaType === "tv") {
-    const status = (meta.tmdbStatus ?? "").toLowerCase();
-    if (status === "ended" || status === "canceled" || status === "cancelled") return 30 * DAY;
-    if (meta.nextAirDate) {
-      if (meta.nextAirDate <= today) return 6 * 36e5;
-      const diff = (/* @__PURE__ */ new Date(`${meta.nextAirDate}T00:00:00`)).getTime() - now;
-      return clamp(diff + DAY, 6 * 36e5, 7 * DAY);
-    }
-    return 2 * DAY;
-  }
-  if (meta.digitalDate && meta.digitalDate <= today) return 30 * DAY;
-  if (meta.theatricalDate && meta.theatricalDate <= today) return 3 * DAY;
-  if (meta.releaseDate && meta.releaseDate < today) return 30 * DAY;
-  return 12 * 36e5;
-}
-function parseDetailToMeta(raw, ref, region) {
-  const isTv = ref.mediaType === "tv";
-  const rel = isTv ? { digital: null, theatrical: null, physical: null, region: null } : pickReleaseDates(raw.releases?.results, region);
-  const providerIds = [];
-  for (const wp of raw.watchProviders ?? []) {
-    if (wp.iso_3166_1?.toUpperCase() !== region.toUpperCase()) continue;
-    for (const p of wp.flatrate ?? []) {
-      const id = p.id ?? p.providerId;
-      if (typeof id === "number" && id > 0) providerIds.push(id);
-    }
-  }
-  const meta = {
-    mediaType: ref.mediaType,
-    tmdbId: ref.tmdbId,
-    title: raw.title ?? raw.name ?? "",
-    posterPath: raw.posterPath ?? null,
-    backdropPath: raw.backdropPath ?? null,
-    overview: raw.overview ?? null,
-    releaseDate: toDayString(raw.releaseDate ?? raw.firstAirDate),
-    tmdbStatus: raw.status ?? null,
-    digitalDate: rel.digital,
-    theatricalDate: rel.theatrical,
-    physicalDate: rel.physical,
-    releaseRegion: rel.region,
-    nextAirDate: toDayString(raw.nextEpisodeToAir?.airDate),
-    nextSeason: raw.nextEpisodeToAir?.seasonNumber ?? null,
-    nextEpisode: raw.nextEpisodeToAir?.episodeNumber ?? null,
-    lastAirDate: toDayString(raw.lastEpisodeToAir?.airDate),
-    networks: (raw.networks ?? []).map((n) => n?.name).filter((n) => !!n).slice(0, 3).join(", ") || null,
-    providerIds: Array.from(new Set(providerIds)),
-    voteAverage: typeof raw.voteAverage === "number" ? raw.voteAverage : null,
-    popularity: typeof raw.popularity === "number" ? raw.popularity : null,
-    originalLanguage: raw.originalLanguage ?? null,
-    genreIds: (raw.genres ?? []).map((g) => g?.id).filter((id) => typeof id === "number"),
-    isAnime: detectAnime(raw),
-    expiresAt: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  meta.expiresAt = new Date(Date.now() + computeTtlMs(meta)).toISOString();
-  return meta;
-}
-async function fetchTmdbMeta(cfg, ref, region) {
-  try {
-    const res = await fetch(`${cfg.seerrUrl}/api/v1/${ref.mediaType}/${ref.tmdbId}`, {
-      headers: { "X-Api-Key": cfg.seerrApiKey },
-      signal: AbortSignal.timeout(8e3)
-    });
-    if (!res.ok) return null;
-    return parseDetailToMeta(await res.json(), ref, region);
-  } catch {
-    return null;
-  }
-}
-
-// server/tmdb-resolver.ts
-var DEFAULT_REGION = "FR";
-var inflightMeta = /* @__PURE__ */ new Map();
-function fetchOnce(cfg, ref, region) {
-  const key = tmdbKey(ref);
-  const pending2 = inflightMeta.get(key);
-  if (pending2) return pending2;
-  const p = fetchTmdbMeta(cfg, ref, region).finally(() => {
-    inflightMeta.delete(key);
-  });
-  inflightMeta.set(key, p);
-  return p;
-}
-function dedupeRefs(refs) {
-  const seen = /* @__PURE__ */ new Set();
-  const out = [];
-  for (const r of refs) {
-    if (!r || !Number.isFinite(r.tmdbId) || r.tmdbId <= 0) continue;
-    const k = tmdbKey(r);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(r);
-  }
-  return out;
-}
-async function resolveTmdbMeta(prisma, cfg, refs, opts = {}) {
-  const unique = dedupeRefs(refs);
-  if (unique.length === 0) return { meta: /* @__PURE__ */ new Map(), missing: [] };
-  const meta = await getTmdbMetaBulk(prisma, unique, opts.includeExpired ?? true);
-  const missing = unique.filter((r) => !meta.has(tmdbKey(r)));
-  const budget = opts.maxFetch ?? 0;
-  if (budget <= 0 || !cfg || missing.length === 0) return { meta, missing };
-  const toFetch = missing.slice(0, budget);
-  const region = opts.region ?? DEFAULT_REGION;
-  const fetched = await mapLimit(
-    toFetch,
-    opts.concurrency ?? DEFAULT_CONCURRENCY,
-    (ref) => fetchOnce(cfg, ref, region)
-  );
-  const ok = fetched.filter((m) => m !== null);
-  if (ok.length > 0) {
-    await upsertTmdbMetaBulk(prisma, ok).catch(() => {
-    });
-    for (const m of ok) meta.set(tmdbKey(m), m);
-  }
-  return { meta, missing: unique.filter((r) => !meta.has(tmdbKey(r))) };
-}
-var backfillQueue = /* @__PURE__ */ new Set();
-var backfillRefs = /* @__PURE__ */ new Map();
-var backfillRunning = false;
-function pendingBackfillCount() {
-  return backfillQueue.size;
-}
-function scheduleTmdbBackfill(prisma, cfg, refs, region = DEFAULT_REGION) {
-  if (!cfg) return;
-  for (const ref of dedupeRefs(refs)) {
-    const k = tmdbKey(ref);
-    if (backfillQueue.has(k)) continue;
-    backfillQueue.add(k);
-    backfillRefs.set(k, ref);
-  }
-  if (backfillRunning || backfillQueue.size === 0) return;
-  backfillRunning = true;
-  void drainBackfill(prisma, cfg, region).catch(() => {
-  }).finally(() => {
-    backfillRunning = false;
-  });
-}
-async function drainBackfill(prisma, cfg, region) {
-  while (backfillQueue.size > 0) {
-    const batch = Array.from(backfillQueue).slice(0, 40);
-    const refs = batch.map((k) => backfillRefs.get(k)).filter((r) => !!r);
-    const fetched = await mapLimit(refs, 4, (ref) => fetchOnce(cfg, ref, region));
-    const ok = fetched.filter((m) => m !== null);
-    if (ok.length > 0) await upsertTmdbMetaBulk(prisma, ok).catch(() => {
-    });
-    for (const k of batch) {
-      backfillQueue.delete(k);
-      backfillRefs.delete(k);
-    }
-  }
-}
-
-// server/seerr-requests-fetch.ts
-var PAGE_CONCURRENCY = 4;
-async function fetchSeerrRequestsPage(cfg, seerUserId, take, skip, filter = "all") {
-  const who = seerUserId == null ? "" : `&requestedBy=${seerUserId}`;
-  const url = `${cfg.seerrUrl}/api/v1/request?take=${take}&skip=${skip}&filter=${encodeURIComponent(filter)}&sort=added${who}`;
-  const res = await fetch(url, {
-    headers: { "X-Api-Key": cfg.seerrApiKey },
-    signal: AbortSignal.timeout(1e4)
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(
-      `Jellyseerr GET /request${who || " (tous)"} failed: ${res.status} ${body.slice(0, 200)}`
-    );
-  }
-  const data = await res.json();
-  return {
-    rows: data.results ?? [],
-    total: data.pageInfo?.results ?? data.results?.length ?? 0
-  };
-}
-async function fetchAllSeerrRequests(cfg, seerUserId, opts = {}) {
-  const take = opts.take ?? 100;
-  const maxPages = opts.maxPages ?? 25;
-  const filter = opts.filter ?? "all";
-  const first = await fetchSeerrRequestsPage(cfg, seerUserId, take, 0, filter);
-  if (first.rows.length < take || first.total <= take) {
-    return { rows: first.rows, total: first.total || first.rows.length, truncated: false };
-  }
-  const totalPages = Math.ceil(first.total / take);
-  const wanted = Math.min(totalPages, maxPages);
-  const skips = Array.from({ length: wanted - 1 }, (_, i) => (i + 1) * take);
-  const pages = await mapLimit(
-    skips,
-    PAGE_CONCURRENCY,
-    (skip) => fetchSeerrRequestsPage(cfg, seerUserId, take, skip, filter)
-  );
-  const rows = [...first.rows];
-  for (const page of pages) if (page) rows.push(...page.rows);
-  return { rows, total: first.total, truncated: totalPages > maxPages };
-}
-
-// server/worker-tmdb.ts
-var WARM_BUDGET = 40;
-var WARM_CONCURRENCY = 4;
-var PRUNE_AFTER_DAYS = 180;
-var DISCOVER_MAX_PAGES = 10;
-var lastPruneDay = "";
-var seeded = false;
-async function seedTmdbCacheOnce(prisma) {
-  if (seeded) return;
-  seeded = true;
-  try {
-    const n = await seedTmdbCacheFromLocalRequests(prisma);
-    if (n > 0) console.log(`[SeerTmdb] Seeded ${n} fiches depuis les demandes locales`);
-  } catch (err) {
-    console.warn("[SeerTmdb] Seed \xE9chou\xE9", err);
-  }
-}
-async function discoverSeerrRefs(prisma, cfg) {
-  const { rows } = await fetchAllSeerrRequests(cfg, null, { maxPages: DISCOVER_MAX_PAGES });
-  const refs = [];
-  for (const r of rows) {
-    if (!r.media?.tmdbId) continue;
-    refs.push({ mediaType: r.media.mediaType, tmdbId: r.media.tmdbId });
-  }
-  const unique = dedupeRefs(refs);
-  if (unique.length === 0) return 0;
-  const known = await getTmdbMetaBulk(prisma, unique, true);
-  const unknown = unique.filter((r) => !known.has(tmdbKey(r)));
-  if (unknown.length > 0) scheduleTmdbBackfill(prisma, cfg, unknown);
-  return unknown.length;
-}
-async function warmTmdbCache(prisma, cfg, opts = {}) {
-  const budget = opts.budget ?? WARM_BUDGET;
-  const region = opts.region ?? DEFAULT_REGION;
-  const refs = await listStaleTmdbRefs(prisma, budget);
-  if (refs.length === 0) {
-    await pruneOncePerDay(prisma);
-    return { fetched: 0, remaining: 0 };
-  }
-  const fetched = await mapLimit(refs, WARM_CONCURRENCY, (ref) => fetchTmdbMeta(cfg, ref, region));
-  const ok = fetched.filter((m) => m !== null);
-  if (ok.length > 0) await upsertTmdbMetaBulk(prisma, ok);
-  await pruneOncePerDay(prisma);
-  return { fetched: ok.length, remaining: Math.max(0, refs.length - ok.length) };
-}
-async function pruneOncePerDay(prisma) {
-  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  if (lastPruneDay === today) return;
-  lastPruneDay = today;
-  try {
-    const n = await pruneTmdbCache(prisma, PRUNE_AFTER_DAYS);
-    if (n > 0) console.log(`[SeerTmdb] Purge de ${n} fiches inutilis\xE9es`);
-  } catch {
-  }
-}
-
-// server/worker.ts
-var timer = null;
-var cycleCount = 0;
-var prismaRef = null;
-var getConfigRef = null;
-var requestQueueBusy = false;
-var cleanupQueueBusy = false;
-async function runRequestQueue(prisma, config) {
-  if (requestQueueBusy) return;
-  requestQueueBusy = true;
-  try {
-    const seen = /* @__PURE__ */ new Set();
-    for (let i = 0; i < 10; i++) {
-      const processedId = await processNextRequest(prisma, config, seen);
-      if (!processedId) return;
-      seen.add(processedId);
-    }
-  } finally {
-    requestQueueBusy = false;
-  }
-}
-async function runCleanupQueue(prisma, config) {
-  if (cleanupQueueBusy) return;
-  cleanupQueueBusy = true;
-  try {
-    await processCleanupQueue(prisma, config);
-  } finally {
-    cleanupQueueBusy = false;
-  }
-}
-function startWorker(prisma, getConfig) {
-  if (timer) return;
-  prismaRef = prisma;
-  getConfigRef = getConfig;
-  async function tick() {
-    const config = await getConfig();
-    if (!config || !config.seerrUrl || !config.seerrApiKey) return;
-    cycleCount++;
-    try {
-      await runRequestQueue(prisma, config);
-    } catch (err) {
-      console.error("[SeerWorker] Error processing request:", err);
-    }
-    if (cycleCount % config.syncEvery === 0) {
-      try {
-        await syncStatuses(prisma, config);
-      } catch (err) {
-        console.error("[SeerWorker] Error syncing statuses:", err);
-      }
-    }
-    try {
-      await retryFailedRequests(prisma);
-    } catch (err) {
-      console.error("[SeerWorker] Error retrying failed requests:", err);
-    }
-    try {
-      await runCleanupQueue(prisma, config);
-    } catch (err) {
-      console.error("[SeerWorker] Error processing cleanup queue:", err);
-    }
-    if (cycleCount % 5 === 0) {
-      try {
-        await warmTmdbCache(prisma, config);
-      } catch (err) {
-        console.error("[SeerWorker] Error warming TMDB cache:", err);
-      }
-    }
-    if (cycleCount % 30 === 0) {
-      try {
-        const n = await discoverSeerrRefs(prisma, config);
-        if (n > 0) console.log(`[SeerWorker] ${n} fiches d\xE9couvertes hors du plugin`);
-      } catch (err) {
-        console.error("[SeerWorker] Error discovering Seerr refs:", err);
-      }
-    }
-  }
-  setTimeout(() => {
-    void seedTmdbCacheOnce(prisma);
-    tick();
-  }, 5e3);
-  timer = setInterval(() => {
-    tick();
-  }, 6e4);
-  console.log("[SeerWorker] Started");
-}
-function kickWorkerNow() {
-  const prisma = prismaRef;
-  const getConfig = getConfigRef;
-  if (!prisma || !getConfig) return;
-  setTimeout(async () => {
-    try {
-      const config = await getConfig();
-      if (!config || !config.seerrUrl || !config.seerrApiKey) return;
-      await Promise.all([
-        runRequestQueue(prisma, config).catch((err) => console.error("[SeerWorker] Kick request queue failed:", err)),
-        runCleanupQueue(prisma, config).catch((err) => console.error("[SeerWorker] Kick cleanup queue failed:", err))
-      ]);
-    } catch (err) {
-      console.error("[SeerWorker] Kick failed:", err);
-    }
-  }, 50);
-}
-function stopWorker() {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
-    console.log("[SeerWorker] Stopped");
-  }
-}
-function isWorkerRunning() {
-  return timer !== null;
-}
-async function processNextRequest(prisma, config, skipIds) {
-  const request = await getNextQueued(prisma);
-  if (!request || skipIds.has(request.id)) return null;
-  const fresh = await getRequestById(prisma, request.id);
-  if (!fresh || fresh.status !== "queued" && fresh.status !== "retry_pending") return request.id;
-  await updateRequestStatus(prisma, request.id, "processing");
-  try {
-    const seerrBody = {
-      mediaType: request.mediaType,
-      mediaId: request.tmdbId
-    };
-    if (request.mediaType === "tv" && request.seasons) {
-      seerrBody.seasons = request.seasons.map(Number);
-    }
-    const detail = await fetchMediaDetail(config.seerrUrl, config.seerrApiKey, request.mediaType, request.tmdbId);
-    if (detail?.mediaInfo?.requests) {
-      for (const r of detail.mediaInfo.requests) {
-        if (r.status === 3 || r.status === 4) {
-          await fetch(`${config.seerrUrl}/api/v1/request/${r.id}`, {
-            method: "DELETE",
-            headers: { "X-Api-Key": config.seerrApiKey },
-            signal: AbortSignal.timeout(1e4)
-          }).catch(() => {
-          });
-        }
-      }
-    }
-    if (request.mediaType === "tv" && detail && isAnimeFromKeywords(detail)) {
-      const overrides = await fetchAnimeOverrides(config.seerrUrl, config.seerrApiKey);
-      if (overrides) {
-        Object.assign(seerrBody, {
-          profileId: overrides.profileId,
-          rootFolder: overrides.rootFolder,
-          tags: overrides.tags
-        });
-        if (overrides.languageProfileId) seerrBody.languageProfileId = overrides.languageProfileId;
-        console.log(`[SeerWorker] Anime detected for "${request.title}", applying overrides`);
-      }
-    }
-    if (request.profileId && config.profiles?.length) {
-      const profile = config.profiles.find((p) => p.id === request.profileId);
-      if (profile) {
-        if (request.mediaType === "movie") {
-          if (profile.radarrServerId != null) seerrBody.serverId = profile.radarrServerId;
-          if (profile.radarrProfileId != null) seerrBody.profileId = profile.radarrProfileId;
-          if (profile.radarrRootFolder) seerrBody.rootFolder = profile.radarrRootFolder;
-        } else {
-          if (profile.sonarrServerId != null) seerrBody.serverId = profile.sonarrServerId;
-          if (profile.sonarrProfileId != null) seerrBody.profileId = profile.sonarrProfileId;
-          if (profile.sonarrRootFolder) seerrBody.rootFolder = profile.sonarrRootFolder;
-          if (profile.sonarrLanguageProfileId != null) seerrBody.languageProfileId = profile.sonarrLanguageProfileId;
-        }
-        if (profile.tags !== void 0) {
-          seerrBody.tags = profile.tags.length > 0 ? profile.tags : [];
-        }
-        console.log(`[SeerWorker] Applied profile "${profile.name}" for "${request.title}" (tags: ${JSON.stringify(profile.tags ?? "default")})`);
-      }
-    }
-    const seerUserId = await resolveJellyseerrUserId(
-      config,
-      prisma,
-      request.jellyfinUserId,
-      request.username
-    );
-    seerrBody.userId = seerUserId;
-    const res = await fetch(`${config.seerrUrl}/api/v1/request`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Api-Key": config.seerrApiKey },
-      body: JSON.stringify(seerrBody),
-      signal: AbortSignal.timeout(15e3)
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      if (text.includes("No seasons available to request")) {
-        const mediaStatus = detail?.mediaInfo?.status;
-        const localStatus = mediaStatus === 5 ? "available" : mediaStatus === 4 ? "partially_available" : "sent_to_seer";
-        await updateRequestStatus(prisma, request.id, localStatus, {
-          seerrMediaId: detail?.mediaInfo?.id,
-          seerrMediaStatus: mediaStatus,
-          sentAt: /* @__PURE__ */ new Date()
-        });
-        invalidateRequestCaches(request.jellyfinUserId);
-        if (request.mediaType === "tv") {
-          await notifyAvailableSeasons(prisma, request, detail?.mediaInfo?.seasons);
-        } else if (mediaStatus === 5) {
-          await notifyMovieAvailable(prisma, request);
-        }
-        console.log(`[SeerWorker] "${request.title}" : saisons d\xE9j\xE0 pr\xE9sentes c\xF4t\xE9 Jellyseerr \u2014 marqu\xE9 ${localStatus}`);
-        return request.id;
-      }
-      throw new Error(`Seerr returned ${res.status}: ${text.slice(0, 200)}`);
-    }
-    const data = await res.json();
-    await updateRequestStatus(prisma, request.id, "sent_to_seer", {
-      seerrRequestId: data.id,
-      seerrMediaId: data.media?.id,
-      seerrMediaStatus: data.media?.status,
-      sentAt: /* @__PURE__ */ new Date()
-    });
-    invalidateRequestCaches(request.jellyfinUserId);
-    await upsertContentClaim(
-      prisma,
-      request.tmdbId,
-      request.jellyfinUserId,
-      request.mediaType,
-      request.title,
-      1800
-    ).catch(() => {
-    });
-    console.log(`[SeerWorker] Sent request for "${request.title}" (seerr #${data.id})`);
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : "Unknown error";
-    const newRetryCount = request.retryCount + 1;
-    if (newRetryCount >= request.maxRetries) {
-      await updateRequestStatus(prisma, request.id, "failed", {
-        lastError: errMsg,
-        retryCount: newRetryCount
-      });
-      await prisma.notification.create({
-        data: {
-          jellyfinUserId: request.jellyfinUserId,
-          type: "request_status",
-          title: request.title,
-          body: `Votre demande pour \xAB ${request.title} \xBB a \xE9chou\xE9 apr\xE8s ${newRetryCount} tentatives`,
-          refId: request.id
-        }
-      });
-      console.warn(`[SeerWorker] Request for "${request.title}" FAILED after ${newRetryCount} retries: ${errMsg}`);
-    } else {
-      await updateRequestStatus(prisma, request.id, "retry_pending", {
-        lastError: errMsg,
-        retryCount: newRetryCount
-      });
-      console.warn(`[SeerWorker] Request for "${request.title}" retry ${newRetryCount}/${request.maxRetries}: ${errMsg}`);
-    }
-  }
-  return request.id;
-}
-
-// server/request-status.ts
-var AVAILABLE2 = 5;
-var COMPLETED = 5;
-var PARTIAL = 4;
-function requestedSeasonsHere(row, seasonStates) {
-  const requested = (row.seasons ?? []).filter((s) => typeof s.seasonNumber === "number");
-  if (requested.length === 0) return "unknown";
-  const states = new Map(seasonStates ?? []);
-  for (const s of row.media?.seasons ?? []) {
-    if (typeof s.status === "number") states.set(s.seasonNumber, s.status);
-  }
-  let here = 0;
-  let some = 0;
-  let known = 0;
-  for (const s of requested) {
-    const state2 = states.get(s.seasonNumber);
-    if (state2 === AVAILABLE2 || s.status === COMPLETED) here++;
-    else if (state2 === PARTIAL) some++;
-    if (state2 !== void 0 || s.status === COMPLETED) known++;
-  }
-  if (here === requested.length) return "all";
-  if (here + some > 0) return "some";
-  return known === requested.length ? "none" : "unknown";
-}
-function resolveRequestStatus(row, local, seasonStates) {
-  let status = mapSeerrStatus(row.status, row.media?.status, row.media?.downloadStatus);
-  if (status === "partially_available") {
-    const here = requestedSeasonsHere(row, seasonStates);
-    if (here === "all") status = "available";
-    else if (here === "none") {
-      const downloads = row.media?.downloadStatus;
-      status = mapSeerrStatus(row.status, downloads && downloads.length > 0 ? 3 : 2, downloads);
-    }
-  }
-  if (local?.status === "available" && (status === "approved" || status === "unavailable" || status === "deleted")) {
-    status = "available";
-  }
-  return status;
-}
-
 // server/download-progress.ts
 var STALLED_STATUSES = /* @__PURE__ */ new Set(["warning", "failed", "paused", "downloadClientUnavailable"]);
 function isStalledStatus(status) {
@@ -2641,300 +1591,6 @@ function aggregateDownloads(items, isBlocked) {
   };
   const detail = parsed.slice().sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1)).slice(0, MAX_DETAIL_ITEMS);
   return { summary, items: detail };
-}
-
-// server/seerr-unified.ts
-function getUser(request) {
-  return request.user;
-}
-function seerrRequestToUnified(sr, detail, localById, fallbackUser, seasonStates) {
-  const local = localById.get(sr.id);
-  const status = resolveRequestStatus(sr, local, seasonStates);
-  const seasons = sr.seasons?.map((s) => s.seasonNumber).filter((n) => typeof n === "number") ?? null;
-  const mediaType = sr.media?.mediaType ?? "movie";
-  const title = detail?.title ?? detail?.name ?? local?.title ?? `#${sr.id}`;
-  const year = (detail?.releaseDate ?? detail?.firstAirDate ?? "").slice(0, 4) || null;
-  const { summary, items } = aggregateDownloads(sr.media?.downloadStatus);
-  return {
-    download: summary,
-    downloads: items.length > 1 ? items : void 0,
-    id: local?.id ?? `seerr-${sr.id}`,
-    source: "seerr",
-    jellyfinUserId: sr.requestedBy?.jellyfinUserId ?? fallbackUser.jellyfinUserId,
-    username: sr.requestedBy?.jellyfinUsername ?? fallbackUser.username,
-    mediaType,
-    tmdbId: sr.media?.tmdbId ?? 0,
-    title,
-    posterPath: detail?.posterPath ?? local?.posterPath ?? null,
-    backdropPath: detail?.backdropPath ?? local?.backdropPath ?? null,
-    overview: detail?.overview ?? local?.overview ?? null,
-    year: year || local?.year || null,
-    seasons: seasons && seasons.length > 0 ? seasons : local?.seasons ?? null,
-    status,
-    seerrRequestId: sr.id,
-    seerrMediaId: sr.media?.id ?? null,
-    seerrMediaStatus: sr.media?.status ?? null,
-    retryCount: local?.retryCount ?? 0,
-    maxRetries: local?.maxRetries ?? 10,
-    lastError: local?.lastError ?? null,
-    priority: local?.priority ?? 0,
-    createdAt: sr.createdAt ?? local?.createdAt ?? (/* @__PURE__ */ new Date()).toISOString(),
-    updatedAt: sr.updatedAt ?? local?.updatedAt ?? (/* @__PURE__ */ new Date()).toISOString(),
-    sentAt: local?.sentAt ?? null,
-    completedAt: local?.completedAt ?? null,
-    profileId: local?.profileId ?? null,
-    isAnime: local?.isAnime ?? false
-  };
-}
-function localToUnified(r) {
-  return {
-    id: r.id,
-    source: "local",
-    jellyfinUserId: r.jellyfinUserId,
-    username: r.username,
-    mediaType: r.mediaType,
-    tmdbId: r.tmdbId,
-    title: r.title,
-    posterPath: r.posterPath,
-    backdropPath: r.backdropPath,
-    overview: r.overview,
-    year: r.year,
-    seasons: r.seasons,
-    status: r.status,
-    seerrRequestId: r.seerrRequestId,
-    seerrMediaId: r.seerrMediaId,
-    seerrMediaStatus: r.seerrMediaStatus,
-    retryCount: r.retryCount,
-    maxRetries: r.maxRetries,
-    lastError: r.lastError,
-    priority: r.priority,
-    createdAt: r.createdAt,
-    updatedAt: r.updatedAt,
-    sentAt: r.sentAt,
-    completedAt: r.completedAt,
-    profileId: r.profileId,
-    isAnime: r.isAnime
-  };
-}
-async function fetchSeerrTmdbDetail(config, mediaType, tmdbId) {
-  try {
-    const res = await fetch(`${config.seerrUrl}/api/v1/${mediaType}/${tmdbId}`, {
-      headers: { "X-Api-Key": config.seerrApiKey },
-      signal: AbortSignal.timeout(8e3)
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-async function fetchSeerrRequestById(config, seerrId) {
-  try {
-    const res = await fetch(`${config.seerrUrl}/api/v1/request/${seerrId}`, {
-      headers: { "X-Api-Key": config.seerrApiKey },
-      signal: AbortSignal.timeout(1e4)
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-function parseRequestId(id) {
-  if (id.startsWith("seerr-")) {
-    const n = Number(id.slice(6));
-    if (Number.isFinite(n)) return { kind: "seerr", seerrId: n };
-  }
-  return { kind: "local", id };
-}
-
-// server/series-gaps.ts
-var AVAILABLE3 = 5;
-var PARTIAL2 = 4;
-var PAGE = 100;
-var MAX_PAGES = 10;
-async function loadIndex(cfg) {
-  const out = /* @__PURE__ */ new Map();
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const url = `${cfg.seerrUrl}/api/v1/media?filter=partial&take=${PAGE}&skip=${page * PAGE}&sort=mediaAdded`;
-    const res = await fetch(url, { headers: { "X-Api-Key": cfg.seerrApiKey }, signal: AbortSignal.timeout(1e4) });
-    if (!res.ok) throw new Error(`Jellyseerr GET /media?filter=partial : ${res.status}`);
-    const body = await res.json();
-    for (const media of body.results ?? []) {
-      if (media.mediaType !== "tv" || typeof media.tmdbId !== "number") continue;
-      const seasons = /* @__PURE__ */ new Map();
-      for (const s of media.seasons ?? []) {
-        if (typeof s.seasonNumber === "number" && s.seasonNumber > 0 && typeof s.status === "number") {
-          seasons.set(s.seasonNumber, s.status);
-        }
-      }
-      out.set(media.tmdbId, seasons);
-    }
-    if ((body.pageInfo?.pages ?? 1) <= page + 1) break;
-  }
-  return out;
-}
-async function partialSeriesSeasons(cfg) {
-  if (!cfg) return /* @__PURE__ */ new Map();
-  try {
-    return await cached(`series-gaps:${cfg.seerrUrl}`, 6e4, () => loadIndex(cfg), { staleMs: 10 * 6e4 });
-  } catch {
-    return /* @__PURE__ */ new Map();
-  }
-}
-function gapsOf(seasons) {
-  if (!seasons || seasons.size === 0) return null;
-  const missing = [];
-  const partial = [];
-  for (const [season, status] of seasons) {
-    if (status === PARTIAL2) partial.push(season);
-    else if (status !== AVAILABLE3) missing.push(season);
-  }
-  if (missing.length === 0 && partial.length === 0) return null;
-  return { missing: missing.sort((a, b) => a - b), partial: partial.sort((a, b) => a - b) };
-}
-
-// server/requests-list.ts
-var LOCAL_PENDING_STATUSES = [
-  "queued",
-  "processing",
-  "retry_pending",
-  "failed",
-  "deleting",
-  "delete_failed"
-];
-async function buildMergedRows(prisma, cfg, user, log) {
-  const localPendingRows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM seer_requests
-     WHERE jellyfin_user_id = ?
-       AND status IN (${LOCAL_PENDING_STATUSES.map(() => "?").join(",")})
-     ORDER BY created_at DESC`,
-    user.userId,
-    ...LOCAL_PENDING_STATUSES
-  );
-  const localPending = localPendingRows.map(rowToRequest);
-  const localBySeerrId = /* @__PURE__ */ new Map();
-  const allLocalRows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM seer_requests WHERE jellyfin_user_id = ? AND seerr_request_id IS NOT NULL`,
-    user.userId
-  );
-  for (const row of allLocalRows) {
-    const r = rowToRequest(row);
-    if (r.seerrRequestId) localBySeerrId.set(r.seerrRequestId, r);
-  }
-  let seerrRows = [];
-  let seerrUnreachable = false;
-  const seasonStatesP = partialSeriesSeasons(cfg);
-  try {
-    const seerUserId = await resolveJellyseerrUserId(cfg, prisma, user.userId, user.username);
-    const all = await fetchAllSeerrRequests(cfg, seerUserId);
-    seerrRows = all.rows;
-  } catch (err) {
-    seerrUnreachable = true;
-    log?.(err, "Seerr fetch failed, falling back to local only");
-  }
-  const seerrSeenIds = new Set(seerrRows.map((r) => r.id));
-  const localOnly = localPending.filter(
-    (l) => !l.seerrRequestId || !seerrSeenIds.has(l.seerrRequestId)
-  );
-  const deletingIds = /* @__PURE__ */ new Set();
-  try {
-    const pending2 = await prisma.$queryRawUnsafe(
-      `SELECT seerr_request_id FROM seer_cleanup_queue
-       WHERE status = 'pending' AND action = 'delete' AND seerr_request_id IS NOT NULL`
-    );
-    for (const r of pending2) deletingIds.add(Number(r.seerr_request_id));
-  } catch {
-  }
-  const seasonStates = await seasonStatesP;
-  return {
-    seerrRows,
-    localBySeerrId,
-    localOnly,
-    deletingIds,
-    stats: computeStats(seerrRows, localOnly, localBySeerrId, deletingIds, seasonStates),
-    fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    seasonStates,
-    seerrUnreachable
-  };
-}
-function computeStats(seerrRows, localOnly, localBySeerrId, deletingIds, seasonStates) {
-  const byStatus = {};
-  const byType = { movie: 0, tv: 0 };
-  let total = 0;
-  const bump = (status, mediaType) => {
-    total++;
-    byStatus[status] = (byStatus[status] ?? 0) + 1;
-    if (mediaType === "movie") byType.movie++;
-    else if (mediaType === "tv") byType.tv++;
-  };
-  for (const sr of seerrRows) {
-    bump(effectiveStatus(sr, localBySeerrId, deletingIds, seasonStates), sr.media?.mediaType);
-  }
-  for (const l of localOnly) bump(l.status, l.mediaType);
-  return { total, byStatus, byType };
-}
-function effectiveStatus(sr, localBySeerrId, deletingIds, seasonStates) {
-  if (deletingIds.has(sr.id)) return "deleting";
-  return resolveRequestStatus(sr, localBySeerrId.get(sr.id), seasonStates.get(sr.media?.tmdbId ?? 0));
-}
-function collectTmdbRefs(rows) {
-  const out = [];
-  for (const sr of rows.seerrRows) {
-    if (sr.media?.tmdbId) out.push({ mediaType: sr.media.mediaType, tmdbId: sr.media.tmdbId });
-  }
-  for (const l of rows.localOnly) {
-    if (l.tmdbId) out.push({ mediaType: l.mediaType, tmdbId: l.tmdbId });
-  }
-  return out;
-}
-function metaToDetail(meta) {
-  if (!meta) return null;
-  return {
-    id: meta.tmdbId,
-    title: meta.mediaType === "movie" ? meta.title : void 0,
-    name: meta.mediaType === "tv" ? meta.title : void 0,
-    posterPath: meta.posterPath ?? void 0,
-    backdropPath: meta.backdropPath ?? void 0,
-    overview: meta.overview ?? void 0,
-    releaseDate: meta.mediaType === "movie" ? meta.releaseDate ?? void 0 : void 0,
-    firstAirDate: meta.mediaType === "tv" ? meta.releaseDate ?? void 0 : void 0
-  };
-}
-function hydrateRows(rows, meta, user) {
-  const out = rows.localOnly.map(localToUnified);
-  for (const sr of rows.seerrRows) {
-    if (!sr.media) continue;
-    const detail = metaToDetail(meta.get(tmdbKey({ mediaType: sr.media.mediaType, tmdbId: sr.media.tmdbId })));
-    const unified = seerrRequestToUnified(sr, detail, rows.localBySeerrId, {
-      jellyfinUserId: user.userId,
-      username: user.username
-    }, rows.seasonStates?.get(sr.media.tmdbId));
-    if (rows.deletingIds.has(sr.id)) unified.status = "deleting";
-    out.push(unified);
-  }
-  out.sort((a, b) => b.createdAt > a.createdAt ? 1 : -1);
-  return out;
-}
-function filterAndPaginate(items, query) {
-  let filtered = items;
-  if (query.type) filtered = filtered.filter((r) => r.mediaType === query.type);
-  if (query.status) {
-    const wanted = new Set(query.status.split(",").map((s) => s.trim()));
-    filtered = filtered.filter((r) => wanted.has(r.status));
-  }
-  if (query.q) {
-    const q = query.q.trim().toLowerCase();
-    if (q) filtered = filtered.filter((r) => (r.title ?? "").toLowerCase().includes(q));
-  }
-  const total = filtered.length;
-  const offset = (query.page - 1) * query.limit;
-  return {
-    results: filtered.slice(offset, offset + query.limit),
-    total,
-    page: query.page,
-    pages: Math.max(1, Math.ceil(total / query.limit))
-  };
 }
 
 // server/sonarr-schedule.ts
@@ -3399,6 +2055,2026 @@ function restat(stats, items, verdicts) {
   return { ...stats, byStatus };
 }
 
+// server/arr-advance-plan.ts
+var PROGRESS_RANK = {
+  sent_to_seer: 1,
+  approved: 1,
+  unavailable: 1,
+  downloading: 2,
+  partially_available: 3,
+  available: 4
+};
+function isDowngrade(from, to) {
+  const a = PROGRESS_RANK[from];
+  const b = PROGRESS_RANK[to];
+  return a !== void 0 && b !== void 0 && b < a;
+}
+function seasonFacts(facts, requested) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const [key, fact] of facts) {
+    const season = Number(/^S(\d+)E/.exec(key)?.[1]);
+    if (!Number.isInteger(season)) continue;
+    const c = counts.get(season) ?? { expected: 0, here: 0 };
+    if (fact.monitored || fact.hasFile) c.expected++;
+    if (fact.hasFile) c.here++;
+    counts.set(season, c);
+  }
+  const considered = requested?.length ? [...requested].sort((a, b) => a - b) : [...counts.keys()].filter((s) => s > 0).sort((a, b) => a - b);
+  const complete = [];
+  const started = [];
+  for (const s of considered) {
+    const c = counts.get(s);
+    if (!c || c.here === 0) continue;
+    started.push(s);
+    if (c.here >= c.expected) complete.push(s);
+  }
+  return { considered, complete, started };
+}
+var NOTHING = {
+  status: null,
+  completed: false,
+  notifyDownloading: false,
+  notifyMovie: false,
+  notifySeasons: [],
+  notified: null
+};
+function climb(input, target, decision) {
+  if (target === input.status || isDowngrade(input.status, target)) return decision;
+  const nothingAnnounced = (input.notifiedSeasons ?? []).length === 0;
+  return {
+    ...decision,
+    status: target,
+    completed: target === "available",
+    // « En cours de téléchargement » : une fois, au départ — jamais après une annonce.
+    notifyDownloading: target === "downloading" && nothingAnnounced
+  };
+}
+function decideAdvance(input) {
+  if (input.mediaType === "movie") {
+    if (input.movieHasFile === true) {
+      const first = (input.notifiedSeasons ?? []).length === 0;
+      return climb(input, "available", { ...NOTHING, notifyMovie: first, notified: first ? [0] : null });
+    }
+    if (input.inQueue) return climb(input, "downloading", NOTHING);
+    if (input.movieHasFile === false && input.status === "downloading") return { ...NOTHING, status: "unavailable" };
+    return NOTHING;
+  }
+  const facts = input.seasons;
+  if (!facts || facts.considered.length === 0) {
+    return input.inQueue ? climb(input, "downloading", NOTHING) : NOTHING;
+  }
+  const already = new Set(input.notifiedSeasons ?? []);
+  const fresh = facts.complete.filter((s) => !already.has(s));
+  const base = {
+    ...NOTHING,
+    notifySeasons: fresh,
+    notified: fresh.length > 0 ? [.../* @__PURE__ */ new Set([...already, ...facts.complete])].sort((a, b) => a - b) : null
+  };
+  if (facts.complete.length === facts.considered.length) return climb(input, "available", base);
+  if (facts.started.length > 0) return climb(input, "partially_available", base);
+  if (input.inQueue) return climb(input, "downloading", base);
+  if (input.status === "downloading") return { ...base, status: "unavailable" };
+  return base;
+}
+
+// server/arr-advance.ts
+var CANDIDATES = ["sent_to_seer", "approved", "unavailable", "downloading", "partially_available"];
+var CONCURRENCY2 = 4;
+var IDLE_EVERY_PASSES = 5;
+var AFTER_QUEUE_PASSES = 3;
+var CLAIM_TTL_SECONDS = 1800;
+var passCount = 0;
+var leftQueue = /* @__PURE__ */ new Map();
+var reachable = { radarr: false, sonarr: false };
+function arrKnows(mediaType) {
+  return mediaType === "movie" ? reachable.radarr : reachable.sonarr;
+}
+function justLeft(id, inQueue) {
+  if (inQueue) {
+    leftQueue.set(id, AFTER_QUEUE_PASSES);
+    return false;
+  }
+  const left = leftQueue.get(id);
+  if (left === void 0) return false;
+  if (left <= 1) leftQueue.delete(id);
+  else leftQueue.set(id, left - 1);
+  return true;
+}
+async function advanceFromArr(prisma, cfg) {
+  passCount++;
+  const queue = await queueSnapshot(cfg).catch(() => null);
+  reachable = {
+    radarr: !!queue && !queue.unreachable.includes("radarr"),
+    sonarr: !!queue && !queue.unreachable.includes("sonarr")
+  };
+  if (!queue || !reachable.radarr && !reachable.sonarr) return;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM seer_requests
+     WHERE status IN (${CANDIDATES.map(() => "?").join(", ")}) AND tmdb_id > 0
+     ORDER BY updated_at DESC LIMIT 500`,
+    ...CANDIDATES
+  );
+  const requests = rows.map(rowToRequest);
+  const alive = new Set(requests.map((r) => r.id));
+  for (const id of leftQueue.keys()) if (!alive.has(id)) leftQueue.delete(id);
+  const idleTurn = passCount % IDLE_EVERY_PASSES === 1;
+  await mapLimit(requests, CONCURRENCY2, async (req) => {
+    if (!arrKnows(req.mediaType)) return;
+    const inQueue = matchQueue(req, queue.items).length > 0;
+    const recent = justLeft(req.id, inQueue);
+    if (!inQueue && !recent && !idleTurn && req.status !== "downloading") return;
+    try {
+      await apply(prisma, req, await decide(cfg, req, inQueue));
+    } catch (err) {
+      console.warn(`[SeerArr] "${req.title}" :`, err);
+    }
+  });
+}
+async function decide(cfg, req, inQueue) {
+  const base = { status: req.status, notifiedSeasons: req.notifiedSeasons, inQueue };
+  if (req.mediaType === "movie") {
+    return decideAdvance({ ...base, mediaType: "movie", movieHasFile: await radarrHasFile(cfg, req.tmdbId) });
+  }
+  const facts = await sonarrSeriesFacts(cfg, req.tmdbId).catch(() => null);
+  return decideAdvance({
+    ...base,
+    mediaType: "tv",
+    seasons: facts && facts.size > 0 ? seasonFacts(facts, req.seasons) : null
+  });
+}
+function arrivalNotifications(req, d) {
+  const out = [];
+  if (d.notifyDownloading) out.push({ title: req.title, body: `\xAB ${req.title} \xBB est en route` });
+  if (d.notifyMovie) out.push({ title: req.title, body: `\xAB ${req.title} \xBB ${releasedSuffix("m", false)}` });
+  if (d.notifySeasons.length > 0) {
+    const requested = req.seasons ?? [];
+    const arrived = (d.notified ?? req.notifiedSeasons ?? []).filter((s) => requested.includes(s)).length;
+    const n = seasonNotification(req, d.notifySeasons, arrived);
+    out.push({ title: n.title, body: n.message });
+  }
+  return out;
+}
+async function apply(prisma, req, d) {
+  const notifications = arrivalNotifications(req, d);
+  if (d.status === null && d.notified === null && notifications.length === 0) return;
+  if (d.status) {
+    await updateRequestStatus(prisma, req.id, d.status, d.completed ? { completedAt: /* @__PURE__ */ new Date() } : void 0);
+    console.log(`[SeerArr] "${req.title}" status: ${req.status} \u2192 ${d.status}`);
+  }
+  for (const n of notifications) {
+    await prisma.notification.create({
+      data: { jellyfinUserId: req.jellyfinUserId, type: "request_status", title: n.title, body: n.body, refId: req.id }
+    });
+  }
+  if (d.notified) await setNotifiedSeasons(prisma, req.id, d.notified);
+  invalidateRequestCaches(req.jellyfinUserId);
+  await upsertContentClaim(prisma, req.tmdbId, req.jellyfinUserId, req.mediaType, req.title, CLAIM_TTL_SECONDS).catch(() => {
+  });
+}
+
+// server/worker-sync.ts
+var CLAIM_TTL_SECONDS2 = 1800;
+async function syncStatuses(prisma, config) {
+  const requests = await getRequestsToSync(prisma);
+  await purgeExpiredContentClaims(prisma).catch(() => {
+  });
+  if (requests.length === 0) return;
+  let availabilitySyncDone = false;
+  for (const request of requests) {
+    if (!request.seerrRequestId) continue;
+    await upsertContentClaim(
+      prisma,
+      request.tmdbId,
+      request.jellyfinUserId,
+      request.mediaType,
+      request.title,
+      CLAIM_TTL_SECONDS2
+    ).catch(() => {
+    });
+    try {
+      const res = await fetch(
+        `${config.seerrUrl}/api/v1/request/${request.seerrRequestId}`,
+        { headers: { "X-Api-Key": config.seerrApiKey }, signal: AbortSignal.timeout(1e4) }
+      );
+      if (!res.ok) {
+        if (res.status === 404) {
+          await updateRequestStatus(prisma, request.id, "deleted", {
+            lastError: "Demande supprim\xE9e c\xF4t\xE9 Jellyseerr"
+          });
+          invalidateRequestCaches(request.jellyfinUserId);
+        }
+        continue;
+      }
+      const data = await res.json();
+      const globalStatus = mapSeerrStatus(data.status, data.media?.status, data.media?.downloadStatus);
+      if (globalStatus === "failed" && request.status !== "failed") {
+        await handleFailedSync(prisma, config, request, data);
+        invalidateRequestCaches(request.jellyfinUserId);
+        continue;
+      }
+      if (request.mediaType === "tv" && (request.seasons?.length ?? 0) > 0) {
+        await syncTvSeasons(prisma, config, request, globalStatus, data.media?.status);
+      } else {
+        await syncGlobal(prisma, request, globalStatus, data.media?.status);
+      }
+      if (!availabilitySyncDone && request.mediaType === "tv" && (globalStatus === "partially_available" || globalStatus === "downloading")) {
+        availabilitySyncDone = true;
+        await triggerSeerrJob(config.seerrUrl, config.seerrApiKey, "availability-sync");
+      }
+    } catch (err) {
+      console.warn(`[SeerWorker] Failed to sync request #${request.seerrRequestId}:`, err);
+    }
+  }
+}
+async function syncGlobal(prisma, request, newStatus, mediaStatus) {
+  if (newStatus === request.status) return;
+  if (arrKnows(request.mediaType) && isDowngrade(request.status, newStatus)) return;
+  const extra = { seerrMediaStatus: mediaStatus };
+  if (newStatus === "available") extra.completedAt = /* @__PURE__ */ new Date();
+  await updateRequestStatus(prisma, request.id, newStatus, extra);
+  invalidateRequestCaches(request.jellyfinUserId);
+  const notif = statusNotification(request, newStatus);
+  if (notif) {
+    await prisma.notification.create({
+      data: {
+        jellyfinUserId: request.jellyfinUserId,
+        type: "request_status",
+        title: notif.title,
+        body: notif.message,
+        refId: request.id
+      }
+    });
+  }
+  console.log(`[SeerWorker] "${request.title}" status: ${request.status} \u2192 ${newStatus}`);
+}
+async function syncTvSeasons(prisma, config, request, fallbackStatus, mediaStatus) {
+  const detail = await fetchMediaDetail(config.seerrUrl, config.seerrApiKey, "tv", request.tmdbId);
+  const mediaSeasons = detail?.mediaInfo?.seasons;
+  const kept = await releaseGoneSeasons(prisma, request, mediaSeasons);
+  if (!kept) return;
+  request = kept;
+  const newStatus = await notifyAvailableSeasons(prisma, request, mediaSeasons);
+  if (newStatus === null) {
+    await syncGlobal(prisma, request, fallbackStatus, mediaStatus);
+    return;
+  }
+  if (newStatus !== request.status && !(arrKnows("tv") && isDowngrade(request.status, newStatus))) {
+    const extra = { seerrMediaStatus: mediaStatus };
+    if (newStatus === "available") extra.completedAt = /* @__PURE__ */ new Date();
+    await updateRequestStatus(prisma, request.id, newStatus, extra);
+    invalidateRequestCaches(request.jellyfinUserId);
+    console.log(`[SeerWorker] "${request.title}" status: ${request.status} \u2192 ${newStatus}`);
+  }
+}
+async function handleFailedSync(prisma, config, request, data) {
+  const retryN = request.retryCount + 1;
+  if (retryN < request.maxRetries) {
+    await fetch(`${config.seerrUrl}/api/v1/request/${request.seerrRequestId}`, {
+      method: "DELETE",
+      headers: { "X-Api-Key": config.seerrApiKey },
+      signal: AbortSignal.timeout(1e4)
+    }).catch(() => {
+    });
+    if (request.seerrMediaId) {
+      await fetch(`${config.seerrUrl}/api/v1/media/${request.seerrMediaId}`, {
+        method: "DELETE",
+        headers: { "X-Api-Key": config.seerrApiKey },
+        signal: AbortSignal.timeout(1e4)
+      }).catch(() => {
+      });
+    }
+    await prisma.$executeRawUnsafe(
+      `UPDATE seer_requests SET status = 'retry_pending', seerr_request_id = NULL, seerr_media_id = NULL, seerr_media_status = NULL, retry_count = ? WHERE id = ?`,
+      retryN,
+      request.id
+    );
+    console.log(`[SeerWorker] Auto-retry "${request.title}" (attempt ${retryN}/${request.maxRetries})`);
+  } else {
+    await updateRequestStatus(prisma, request.id, "failed", {
+      seerrMediaStatus: data.media?.status,
+      retryCount: retryN
+    });
+    await prisma.notification.create({
+      data: {
+        jellyfinUserId: request.jellyfinUserId,
+        type: "request_status",
+        title: request.title,
+        body: `\xC9chec d\xE9finitif pour \xAB ${request.title} \xBB apr\xE8s ${request.maxRetries} tentatives`,
+        refId: request.id
+      }
+    });
+    console.log(`[SeerWorker] "${request.title}" PERMANENTLY FAILED after ${request.maxRetries} retries`);
+  }
+}
+async function retryFailedRequests(prisma) {
+  const failed = await prisma.$queryRawUnsafe(
+    // Les lignes héritées de l'ancien classement (404 → « failed ») ne sont
+    // plus recréées non plus : une suppression côté Jellyseerr est acquise.
+    `SELECT id, title, retry_count, max_retries FROM seer_requests
+     WHERE status = 'failed' AND retry_count < max_retries
+       AND (last_error IS NULL OR last_error != 'Request no longer exists on Seerr') LIMIT 3`
+  );
+  for (const req of failed) {
+    const newRetry = req.retry_count + 1;
+    await prisma.$executeRawUnsafe(
+      `UPDATE seer_requests SET status = 'retry_pending', seerr_request_id = NULL, seerr_media_id = NULL, seerr_media_status = NULL, retry_count = ? WHERE id = ?`,
+      newRetry,
+      req.id
+    );
+    console.log(`[SeerWorker] Auto-retry "${req.title}" (attempt ${newRetry}/${req.max_retries})`);
+  }
+}
+function mapSeerrStatus(requestStatus, mediaStatus, downloadStatus) {
+  if (requestStatus === 3) return "failed";
+  if (requestStatus === 4) return "failed";
+  if (mediaStatus === 5) return "available";
+  if (mediaStatus === 4) return "partially_available";
+  if (mediaStatus === 7) return "deleted";
+  if (mediaStatus === 1) return "unavailable";
+  if (mediaStatus === 3) {
+    return downloadStatus && downloadStatus.length > 0 ? "downloading" : "unavailable";
+  }
+  if (requestStatus === 1) return "sent_to_seer";
+  return "approved";
+}
+function statusNotification(request, newStatus) {
+  switch (newStatus) {
+    // « En route », jamais « téléchargement » : l'application mobile affiche
+    // ces notifications et n'écrit ce mot nulle part (cf. CLAUDE.md du core).
+    case "downloading":
+      return { type: "request_downloading", title: request.title, message: `\xAB ${request.title} \xBB est en route` };
+    case "available": {
+      const suffix = releasedSuffix(request.mediaType === "movie" ? "m" : "f", false);
+      return { type: "request_available", title: request.title, message: `\xAB ${request.title} \xBB ${suffix}` };
+    }
+    case "failed":
+      return { type: "request_declined", title: request.title, message: `Votre demande pour \xAB ${request.title} \xBB a \xE9t\xE9 refus\xE9e` };
+    default:
+      return null;
+  }
+}
+
+// server/seerr-reconcile.ts
+async function reconcileSeerrSeasons(prisma, config, tmdbId, removedSeasons) {
+  if (removedSeasons.length === 0) return;
+  const removed = new Set(removedSeasons);
+  const headers = { "X-Api-Key": config.seerrApiKey };
+  const res = await fetch(`${config.seerrUrl}/api/v1/tv/${tmdbId}`, {
+    headers,
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (res.status === 404) return;
+  if (!res.ok) {
+    throw new Error(`Jellyseerr GET /tv/${tmdbId} returned ${res.status}`);
+  }
+  const detail = await res.json();
+  for (const req of detail.mediaInfo?.requests ?? []) {
+    const seasons = (req.seasons ?? []).map((s) => s.seasonNumber).filter((n) => typeof n === "number");
+    if (seasons.length === 0) continue;
+    const remaining = seasons.filter((n) => !removed.has(n));
+    if (remaining.length === seasons.length) continue;
+    if (remaining.length === 0) {
+      const del = await fetch(`${config.seerrUrl}/api/v1/request/${req.id}`, {
+        method: "DELETE",
+        headers,
+        signal: AbortSignal.timeout(1e4)
+      });
+      if (!del.ok && del.status !== 404) {
+        throw new Error(`Jellyseerr DELETE /request/${req.id} returned ${del.status}`);
+      }
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM seer_requests WHERE seerr_request_id = ?`,
+        req.id
+      );
+      console.log(
+        `[SeerReconcile] tv#${tmdbId} : demande Jellyseerr #${req.id} supprim\xE9e (S${seasons.join(", S")} retir\xE9es)`
+      );
+    } else {
+      const put2 = await fetch(`${config.seerrUrl}/api/v1/request/${req.id}`, {
+        method: "PUT",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ mediaType: "tv", seasons: remaining }),
+        signal: AbortSignal.timeout(1e4)
+      });
+      if (!put2.ok && put2.status !== 404) {
+        const text = await put2.text().catch(() => "");
+        throw new Error(
+          `Jellyseerr PUT /request/${req.id} returned ${put2.status} ${text.slice(0, 200)}`
+        );
+      }
+      await prisma.$executeRawUnsafe(
+        `UPDATE seer_requests SET seasons = ? WHERE seerr_request_id = ?`,
+        JSON.stringify(remaining),
+        req.id
+      );
+      console.log(
+        `[SeerReconcile] tv#${tmdbId} : demande Jellyseerr #${req.id} r\xE9duite aux saisons S${remaining.join(", S")}`
+      );
+    }
+  }
+}
+
+// server/worker-cleanup.ts
+var CLEANUP_BATCH = 25;
+async function processCleanupQueue(prisma, config) {
+  for (let pass = 0; pass < 4; pass++) {
+    const jobs = await getPendingCleanups(prisma, CLEANUP_BATCH);
+    if (jobs.length === 0) return;
+    for (const job of jobs) {
+      await processCleanupJob(prisma, config, job);
+    }
+    if (jobs.length < CLEANUP_BATCH) return;
+  }
+}
+function invalidateForJob(job) {
+  invalidateRequestCaches(job.jellyfinUserId);
+}
+async function processCleanupJob(prisma, config, job) {
+  const headers = { "X-Api-Key": config.seerrApiKey };
+  try {
+    if (job.action === "sync") {
+      await triggerSeerrJob(config.seerrUrl, config.seerrApiKey, "availability-sync");
+      await updateCleanupJob(prisma, job.id, "completed");
+      invalidateForJob(job);
+      console.log(`[SeerWorker] availability-sync re-d\xE9clench\xE9e pour "${job.title}"`);
+      return;
+    }
+    const arrType = job.mediaType === "movie" ? "radarr" : "sonarr";
+    const [server, ext] = await Promise.all([
+      getArrServerConfig(config.seerrUrl, config.seerrApiKey, arrType),
+      getMediaExternalId(config.seerrUrl, config.seerrApiKey, job.mediaType, job.tmdbId)
+    ]);
+    if (server && ext?.externalServiceId) {
+      const arrId = ext.externalServiceId;
+      if (job.mediaType === "movie") {
+        await cancelRadarrQueue(server, arrId);
+        const unmon = await unmonitorRadarrMovie(server, arrId);
+        if (!unmon) throw new Error("Radarr unmonitor failed");
+        if (job.deleteFiles) {
+          const del = await deleteRadarrMovieFile(server, arrId);
+          if (!del) throw new Error("Radarr delete file failed");
+        }
+      } else {
+        await cancelSonarrQueue(server, arrId, job.seasons);
+        const unmon = await unmonitorSonarrSeasons(server, arrId, job.seasons);
+        if (!unmon) throw new Error("Sonarr unmonitor failed");
+        if (job.deleteFiles) {
+          const del = await deleteSonarrSeasonFiles(server, arrId, job.seasons);
+          if (!del) throw new Error("Sonarr delete season files failed");
+        }
+      }
+      console.log(
+        `[SeerWorker] *arr cleanup for "${job.title}" (${arrType} #${arrId}, seasons=${job.seasons ? JSON.stringify(job.seasons) : "all"}, deleteFiles=${job.deleteFiles})`
+      );
+    } else {
+      console.log(`[SeerWorker] "${job.title}" : pas de cible *arr (jamais grab\xE9) \u2014 skip ops *arr`);
+    }
+    if (job.seerrRequestId) {
+      const delRes = await fetch(
+        `${config.seerrUrl}/api/v1/request/${job.seerrRequestId}`,
+        { method: "DELETE", headers, signal: AbortSignal.timeout(1e4) }
+      );
+      if (!delRes.ok && delRes.status !== 404) {
+        throw new Error(`Jellyseerr request delete returned ${delRes.status}`);
+      }
+    }
+    if (job.mediaType === "tv" && job.seasons && job.seasons.length > 0) {
+      await reconcileSeerrSeasons(prisma, config, job.tmdbId, job.seasons);
+    }
+    await updateCleanupJob(prisma, job.id, "completed");
+    if (job.requestId) {
+      await deleteRequestById(prisma, job.requestId);
+      console.log(`[SeerWorker] Deleted local request ${job.requestId}`);
+    }
+    await clearPendingCleanup(prisma, job.id);
+    if (job.deleteFiles) {
+      await triggerSeerrJob(config.seerrUrl, config.seerrApiKey, "availability-sync");
+      for (const delay of [120, 600]) {
+        await enqueueCleanup(prisma, {
+          action: "sync",
+          mediaType: job.mediaType,
+          tmdbId: job.tmdbId,
+          title: job.title,
+          deleteFiles: false,
+          seasons: null,
+          delaySeconds: delay,
+          // Propagation obligatoire : sans elle, ces jobs enfants naîtraient
+          // sans propriétaire et retomberaient sur l'invalidation globale.
+          jellyfinUserId: job.jellyfinUserId
+        });
+      }
+    }
+    invalidateForJob(job);
+    console.log(`[SeerWorker] Cleanup completed for "${job.title}"`);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : "Unknown error";
+    const newRetry = job.retryCount + 1;
+    if (newRetry >= job.maxRetries) {
+      await updateCleanupJob(prisma, job.id, "failed", { lastError: errMsg, retryCount: newRetry });
+      if (job.requestId) {
+        await updateRequestStatus(prisma, job.requestId, "delete_failed", {
+          lastError: `\xC9chec suppression: ${errMsg}`
+        });
+      }
+      await clearPendingCleanup(prisma, job.id);
+      console.warn(`[SeerWorker] Cleanup FAILED permanently for "${job.title}" after ${newRetry} retries`);
+    } else {
+      const delaySec = Math.min(30 * Math.pow(2, newRetry - 1), 1800);
+      const nextRetry = new Date(Date.now() + delaySec * 1e3);
+      await updateCleanupJob(prisma, job.id, "pending", {
+        lastError: errMsg,
+        retryCount: newRetry,
+        nextRetryAt: nextRetry
+      });
+      console.log(`[SeerWorker] Cleanup retry ${newRetry}/${job.maxRetries} for "${job.title}" in ${delaySec}s`);
+    }
+  }
+}
+
+// server/jellyseerr-user.ts
+var SeerrAccountError = class extends Error {
+  constructor(message, code) {
+    super(message);
+    this.code = code;
+  }
+};
+var LINK_CHECK_TTL_MS = 10 * 6e4;
+var checkedLinks = /* @__PURE__ */ new Map();
+function forgetSeerrUserChecks() {
+  checkedLinks.clear();
+}
+async function seerrUserExists(config, id) {
+  const until = checkedLinks.get(id);
+  if (until && until > Date.now()) return true;
+  try {
+    const res = await fetch(`${config.seerrUrl}/api/v1/user/${id}`, {
+      headers: { "X-Api-Key": config.seerrApiKey },
+      signal: AbortSignal.timeout(8e3)
+    });
+    if (res.status === 404) return false;
+    if (!res.ok) return null;
+    checkedLinks.set(id, Date.now() + LINK_CHECK_TTL_MS);
+    return true;
+  } catch {
+    return null;
+  }
+}
+async function resolveJellyseerrUserId(config, prisma, jellyfinUserId, username) {
+  const settings = await getOrCreateUserSettings(prisma, jellyfinUserId, username);
+  if (settings.jellyseerrUserId) {
+    if (await seerrUserExists(config, settings.jellyseerrUserId) !== false) return settings.jellyseerrUserId;
+    await updateUserSettings(prisma, jellyfinUserId, { jellyseerrUserId: null, jellyseerrLastSync: null });
+  }
+  const found = await findJellyseerrUserByJellyfinId(config, jellyfinUserId);
+  if (found) {
+    await updateUserSettings(prisma, jellyfinUserId, {
+      jellyseerrUserId: found.id,
+      jellyseerrLastSync: /* @__PURE__ */ new Date()
+    });
+    return found.id;
+  }
+  if (username) {
+    const placeholder = await findOrphanPlaceholderByUsername(config, username);
+    if (placeholder) {
+      await relinkJellyseerrUserToJellyfin(config, placeholder.id, jellyfinUserId);
+      await updateUserSettings(prisma, jellyfinUserId, {
+        jellyseerrUserId: placeholder.id,
+        jellyseerrLastSync: /* @__PURE__ */ new Date()
+      });
+      return placeholder.id;
+    }
+  }
+  let importError = null;
+  try {
+    const imported = await importJellyseerrUserFromJellyfin(config, jellyfinUserId);
+    if (imported) {
+      await updateUserSettings(prisma, jellyfinUserId, {
+        jellyseerrUserId: imported.id,
+        jellyseerrLastSync: /* @__PURE__ */ new Date()
+      });
+      return imported.id;
+    }
+  } catch (err) {
+    importError = err instanceof Error ? err.message : String(err);
+  }
+  const refreshed = await findJellyseerrUserByJellyfinId(config, jellyfinUserId);
+  if (refreshed) {
+    await updateUserSettings(prisma, jellyfinUserId, {
+      jellyseerrUserId: refreshed.id,
+      jellyseerrLastSync: /* @__PURE__ */ new Date()
+    });
+    return refreshed.id;
+  }
+  try {
+    const local = await createPlaceholderJellyseerrUser(config, username || jellyfinUserId);
+    await updateUserSettings(prisma, jellyfinUserId, {
+      jellyseerrUserId: local.id,
+      jellyseerrLastSync: /* @__PURE__ */ new Date()
+    });
+    console.warn(`[SeerUsers] Import refus\xE9 par Jellyseerr (${importError ?? "sans r\xE9ponse"}) : compte local #${local.id} pour ${username}`);
+    return local.id;
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    throw new SeerrAccountError(
+      `Jellyseerr refuse d'importer ce compte depuis Jellyfin${importError ? ` (${importError})` : ""}, et n'a pas voulu cr\xE9er de compte local (${why}). V\xE9rifiez la connexion de Jellyseerr \xE0 Jellyfin (Jellyseerr \u2192 Param\xE8tres \u2192 Jellyfin).`,
+      /Email notifications must be enabled/i.test(why) ? "local-needs-email" : "import-and-local-refused"
+    );
+  }
+}
+async function findOrphanPlaceholderByUsername(config, username) {
+  const all = await listAllJellyseerrUsers(config);
+  const target = username.trim().toLowerCase();
+  return all.find(
+    (u) => !u.jellyfinUserId && (u.username && u.username.trim().toLowerCase() === target || u.jellyfinUsername && u.jellyfinUsername.trim().toLowerCase() === target)
+  ) ?? null;
+}
+async function createPlaceholderJellyseerrUser(config, username) {
+  const existing = await findOrphanPlaceholderByUsername(config, username);
+  if (existing) return existing;
+  const email = `${username.toLowerCase().replace(/[^a-z0-9._-]+/g, "")}@tentacle.local`;
+  const res = await fetch(`${config.seerrUrl}/api/v1/user`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Api-Key": config.seerrApiKey },
+    body: JSON.stringify({ email, username }),
+    signal: AbortSignal.timeout(15e3)
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Jellyseerr POST /user failed (${res.status}): ${text.slice(0, 200)}`);
+  }
+  return await res.json();
+}
+async function invalidateStaleJellyseerrCache(config, prisma) {
+  const seerUsers = await listAllJellyseerrUsers(config);
+  const validIds = new Set(seerUsers.map((u) => u.id));
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT jellyfin_user_id, jellyseerr_user_id FROM seer_user_settings WHERE jellyseerr_user_id IS NOT NULL`
+  );
+  let invalidated = 0;
+  for (const row of rows) {
+    if (!validIds.has(row.jellyseerr_user_id)) {
+      await prisma.$executeRawUnsafe(
+        `UPDATE seer_user_settings SET jellyseerr_user_id = NULL, jellyseerr_last_sync = NULL WHERE jellyfin_user_id = ?`,
+        row.jellyfin_user_id
+      );
+      invalidated++;
+    }
+  }
+  return invalidated;
+}
+async function relinkJellyseerrUserToJellyfin(config, jellyseerrUserId, jellyfinUserId) {
+  const res = await fetch(`${config.seerrUrl}/api/v1/user/${jellyseerrUserId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", "X-Api-Key": config.seerrApiKey },
+    body: JSON.stringify({ jellyfinUserId }),
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Jellyseerr PUT /user/${jellyseerrUserId} failed (${res.status}): ${text.slice(0, 200)}`);
+  }
+}
+async function findJellyseerrUserByJellyfinId(config, jellyfinUserId) {
+  const all = await listAllJellyseerrUsers(config);
+  const normalized = (id) => (id || "").toLowerCase().replace(/-/g, "");
+  const target = normalized(jellyfinUserId);
+  return all.find((u) => normalized(u.jellyfinUserId) === target) ?? null;
+}
+async function listAllJellyseerrUsers(config) {
+  const out = [];
+  let skip = 0;
+  const take = 100;
+  for (let i = 0; i < 10; i++) {
+    const res = await fetch(`${config.seerrUrl}/api/v1/user?take=${take}&skip=${skip}`, {
+      headers: { "X-Api-Key": config.seerrApiKey },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!res.ok) {
+      throw new Error(`Jellyseerr GET /user failed: ${res.status}`);
+    }
+    const data = await res.json();
+    const page = data.results ?? [];
+    out.push(...page);
+    if (page.length < take) break;
+    skip += take;
+  }
+  return out;
+}
+async function deleteJellyseerrUser(config, id) {
+  const res = await fetch(`${config.seerrUrl}/api/v1/user/${id}`, {
+    method: "DELETE",
+    headers: { "X-Api-Key": config.seerrApiKey },
+    signal: AbortSignal.timeout(15e3)
+  });
+  if (!res.ok && res.status !== 404) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Jellyseerr DELETE /user/${id} a r\xE9pondu ${res.status}: ${text.slice(0, 200)}`);
+  }
+  checkedLinks.delete(id);
+}
+async function importJellyseerrUserFromJellyfin(config, jellyfinUserId) {
+  const res = await fetch(`${config.seerrUrl}/api/v1/user/import-from-jellyfin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Api-Key": config.seerrApiKey },
+    body: JSON.stringify({ jellyfinUserIds: [jellyfinUserId] }),
+    signal: AbortSignal.timeout(15e3)
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Jellyseerr import-from-jellyfin failed (${res.status}): ${text.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  if (Array.isArray(data) && data.length > 0) return data[0];
+  if (!Array.isArray(data) && data && typeof data === "object") return data;
+  return null;
+}
+
+// server/worker-send.ts
+async function processNextRequest(prisma, config, skipIds) {
+  const request = await getNextQueued(prisma);
+  if (!request || skipIds.has(request.id)) return null;
+  const fresh = await getRequestById(prisma, request.id);
+  if (!fresh || fresh.status !== "queued" && fresh.status !== "retry_pending") return request.id;
+  await updateRequestStatus(prisma, request.id, "processing");
+  try {
+    const seerrBody = {
+      mediaType: request.mediaType,
+      mediaId: request.tmdbId
+    };
+    if (request.mediaType === "tv" && request.seasons) {
+      seerrBody.seasons = request.seasons.map(Number);
+    }
+    const detail = await fetchMediaDetail(config.seerrUrl, config.seerrApiKey, request.mediaType, request.tmdbId);
+    if (detail?.mediaInfo?.requests) {
+      for (const r of detail.mediaInfo.requests) {
+        if (r.status === 3 || r.status === 4) {
+          await fetch(`${config.seerrUrl}/api/v1/request/${r.id}`, {
+            method: "DELETE",
+            headers: { "X-Api-Key": config.seerrApiKey },
+            signal: AbortSignal.timeout(1e4)
+          }).catch(() => {
+          });
+        }
+      }
+    }
+    if (request.mediaType === "tv" && detail && isAnimeFromKeywords(detail)) {
+      const overrides = await fetchAnimeOverrides(config.seerrUrl, config.seerrApiKey);
+      if (overrides) {
+        Object.assign(seerrBody, {
+          profileId: overrides.profileId,
+          rootFolder: overrides.rootFolder,
+          tags: overrides.tags
+        });
+        if (overrides.languageProfileId) seerrBody.languageProfileId = overrides.languageProfileId;
+        console.log(`[SeerWorker] Anime detected for "${request.title}", applying overrides`);
+      }
+    }
+    if (request.profileId && config.profiles?.length) {
+      const profile = config.profiles.find((p) => p.id === request.profileId);
+      if (profile) {
+        if (request.mediaType === "movie") {
+          if (profile.radarrServerId != null) seerrBody.serverId = profile.radarrServerId;
+          if (profile.radarrProfileId != null) seerrBody.profileId = profile.radarrProfileId;
+          if (profile.radarrRootFolder) seerrBody.rootFolder = profile.radarrRootFolder;
+        } else {
+          if (profile.sonarrServerId != null) seerrBody.serverId = profile.sonarrServerId;
+          if (profile.sonarrProfileId != null) seerrBody.profileId = profile.sonarrProfileId;
+          if (profile.sonarrRootFolder) seerrBody.rootFolder = profile.sonarrRootFolder;
+          if (profile.sonarrLanguageProfileId != null) seerrBody.languageProfileId = profile.sonarrLanguageProfileId;
+        }
+        if (profile.tags !== void 0) {
+          seerrBody.tags = profile.tags.length > 0 ? profile.tags : [];
+        }
+        console.log(`[SeerWorker] Applied profile "${profile.name}" for "${request.title}" (tags: ${JSON.stringify(profile.tags ?? "default")})`);
+      }
+    }
+    const seerUserId = await resolveJellyseerrUserId(
+      config,
+      prisma,
+      request.jellyfinUserId,
+      request.username
+    );
+    seerrBody.userId = seerUserId;
+    const res = await fetch(`${config.seerrUrl}/api/v1/request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Api-Key": config.seerrApiKey },
+      body: JSON.stringify(seerrBody),
+      signal: AbortSignal.timeout(15e3)
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      if (text.includes("No seasons available to request")) {
+        const mediaStatus = detail?.mediaInfo?.status;
+        const localStatus = mediaStatus === 5 ? "available" : mediaStatus === 4 ? "partially_available" : "sent_to_seer";
+        await updateRequestStatus(prisma, request.id, localStatus, {
+          seerrMediaId: detail?.mediaInfo?.id,
+          seerrMediaStatus: mediaStatus,
+          sentAt: /* @__PURE__ */ new Date()
+        });
+        invalidateRequestCaches(request.jellyfinUserId);
+        if (request.mediaType === "tv") {
+          await notifyAvailableSeasons(prisma, request, detail?.mediaInfo?.seasons);
+        } else if (mediaStatus === 5) {
+          await notifyMovieAvailable(prisma, request);
+        }
+        console.log(`[SeerWorker] "${request.title}" : saisons d\xE9j\xE0 pr\xE9sentes c\xF4t\xE9 Jellyseerr \u2014 marqu\xE9 ${localStatus}`);
+        return request.id;
+      }
+      throw new Error(`Seerr returned ${res.status}: ${text.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    if (config.autoApprove && data.status === 1) await approveSeerrRequest(config, data.id, request.title);
+    await updateRequestStatus(prisma, request.id, "sent_to_seer", {
+      seerrRequestId: data.id,
+      seerrMediaId: data.media?.id,
+      seerrMediaStatus: data.media?.status,
+      sentAt: /* @__PURE__ */ new Date()
+    });
+    invalidateRequestCaches(request.jellyfinUserId);
+    await upsertContentClaim(
+      prisma,
+      request.tmdbId,
+      request.jellyfinUserId,
+      request.mediaType,
+      request.title,
+      1800
+    ).catch(() => {
+    });
+    console.log(`[SeerWorker] Sent request for "${request.title}" (seerr #${data.id})`);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : "Unknown error";
+    const newRetryCount = request.retryCount + 1;
+    if (newRetryCount >= request.maxRetries) {
+      await updateRequestStatus(prisma, request.id, "failed", {
+        lastError: errMsg,
+        retryCount: newRetryCount
+      });
+      await prisma.notification.create({
+        data: {
+          jellyfinUserId: request.jellyfinUserId,
+          type: "request_status",
+          title: request.title,
+          body: `Votre demande pour \xAB ${request.title} \xBB a \xE9chou\xE9 apr\xE8s ${newRetryCount} tentatives`,
+          refId: request.id
+        }
+      });
+      console.warn(`[SeerWorker] Request for "${request.title}" FAILED after ${newRetryCount} retries: ${errMsg}`);
+    } else {
+      await updateRequestStatus(prisma, request.id, "retry_pending", {
+        lastError: errMsg,
+        retryCount: newRetryCount
+      });
+      console.warn(`[SeerWorker] Request for "${request.title}" retry ${newRetryCount}/${request.maxRetries}: ${errMsg}`);
+    }
+  }
+  return request.id;
+}
+async function approveSeerrRequest(config, seerrRequestId, title) {
+  try {
+    const res = await fetch(`${config.seerrUrl}/api/v1/request/${seerrRequestId}/approve`, {
+      method: "POST",
+      headers: { "X-Api-Key": config.seerrApiKey },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (res.ok) console.log(`[SeerWorker] "${title}" approuv\xE9e d'office`);
+    else console.warn(`[SeerWorker] Auto-approbation refus\xE9e par Jellyseerr pour "${title}" (${res.status})`);
+  } catch (err) {
+    console.warn(`[SeerWorker] Auto-approbation impossible pour "${title}" :`, err);
+  }
+}
+
+// server/tmdb-traits.ts
+var KEYWORD_ANIME = 210024;
+var GENRE_ANIMATION = 16;
+var ORIGINES = /* @__PURE__ */ new Set(["JP", "KR"]);
+var LANGUES = /* @__PURE__ */ new Set(["ja", "ko"]);
+function lireMotsCles(brut) {
+  if (Array.isArray(brut)) return brut;
+  const enveloppe = brut;
+  return Array.isArray(enveloppe?.results) ? enveloppe.results : [];
+}
+function lireGenres(raw) {
+  if (Array.isArray(raw.genreIds)) return raw.genreIds;
+  return (raw.genres ?? []).map((g) => g?.id).filter((id) => typeof id === "number");
+}
+function detectAnime(raw) {
+  if (lireMotsCles(raw.keywords).some((k) => k?.id === KEYWORD_ANIME)) return true;
+  const asiatique = LANGUES.has(raw.originalLanguage ?? "") || (raw.originCountry ?? []).some((c) => ORIGINES.has((c ?? "").toUpperCase()));
+  return asiatique && lireGenres(raw).includes(GENRE_ANIMATION);
+}
+function detectAnimeLoose(m) {
+  if (m.isAnime === true) return true;
+  return detectAnime({
+    genreIds: m.genreIds,
+    originalLanguage: m.originalLanguage ?? void 0,
+    originCountry: m.originCountry
+  });
+}
+
+// server/tmdb-fetch.ts
+var RELEASE_TYPE = {
+  PREMIERE: 1,
+  THEATRICAL_LIMITED: 2,
+  THEATRICAL: 3,
+  DIGITAL: 4,
+  PHYSICAL: 5,
+  TV: 6
+};
+function toDayString(raw) {
+  if (!raw || typeof raw !== "string") return null;
+  const day = raw.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
+}
+function todayString(now = /* @__PURE__ */ new Date()) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
+}
+function pickReleaseDates(groups, region) {
+  const empty = { digital: null, theatrical: null, physical: null, region: null };
+  if (!Array.isArray(groups) || groups.length === 0) return empty;
+  const wanted = region.toUpperCase();
+  const group = groups.find((g) => g.iso_3166_1?.toUpperCase() === wanted) ?? groups.find((g) => g.iso_3166_1?.toUpperCase() === "US") ?? groups[0];
+  if (!group?.release_dates?.length) return empty;
+  const earliest = (types) => {
+    let best = null;
+    for (const r of group.release_dates ?? []) {
+      if (typeof r.type !== "number" || !types.includes(r.type)) continue;
+      const day = toDayString(r.release_date);
+      if (day && (best === null || day < best)) best = day;
+    }
+    return best;
+  };
+  return {
+    digital: earliest([RELEASE_TYPE.DIGITAL]),
+    // Une sortie salle limitée ou une avant-première comptent comme « au cinéma ».
+    theatrical: earliest([
+      RELEASE_TYPE.THEATRICAL,
+      RELEASE_TYPE.THEATRICAL_LIMITED,
+      RELEASE_TYPE.PREMIERE
+    ]),
+    physical: earliest([RELEASE_TYPE.PHYSICAL, RELEASE_TYPE.TV]),
+    region: group.iso_3166_1?.toUpperCase() ?? null
+  };
+}
+var DAY = 864e5;
+function computeTtlMs(meta, now = Date.now()) {
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const today = todayString(new Date(now));
+  if (meta.mediaType === "tv") {
+    const status = (meta.tmdbStatus ?? "").toLowerCase();
+    if (status === "ended" || status === "canceled" || status === "cancelled") return 30 * DAY;
+    if (meta.nextAirDate) {
+      if (meta.nextAirDate <= today) return 6 * 36e5;
+      const diff = (/* @__PURE__ */ new Date(`${meta.nextAirDate}T00:00:00`)).getTime() - now;
+      return clamp(diff + DAY, 6 * 36e5, 7 * DAY);
+    }
+    return 2 * DAY;
+  }
+  if (meta.digitalDate && meta.digitalDate <= today) return 30 * DAY;
+  if (meta.theatricalDate && meta.theatricalDate <= today) return 3 * DAY;
+  if (meta.releaseDate && meta.releaseDate < today) return 30 * DAY;
+  return 12 * 36e5;
+}
+function parseDetailToMeta(raw, ref, region) {
+  const isTv = ref.mediaType === "tv";
+  const rel = isTv ? { digital: null, theatrical: null, physical: null, region: null } : pickReleaseDates(raw.releases?.results, region);
+  const providerIds = [];
+  for (const wp of raw.watchProviders ?? []) {
+    if (wp.iso_3166_1?.toUpperCase() !== region.toUpperCase()) continue;
+    for (const p of wp.flatrate ?? []) {
+      const id = p.id ?? p.providerId;
+      if (typeof id === "number" && id > 0) providerIds.push(id);
+    }
+  }
+  const meta = {
+    mediaType: ref.mediaType,
+    tmdbId: ref.tmdbId,
+    title: raw.title ?? raw.name ?? "",
+    posterPath: raw.posterPath ?? null,
+    backdropPath: raw.backdropPath ?? null,
+    overview: raw.overview ?? null,
+    releaseDate: toDayString(raw.releaseDate ?? raw.firstAirDate),
+    tmdbStatus: raw.status ?? null,
+    digitalDate: rel.digital,
+    theatricalDate: rel.theatrical,
+    physicalDate: rel.physical,
+    releaseRegion: rel.region,
+    nextAirDate: toDayString(raw.nextEpisodeToAir?.airDate),
+    nextSeason: raw.nextEpisodeToAir?.seasonNumber ?? null,
+    nextEpisode: raw.nextEpisodeToAir?.episodeNumber ?? null,
+    lastAirDate: toDayString(raw.lastEpisodeToAir?.airDate),
+    networks: (raw.networks ?? []).map((n) => n?.name).filter((n) => !!n).slice(0, 3).join(", ") || null,
+    providerIds: Array.from(new Set(providerIds)),
+    voteAverage: typeof raw.voteAverage === "number" ? raw.voteAverage : null,
+    popularity: typeof raw.popularity === "number" ? raw.popularity : null,
+    originalLanguage: raw.originalLanguage ?? null,
+    genreIds: (raw.genres ?? []).map((g) => g?.id).filter((id) => typeof id === "number"),
+    isAnime: detectAnime(raw),
+    expiresAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  meta.expiresAt = new Date(Date.now() + computeTtlMs(meta)).toISOString();
+  return meta;
+}
+async function fetchTmdbMeta(cfg, ref, region) {
+  try {
+    const res = await fetch(`${cfg.seerrUrl}/api/v1/${ref.mediaType}/${ref.tmdbId}`, {
+      headers: { "X-Api-Key": cfg.seerrApiKey },
+      signal: AbortSignal.timeout(8e3)
+    });
+    if (!res.ok) return null;
+    return parseDetailToMeta(await res.json(), ref, region);
+  } catch {
+    return null;
+  }
+}
+
+// server/tmdb-resolver.ts
+var DEFAULT_REGION = "FR";
+var inflightMeta = /* @__PURE__ */ new Map();
+function fetchOnce(cfg, ref, region) {
+  const key = tmdbKey(ref);
+  const pending2 = inflightMeta.get(key);
+  if (pending2) return pending2;
+  const p = fetchTmdbMeta(cfg, ref, region).finally(() => {
+    inflightMeta.delete(key);
+  });
+  inflightMeta.set(key, p);
+  return p;
+}
+function dedupeRefs(refs) {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const r of refs) {
+    if (!r || !Number.isFinite(r.tmdbId) || r.tmdbId <= 0) continue;
+    const k = tmdbKey(r);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(r);
+  }
+  return out;
+}
+async function resolveTmdbMeta(prisma, cfg, refs, opts = {}) {
+  const unique = dedupeRefs(refs);
+  if (unique.length === 0) return { meta: /* @__PURE__ */ new Map(), missing: [] };
+  const meta = await getTmdbMetaBulk(prisma, unique, opts.includeExpired ?? true);
+  const missing = unique.filter((r) => !meta.has(tmdbKey(r)));
+  const budget = opts.maxFetch ?? 0;
+  if (budget <= 0 || !cfg || missing.length === 0) return { meta, missing };
+  const toFetch = missing.slice(0, budget);
+  const region = opts.region ?? DEFAULT_REGION;
+  const fetched = await mapLimit(
+    toFetch,
+    opts.concurrency ?? DEFAULT_CONCURRENCY,
+    (ref) => fetchOnce(cfg, ref, region)
+  );
+  const ok = fetched.filter((m) => m !== null);
+  if (ok.length > 0) {
+    await upsertTmdbMetaBulk(prisma, ok).catch(() => {
+    });
+    for (const m of ok) meta.set(tmdbKey(m), m);
+  }
+  return { meta, missing: unique.filter((r) => !meta.has(tmdbKey(r))) };
+}
+var backfillQueue = /* @__PURE__ */ new Set();
+var backfillRefs = /* @__PURE__ */ new Map();
+var backfillRunning = false;
+function pendingBackfillCount() {
+  return backfillQueue.size;
+}
+function scheduleTmdbBackfill(prisma, cfg, refs, region = DEFAULT_REGION) {
+  if (!cfg) return;
+  for (const ref of dedupeRefs(refs)) {
+    const k = tmdbKey(ref);
+    if (backfillQueue.has(k)) continue;
+    backfillQueue.add(k);
+    backfillRefs.set(k, ref);
+  }
+  if (backfillRunning || backfillQueue.size === 0) return;
+  backfillRunning = true;
+  void drainBackfill(prisma, cfg, region).catch(() => {
+  }).finally(() => {
+    backfillRunning = false;
+  });
+}
+async function drainBackfill(prisma, cfg, region) {
+  while (backfillQueue.size > 0) {
+    const batch = Array.from(backfillQueue).slice(0, 40);
+    const refs = batch.map((k) => backfillRefs.get(k)).filter((r) => !!r);
+    const fetched = await mapLimit(refs, 4, (ref) => fetchOnce(cfg, ref, region));
+    const ok = fetched.filter((m) => m !== null);
+    if (ok.length > 0) await upsertTmdbMetaBulk(prisma, ok).catch(() => {
+    });
+    for (const k of batch) {
+      backfillQueue.delete(k);
+      backfillRefs.delete(k);
+    }
+  }
+}
+
+// server/seerr-requests-fetch.ts
+var PAGE_CONCURRENCY = 4;
+async function fetchSeerrRequestsPage(cfg, seerUserId, take, skip, filter = "all") {
+  const who = seerUserId == null ? "" : `&requestedBy=${seerUserId}`;
+  const url = `${cfg.seerrUrl}/api/v1/request?take=${take}&skip=${skip}&filter=${encodeURIComponent(filter)}&sort=added${who}`;
+  const res = await fetch(url, {
+    headers: { "X-Api-Key": cfg.seerrApiKey },
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `Jellyseerr GET /request${who || " (tous)"} failed: ${res.status} ${body.slice(0, 200)}`
+    );
+  }
+  const data = await res.json();
+  return {
+    rows: data.results ?? [],
+    total: data.pageInfo?.results ?? data.results?.length ?? 0
+  };
+}
+async function fetchAllSeerrRequests(cfg, seerUserId, opts = {}) {
+  const take = opts.take ?? 100;
+  const maxPages = opts.maxPages ?? 25;
+  const filter = opts.filter ?? "all";
+  const first = await fetchSeerrRequestsPage(cfg, seerUserId, take, 0, filter);
+  if (first.rows.length < take || first.total <= take) {
+    return { rows: first.rows, total: first.total || first.rows.length, truncated: false };
+  }
+  const totalPages = Math.ceil(first.total / take);
+  const wanted = Math.min(totalPages, maxPages);
+  const skips = Array.from({ length: wanted - 1 }, (_, i) => (i + 1) * take);
+  const pages = await mapLimit(
+    skips,
+    PAGE_CONCURRENCY,
+    (skip) => fetchSeerrRequestsPage(cfg, seerUserId, take, skip, filter)
+  );
+  const rows = [...first.rows];
+  for (const page of pages) if (page) rows.push(...page.rows);
+  return { rows, total: first.total, truncated: totalPages > maxPages };
+}
+
+// server/worker-tmdb.ts
+var WARM_BUDGET = 40;
+var WARM_CONCURRENCY = 4;
+var PRUNE_AFTER_DAYS = 180;
+var DISCOVER_MAX_PAGES = 10;
+var lastPruneDay = "";
+var seeded = false;
+async function seedTmdbCacheOnce(prisma) {
+  if (seeded) return;
+  seeded = true;
+  try {
+    const n = await seedTmdbCacheFromLocalRequests(prisma);
+    if (n > 0) console.log(`[SeerTmdb] Seeded ${n} fiches depuis les demandes locales`);
+  } catch (err) {
+    console.warn("[SeerTmdb] Seed \xE9chou\xE9", err);
+  }
+}
+async function discoverSeerrRefs(prisma, cfg) {
+  const { rows } = await fetchAllSeerrRequests(cfg, null, { maxPages: DISCOVER_MAX_PAGES });
+  const refs = [];
+  for (const r of rows) {
+    if (!r.media?.tmdbId) continue;
+    refs.push({ mediaType: r.media.mediaType, tmdbId: r.media.tmdbId });
+  }
+  const unique = dedupeRefs(refs);
+  if (unique.length === 0) return 0;
+  const known = await getTmdbMetaBulk(prisma, unique, true);
+  const unknown = unique.filter((r) => !known.has(tmdbKey(r)));
+  if (unknown.length > 0) scheduleTmdbBackfill(prisma, cfg, unknown);
+  return unknown.length;
+}
+async function warmTmdbCache(prisma, cfg, opts = {}) {
+  const budget = opts.budget ?? WARM_BUDGET;
+  const region = opts.region ?? DEFAULT_REGION;
+  const refs = await listStaleTmdbRefs(prisma, budget);
+  if (refs.length === 0) {
+    await pruneOncePerDay(prisma);
+    return { fetched: 0, remaining: 0 };
+  }
+  const fetched = await mapLimit(refs, WARM_CONCURRENCY, (ref) => fetchTmdbMeta(cfg, ref, region));
+  const ok = fetched.filter((m) => m !== null);
+  if (ok.length > 0) await upsertTmdbMetaBulk(prisma, ok);
+  await pruneOncePerDay(prisma);
+  return { fetched: ok.length, remaining: Math.max(0, refs.length - ok.length) };
+}
+async function pruneOncePerDay(prisma) {
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  if (lastPruneDay === today) return;
+  lastPruneDay = today;
+  try {
+    const n = await pruneTmdbCache(prisma, PRUNE_AFTER_DAYS);
+    if (n > 0) console.log(`[SeerTmdb] Purge de ${n} fiches inutilis\xE9es`);
+  } catch {
+  }
+}
+
+// server/jellyfin-users.ts
+var ACCOUNTS_KEY = "seer:jellyfin:accounts";
+var ACCOUNTS_TTL_MS = 3e4;
+function normalizeJellyfinId(id) {
+  return (id ?? "").toLowerCase().replace(/-/g, "");
+}
+async function jellyfinCredentials(prisma) {
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      "SELECT `key` AS k, `value` AS v FROM server_config WHERE `key` IN ('jellyfin_url', 'jellyfin_api_key')"
+    );
+    const url2 = rows.find((r) => r.k === "jellyfin_url")?.v ?? "";
+    const apiKey2 = rows.find((r) => r.k === "jellyfin_api_key")?.v ?? "";
+    if (url2 && apiKey2) return { url: url2.replace(/\/$/, ""), apiKey: apiKey2 };
+  } catch {
+  }
+  const url = (process.env.JELLYFIN_URL || "").replace(/\/$/, "");
+  const apiKey = process.env.JELLYFIN_ADMIN_API_KEY || "";
+  return url && apiKey ? { url, apiKey } : null;
+}
+async function fetchJellyfinAccounts(prisma) {
+  return cached(ACCOUNTS_KEY, ACCOUNTS_TTL_MS, async () => {
+    const creds = await jellyfinCredentials(prisma);
+    if (!creds) throw new Error("Jellyfin n'est pas configur\xE9 sur le serveur Tentacle");
+    const res = await fetch(`${creds.url}/Users`, {
+      headers: { "X-Emby-Token": creds.apiKey },
+      signal: AbortSignal.timeout(15e3)
+    });
+    if (!res.ok) throw new Error(`Jellyfin GET /Users a r\xE9pondu ${res.status}`);
+    const data = await res.json();
+    if (!Array.isArray(data)) throw new Error("R\xE9ponse inattendue de Jellyfin (GET /Users)");
+    return data.map((u) => ({
+      id: u.Id,
+      name: u.Name,
+      isAdmin: u.Policy?.IsAdministrator === true,
+      isDisabled: u.Policy?.IsDisabled === true,
+      imageTag: u.PrimaryImageTag ?? null,
+      lastActivityDate: u.LastActivityDate ?? null
+    }));
+  });
+}
+function forgetJellyfinAccounts() {
+  invalidate(ACCOUNTS_KEY);
+}
+
+// server/user-sync-plan.ts
+var PLACEHOLDER_DOMAIN = "@tentacle.local";
+var SEERR_OWNER_ID = 1;
+function pendingFixes(plan) {
+  return plan.createRows.length + plan.renames.length + plan.clearLinks.length + plan.setLinks.length + plan.removeRows.length;
+}
+function linkStateOf(row, seerr) {
+  if (!row?.jellyseerrUserId) return "unlinked";
+  if (!seerr) return "linked";
+  return seerr.some((s) => s.id === row.jellyseerrUserId) ? "linked" : "stale";
+}
+function nameKey(value) {
+  return (value ?? "").normalize("NFD").replace(new RegExp("\\p{Diacritic}", "gu"), "").toLowerCase().trim();
+}
+function namesOf(s) {
+  const local = (s.email ?? "").split("@")[0];
+  return new Set([s.name, local, ...s.aliases ?? []].map(nameKey).filter(Boolean));
+}
+function planUserSync(input) {
+  const plan = {
+    createRows: [],
+    renames: [],
+    clearLinks: [],
+    setLinks: [],
+    removeRows: [],
+    gone: [],
+    missingSeerr: [],
+    orphanSeerr: [],
+    disabled: []
+  };
+  const accounts = new Map(input.accounts.map((a) => [normalizeJellyfinId(a.id), a]));
+  const rows = new Map(input.rows.map((r) => [normalizeJellyfinId(r.jellyfinUserId), r]));
+  const seerrById = new Map((input.seerr ?? []).map((s) => [s.id, s]));
+  const seerrByJellyfin = /* @__PURE__ */ new Map();
+  for (const s of [...input.seerr ?? []].sort((a, b) => a.id - b.id)) {
+    const key = normalizeJellyfinId(s.jellyfinUserId);
+    if (key && !seerrByJellyfin.has(key)) seerrByJellyfin.set(key, s);
+  }
+  const needing = [];
+  for (const [key, account] of accounts) {
+    const row = rows.get(key);
+    const ref = { id: row?.jellyfinUserId ?? account.id, username: account.name };
+    if (!row) plan.createRows.push({ id: account.id, name: account.name });
+    else if (account.name && row.username !== account.name) {
+      plan.renames.push({ id: row.jellyfinUserId, from: row.username, to: account.name });
+    }
+    if (account.isDisabled) plan.disabled.push(ref);
+    if (!input.seerr) continue;
+    const outcome = linkOutcome(row, account, seerrById.get(row?.jellyseerrUserId ?? -1), seerrByJellyfin.get(key), accounts);
+    const previous = row?.jellyseerrUserId ?? null;
+    if (outcome.clear !== void 0) plan.clearLinks.push({ ...ref, seerrId: outcome.clear });
+    if (outcome.set) plan.setLinks.push({ ...ref, seerrId: outcome.set.id, previous, reason: "id" });
+    else if (outcome.need) needing.push({ ref, account, previous });
+  }
+  const adopted = input.seerr ? adoptByName(plan, needing, input.seerr, accounts, rows) : /* @__PURE__ */ new Set();
+  if (accounts.size > 0) planDepartures(plan, input, accounts, rows);
+  if (input.seerr) plan.orphanSeerr = orphansOf(input.seerr, accounts, rows, plan, adopted);
+  return plan;
+}
+function linkOutcome(row, account, linked, match, accounts) {
+  const linkedId = row?.jellyseerrUserId ?? null;
+  let clear;
+  if (linkedId !== null && !linked) {
+    clear = linkedId;
+  } else if (linked) {
+    const owner = normalizeJellyfinId(linked.jellyfinUserId);
+    if (!owner || owner === normalizeJellyfinId(account.id) || !accounts.has(owner)) return { need: false };
+    clear = linked.id;
+  }
+  if (match) return { clear, set: match, need: false };
+  return { clear, need: !account.isDisabled };
+}
+function adoptByName(plan, needing, seerr, accounts, rows) {
+  const taken = new Set(plan.setLinks.map((l) => l.seerrId));
+  for (const [key, row] of rows) if (row.jellyseerrUserId && accounts.has(key)) taken.add(row.jellyseerrUserId);
+  const free = seerr.filter((s) => {
+    if (s.id === SEERR_OWNER_ID || taken.has(s.id)) return false;
+    const owner = normalizeJellyfinId(s.jellyfinUserId);
+    return !owner || !accounts.has(owner);
+  });
+  const byName = /* @__PURE__ */ new Map();
+  for (const s of free) for (const n of namesOf(s)) byName.set(n, [...byName.get(n) ?? [], s]);
+  const wanted = /* @__PURE__ */ new Map();
+  for (const n of needing) wanted.set(nameKey(n.account.name), (wanted.get(nameKey(n.account.name)) ?? 0) + 1);
+  const adopted = /* @__PURE__ */ new Set();
+  for (const n of needing) {
+    const key = nameKey(n.account.name);
+    const candidates = (byName.get(key) ?? []).filter((s) => !adopted.has(s.id));
+    if (key && candidates.length === 1 && wanted.get(key) === 1) {
+      adopted.add(candidates[0].id);
+      plan.setLinks.push({ ...n.ref, seerrId: candidates[0].id, previous: n.previous, reason: "name" });
+    } else {
+      plan.missingSeerr.push(n.ref);
+    }
+  }
+  return adopted;
+}
+function planDepartures(plan, input, accounts, rows) {
+  const seen = /* @__PURE__ */ new Set();
+  for (const [key, row] of rows) {
+    seen.add(key);
+    if (accounts.has(key)) continue;
+    const active = input.activeRequests.get(key) ?? 0;
+    const ref = { id: row.jellyfinUserId, username: row.username };
+    if (active === 0) plan.removeRows.push(ref);
+    else plan.gone.push({ ...ref, activeRequests: active, seerrId: row.jellyseerrUserId });
+  }
+  for (const [key, active] of input.activeRequests) {
+    if (seen.has(key) || accounts.has(key) || active === 0) continue;
+    plan.gone.push({ id: key, username: key, activeRequests: active, seerrId: null });
+  }
+}
+function orphansOf(seerr, accounts, rows, plan, adopted) {
+  const shown = new Set(plan.gone.map((g) => g.seerrId).filter((id) => id !== null));
+  const inUse = new Set(adopted);
+  for (const [key, row] of rows) if (row.jellyseerrUserId && accounts.has(key)) inUse.add(row.jellyseerrUserId);
+  return seerr.filter((s) => {
+    if (s.id === SEERR_OWNER_ID || shown.has(s.id) || inUse.has(s.id)) return false;
+    const owner = normalizeJellyfinId(s.jellyfinUserId);
+    if (owner) return !accounts.has(owner);
+    return (s.email ?? "").toLowerCase().endsWith(PLACEHOLDER_DOMAIN);
+  });
+}
+
+// server/user-sync.ts
+var AUTO_SYNC_EVERY_MINUTES = 30;
+var lastReport = null;
+var inflight2 = null;
+function getLastUserSync() {
+  return lastReport;
+}
+function isUserSyncRunning() {
+  return inflight2 !== null;
+}
+var errorText = (err) => err instanceof Error ? err.message : String(err);
+function toSeerrAccount(u) {
+  return {
+    id: u.id,
+    name: u.displayName || u.jellyfinUsername || u.username || u.email || `#${u.id}`,
+    email: u.email ?? null,
+    jellyfinUserId: u.jellyfinUserId || null,
+    requestCount: typeof u.requestCount === "number" ? u.requestCount : null,
+    aliases: [u.displayName, u.jellyfinUsername, u.username].filter((n) => !!n)
+  };
+}
+async function collectUserSync(prisma, cfg) {
+  const [accountsResult, seerrResult, rows, activeRequests] = await Promise.all([
+    fetchJellyfinAccounts(prisma).then(
+      (accounts) => ({ accounts, error: null }),
+      (err) => ({ accounts: null, error: errorText(err) })
+    ),
+    cfg ? listAllJellyseerrUsers(cfg).then(
+      (users) => ({ seerr: users.map(toSeerrAccount), error: null }),
+      (err) => ({ seerr: null, error: errorText(err) })
+    ) : Promise.resolve({ seerr: null, error: "Jellyseerr n'est pas configur\xE9" }),
+    loadLocalRows(prisma),
+    loadActiveRequests(prisma)
+  ]);
+  const plan = accountsResult.accounts ? planUserSync({ accounts: accountsResult.accounts, seerr: seerrResult.seerr, rows, activeRequests }) : null;
+  return {
+    accounts: accountsResult.accounts,
+    seerr: seerrResult.seerr,
+    rows,
+    activeRequests,
+    plan,
+    jellyfinError: accountsResult.error,
+    seerrError: seerrResult.error
+  };
+}
+async function loadLocalRows(prisma) {
+  const rows = await prisma.$queryRawUnsafe(`SELECT jellyfin_user_id, username, jellyseerr_user_id FROM seer_user_settings`);
+  return rows.map((r) => ({
+    jellyfinUserId: r.jellyfin_user_id,
+    username: r.username,
+    jellyseerrUserId: r.jellyseerr_user_id === null ? null : Number(r.jellyseerr_user_id)
+  }));
+}
+async function loadActiveRequests(prisma) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT jellyfin_user_id, COUNT(*) AS cnt FROM seer_requests
+     WHERE status NOT IN ('available', 'failed', 'deleted', 'deleting', 'delete_failed')
+     GROUP BY jellyfin_user_id`
+  );
+  const out = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const key = normalizeJellyfinId(r.jellyfin_user_id);
+    out.set(key, (out.get(key) ?? 0) + Number(r.cnt));
+  }
+  return out;
+}
+function runUserSync(prisma, cfg, opts) {
+  if (inflight2) return inflight2;
+  inflight2 = (async () => {
+    try {
+      const report = await syncOnce(prisma, cfg, opts);
+      lastReport = report;
+      return report;
+    } finally {
+      inflight2 = null;
+    }
+  })();
+  return inflight2;
+}
+async function syncOnce(prisma, cfg, opts) {
+  const started = Date.now();
+  if (opts.trigger === "manual") {
+    forgetJellyfinAccounts();
+    forgetSeerrUserChecks();
+  }
+  const snap = await collectUserSync(prisma, cfg);
+  const report = {
+    at: (/* @__PURE__ */ new Date()).toISOString(),
+    trigger: opts.trigger,
+    durationMs: 0,
+    jellyfinError: snap.jellyfinError,
+    seerrError: snap.seerrError,
+    created: [],
+    renamed: [],
+    linked: [],
+    adopted: [],
+    unlinked: [],
+    removed: [],
+    imported: [],
+    failures: []
+  };
+  if (snap.plan) await applyPlan(prisma, snap.plan, report);
+  if (cfg && snap.plan && opts.importMissing) await importMissing(prisma, cfg, snap.plan, opts.importMissing, report);
+  if (pendingFixes(snap.plan ?? emptyPlan()) > 0 || report.imported.length > 0) invalidateRequestCaches();
+  report.durationMs = Date.now() - started;
+  const touched = report.created.length + report.renamed.length + report.linked.length + report.adopted.length + report.unlinked.length + report.removed.length + report.imported.length;
+  if (touched > 0 || report.failures.length > 0) {
+    console.log(`[SeerUsers] Synchro ${opts.trigger} : ${touched} correction(s), ${report.failures.length} \xE9chec(s)`);
+  }
+  return report;
+}
+function emptyPlan() {
+  return {
+    createRows: [],
+    renames: [],
+    clearLinks: [],
+    setLinks: [],
+    removeRows: [],
+    gone: [],
+    missingSeerr: [],
+    orphanSeerr: [],
+    disabled: []
+  };
+}
+async function applyPlan(prisma, plan, report) {
+  const attempt = async (username, action, onDone) => {
+    try {
+      await action();
+      onDone();
+    } catch (err) {
+      report.failures.push({ username, reason: errorText(err) });
+    }
+  };
+  for (const c of plan.createRows) {
+    await attempt(c.name, () => getOrCreateUserSettings(prisma, c.id, c.name).then(() => void 0), () => report.created.push(c.name));
+  }
+  for (const r of plan.renames) {
+    await attempt(r.to, () => updateUserSettings(prisma, r.id, { username: r.to }), () => report.renamed.push({ from: r.from, to: r.to }));
+  }
+  for (const l of plan.clearLinks) {
+    await attempt(
+      l.username,
+      () => updateUserSettings(prisma, l.id, { jellyseerrUserId: null, jellyseerrLastSync: null }),
+      () => report.unlinked.push(l.username)
+    );
+  }
+  for (const l of plan.setLinks) {
+    await attempt(
+      l.username,
+      () => updateUserSettings(prisma, l.id, { jellyseerrUserId: l.seerrId, jellyseerrLastSync: /* @__PURE__ */ new Date() }),
+      () => (l.reason === "name" ? report.adopted : report.linked).push(l.username)
+    );
+  }
+  for (const r of plan.removeRows) {
+    await attempt(r.username, async () => {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM seer_user_settings WHERE jellyfin_user_id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM seer_requests WHERE seer_requests.jellyfin_user_id = seer_user_settings.jellyfin_user_id
+               AND status NOT IN ('available', 'failed', 'deleted', 'deleting', 'delete_failed'))`,
+        r.id
+      );
+    }, () => report.removed.push(r.username));
+  }
+}
+async function importMissing(prisma, cfg, plan, which, report) {
+  const wanted = which === true ? null : new Set(which.map(normalizeJellyfinId));
+  const targets = plan.missingSeerr.filter((m) => !wanted || wanted.has(normalizeJellyfinId(m.id)));
+  for (const t of targets) {
+    try {
+      await resolveJellyseerrUserId(cfg, prisma, t.id, t.username);
+      report.imported.push(t.username);
+    } catch (err) {
+      report.failures.push({ username: t.username, reason: errorText(err) });
+    }
+  }
+}
+
+// server/worker.ts
+var timer = null;
+var cycleCount = 0;
+var prismaRef = null;
+var getConfigRef = null;
+var requestQueueBusy = false;
+var cleanupQueueBusy = false;
+async function runRequestQueue(prisma, config) {
+  if (requestQueueBusy) return;
+  requestQueueBusy = true;
+  try {
+    const seen = /* @__PURE__ */ new Set();
+    for (let i = 0; i < 10; i++) {
+      const processedId = await processNextRequest(prisma, config, seen);
+      if (!processedId) return;
+      seen.add(processedId);
+    }
+  } finally {
+    requestQueueBusy = false;
+  }
+}
+async function runCleanupQueue(prisma, config) {
+  if (cleanupQueueBusy) return;
+  cleanupQueueBusy = true;
+  try {
+    await processCleanupQueue(prisma, config);
+  } finally {
+    cleanupQueueBusy = false;
+  }
+}
+function startWorker(prisma, getConfig) {
+  if (timer) return;
+  prismaRef = prisma;
+  getConfigRef = getConfig;
+  async function tick() {
+    const config = await getConfig();
+    if (!config || !config.seerrUrl || !config.seerrApiKey) return;
+    cycleCount++;
+    try {
+      await runRequestQueue(prisma, config);
+    } catch (err) {
+      console.error("[SeerWorker] Error processing request:", err);
+    }
+    try {
+      await advanceFromArr(prisma, config);
+    } catch (err) {
+      console.error("[SeerWorker] Error reading Sonarr/Radarr:", err);
+    }
+    if (cycleCount % config.syncEvery === 0) {
+      try {
+        await syncStatuses(prisma, config);
+      } catch (err) {
+        console.error("[SeerWorker] Error syncing statuses:", err);
+      }
+    }
+    try {
+      await retryFailedRequests(prisma);
+    } catch (err) {
+      console.error("[SeerWorker] Error retrying failed requests:", err);
+    }
+    try {
+      await runCleanupQueue(prisma, config);
+    } catch (err) {
+      console.error("[SeerWorker] Error processing cleanup queue:", err);
+    }
+    if (cycleCount === 2 || cycleCount % AUTO_SYNC_EVERY_MINUTES === 0) {
+      try {
+        await runUserSync(prisma, config, { trigger: "auto" });
+      } catch (err) {
+        console.error("[SeerWorker] Error syncing users:", err);
+      }
+    }
+    if (cycleCount % 5 === 0) {
+      try {
+        await warmTmdbCache(prisma, config);
+      } catch (err) {
+        console.error("[SeerWorker] Error warming TMDB cache:", err);
+      }
+    }
+    if (cycleCount % 30 === 0) {
+      try {
+        const n = await discoverSeerrRefs(prisma, config);
+        if (n > 0) console.log(`[SeerWorker] ${n} fiches d\xE9couvertes hors du plugin`);
+      } catch (err) {
+        console.error("[SeerWorker] Error discovering Seerr refs:", err);
+      }
+    }
+  }
+  setTimeout(() => {
+    void seedTmdbCacheOnce(prisma);
+    tick();
+  }, 5e3);
+  timer = setInterval(() => {
+    tick();
+  }, 6e4);
+  console.log("[SeerWorker] Started");
+}
+function kickWorkerNow() {
+  const prisma = prismaRef;
+  const getConfig = getConfigRef;
+  if (!prisma || !getConfig) return;
+  setTimeout(async () => {
+    try {
+      const config = await getConfig();
+      if (!config || !config.seerrUrl || !config.seerrApiKey) return;
+      await Promise.all([
+        runRequestQueue(prisma, config).catch((err) => console.error("[SeerWorker] Kick request queue failed:", err)),
+        runCleanupQueue(prisma, config).catch((err) => console.error("[SeerWorker] Kick cleanup queue failed:", err))
+      ]);
+    } catch (err) {
+      console.error("[SeerWorker] Kick failed:", err);
+    }
+  }, 50);
+}
+function stopWorker() {
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+    console.log("[SeerWorker] Stopped");
+  }
+}
+function isWorkerRunning() {
+  return timer !== null;
+}
+
+// server/request-status.ts
+var AVAILABLE2 = 5;
+var COMPLETED = 5;
+var PARTIAL = 4;
+function requestedSeasonsHere(row, seasonStates) {
+  const requested = (row.seasons ?? []).filter((s) => typeof s.seasonNumber === "number");
+  if (requested.length === 0) return "unknown";
+  const states = new Map(seasonStates ?? []);
+  for (const s of row.media?.seasons ?? []) {
+    if (typeof s.status === "number") states.set(s.seasonNumber, s.status);
+  }
+  let here = 0;
+  let some = 0;
+  let known = 0;
+  for (const s of requested) {
+    const state2 = states.get(s.seasonNumber);
+    if (state2 === AVAILABLE2 || s.status === COMPLETED) here++;
+    else if (state2 === PARTIAL) some++;
+    if (state2 !== void 0 || s.status === COMPLETED) known++;
+  }
+  if (here === requested.length) return "all";
+  if (here + some > 0) return "some";
+  return known === requested.length ? "none" : "unknown";
+}
+function resolveRequestStatus(row, local, seasonStates) {
+  let status = mapSeerrStatus(row.status, row.media?.status, row.media?.downloadStatus);
+  if (status === "partially_available") {
+    const here = requestedSeasonsHere(row, seasonStates);
+    if (here === "all") status = "available";
+    else if (here === "none") {
+      const downloads = row.media?.downloadStatus;
+      status = mapSeerrStatus(row.status, downloads && downloads.length > 0 ? 3 : 2, downloads);
+    }
+  }
+  if (local?.status === "available" && (status === "approved" || status === "unavailable" || status === "deleted")) {
+    status = "available";
+  }
+  return status;
+}
+
+// server/seerr-unified.ts
+function getUser(request) {
+  return request.user;
+}
+function seerrRequestToUnified(sr, detail, localById, fallbackUser, seasonStates) {
+  const local = localById.get(sr.id);
+  const status = resolveRequestStatus(sr, local, seasonStates);
+  const seasons = sr.seasons?.map((s) => s.seasonNumber).filter((n) => typeof n === "number") ?? null;
+  const mediaType = sr.media?.mediaType ?? "movie";
+  const title = detail?.title ?? detail?.name ?? local?.title ?? `#${sr.id}`;
+  const year = (detail?.releaseDate ?? detail?.firstAirDate ?? "").slice(0, 4) || null;
+  const { summary, items } = aggregateDownloads(sr.media?.downloadStatus);
+  return {
+    download: summary,
+    downloads: items.length > 1 ? items : void 0,
+    id: local?.id ?? `seerr-${sr.id}`,
+    source: "seerr",
+    jellyfinUserId: sr.requestedBy?.jellyfinUserId ?? fallbackUser.jellyfinUserId,
+    username: sr.requestedBy?.jellyfinUsername ?? fallbackUser.username,
+    mediaType,
+    tmdbId: sr.media?.tmdbId ?? 0,
+    title,
+    posterPath: detail?.posterPath ?? local?.posterPath ?? null,
+    backdropPath: detail?.backdropPath ?? local?.backdropPath ?? null,
+    overview: detail?.overview ?? local?.overview ?? null,
+    year: year || local?.year || null,
+    seasons: seasons && seasons.length > 0 ? seasons : local?.seasons ?? null,
+    status,
+    seerrRequestId: sr.id,
+    seerrMediaId: sr.media?.id ?? null,
+    seerrMediaStatus: sr.media?.status ?? null,
+    retryCount: local?.retryCount ?? 0,
+    maxRetries: local?.maxRetries ?? 10,
+    lastError: local?.lastError ?? null,
+    priority: local?.priority ?? 0,
+    createdAt: sr.createdAt ?? local?.createdAt ?? (/* @__PURE__ */ new Date()).toISOString(),
+    updatedAt: sr.updatedAt ?? local?.updatedAt ?? (/* @__PURE__ */ new Date()).toISOString(),
+    sentAt: local?.sentAt ?? null,
+    completedAt: local?.completedAt ?? null,
+    profileId: local?.profileId ?? null,
+    isAnime: local?.isAnime ?? false
+  };
+}
+function localToUnified(r) {
+  return {
+    id: r.id,
+    source: "local",
+    jellyfinUserId: r.jellyfinUserId,
+    username: r.username,
+    mediaType: r.mediaType,
+    tmdbId: r.tmdbId,
+    title: r.title,
+    posterPath: r.posterPath,
+    backdropPath: r.backdropPath,
+    overview: r.overview,
+    year: r.year,
+    seasons: r.seasons,
+    status: r.status,
+    seerrRequestId: r.seerrRequestId,
+    seerrMediaId: r.seerrMediaId,
+    seerrMediaStatus: r.seerrMediaStatus,
+    retryCount: r.retryCount,
+    maxRetries: r.maxRetries,
+    lastError: r.lastError,
+    priority: r.priority,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    sentAt: r.sentAt,
+    completedAt: r.completedAt,
+    profileId: r.profileId,
+    isAnime: r.isAnime
+  };
+}
+async function fetchSeerrTmdbDetail(config, mediaType, tmdbId) {
+  try {
+    const res = await fetch(`${config.seerrUrl}/api/v1/${mediaType}/${tmdbId}`, {
+      headers: { "X-Api-Key": config.seerrApiKey },
+      signal: AbortSignal.timeout(8e3)
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+async function fetchSeerrRequestById(config, seerrId) {
+  try {
+    const res = await fetch(`${config.seerrUrl}/api/v1/request/${seerrId}`, {
+      headers: { "X-Api-Key": config.seerrApiKey },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+function parseRequestId(id) {
+  if (id.startsWith("seerr-")) {
+    const n = Number(id.slice(6));
+    if (Number.isFinite(n)) return { kind: "seerr", seerrId: n };
+  }
+  return { kind: "local", id };
+}
+
+// server/series-gaps.ts
+var AVAILABLE3 = 5;
+var PARTIAL2 = 4;
+var PAGE = 100;
+var MAX_PAGES = 10;
+async function loadIndex(cfg) {
+  const out = /* @__PURE__ */ new Map();
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const url = `${cfg.seerrUrl}/api/v1/media?filter=partial&take=${PAGE}&skip=${page * PAGE}&sort=mediaAdded`;
+    const res = await fetch(url, { headers: { "X-Api-Key": cfg.seerrApiKey }, signal: AbortSignal.timeout(1e4) });
+    if (!res.ok) throw new Error(`Jellyseerr GET /media?filter=partial : ${res.status}`);
+    const body = await res.json();
+    for (const media of body.results ?? []) {
+      if (media.mediaType !== "tv" || typeof media.tmdbId !== "number") continue;
+      const seasons = /* @__PURE__ */ new Map();
+      for (const s of media.seasons ?? []) {
+        if (typeof s.seasonNumber === "number" && s.seasonNumber > 0 && typeof s.status === "number") {
+          seasons.set(s.seasonNumber, s.status);
+        }
+      }
+      out.set(media.tmdbId, seasons);
+    }
+    if ((body.pageInfo?.pages ?? 1) <= page + 1) break;
+  }
+  return out;
+}
+async function partialSeriesSeasons(cfg) {
+  if (!cfg) return /* @__PURE__ */ new Map();
+  try {
+    return await cached(`series-gaps:${cfg.seerrUrl}`, 6e4, () => loadIndex(cfg), { staleMs: 10 * 6e4 });
+  } catch {
+    return /* @__PURE__ */ new Map();
+  }
+}
+function gapsOf(seasons) {
+  if (!seasons || seasons.size === 0) return null;
+  const missing = [];
+  const partial = [];
+  for (const [season, status] of seasons) {
+    if (status === PARTIAL2) partial.push(season);
+    else if (status !== AVAILABLE3) missing.push(season);
+  }
+  if (missing.length === 0 && partial.length === 0) return null;
+  return { missing: missing.sort((a, b) => a - b), partial: partial.sort((a, b) => a - b) };
+}
+
+// server/requests-list.ts
+var LOCAL_PENDING_STATUSES = [
+  "queued",
+  "processing",
+  "retry_pending",
+  "failed",
+  "deleting",
+  "delete_failed"
+];
+async function buildMergedRows(prisma, cfg, user, log) {
+  const localPendingRows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM seer_requests
+     WHERE jellyfin_user_id = ?
+       AND status IN (${LOCAL_PENDING_STATUSES.map(() => "?").join(",")})
+     ORDER BY created_at DESC`,
+    user.userId,
+    ...LOCAL_PENDING_STATUSES
+  );
+  const localPending = localPendingRows.map(rowToRequest);
+  const localBySeerrId = /* @__PURE__ */ new Map();
+  const allLocalRows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM seer_requests WHERE jellyfin_user_id = ? AND seerr_request_id IS NOT NULL`,
+    user.userId
+  );
+  for (const row of allLocalRows) {
+    const r = rowToRequest(row);
+    if (r.seerrRequestId) localBySeerrId.set(r.seerrRequestId, r);
+  }
+  let seerrRows = [];
+  let seerrUnreachable = false;
+  const seasonStatesP = partialSeriesSeasons(cfg);
+  try {
+    const seerUserId = await resolveJellyseerrUserId(cfg, prisma, user.userId, user.username);
+    const all = await fetchAllSeerrRequests(cfg, seerUserId);
+    seerrRows = all.rows;
+  } catch (err) {
+    seerrUnreachable = true;
+    log?.(err, "Seerr fetch failed, falling back to local only");
+  }
+  const seerrSeenIds = new Set(seerrRows.map((r) => r.id));
+  const localOnly = localPending.filter(
+    (l) => !l.seerrRequestId || !seerrSeenIds.has(l.seerrRequestId)
+  );
+  const deletingIds = /* @__PURE__ */ new Set();
+  try {
+    const pending2 = await prisma.$queryRawUnsafe(
+      `SELECT seerr_request_id FROM seer_cleanup_queue
+       WHERE status = 'pending' AND action = 'delete' AND seerr_request_id IS NOT NULL`
+    );
+    for (const r of pending2) deletingIds.add(Number(r.seerr_request_id));
+  } catch {
+  }
+  const seasonStates = await seasonStatesP;
+  return {
+    seerrRows,
+    localBySeerrId,
+    localOnly,
+    deletingIds,
+    stats: computeStats(seerrRows, localOnly, localBySeerrId, deletingIds, seasonStates),
+    fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    seasonStates,
+    seerrUnreachable
+  };
+}
+function computeStats(seerrRows, localOnly, localBySeerrId, deletingIds, seasonStates) {
+  const byStatus = {};
+  const byType = { movie: 0, tv: 0 };
+  let total = 0;
+  const bump = (status, mediaType) => {
+    total++;
+    byStatus[status] = (byStatus[status] ?? 0) + 1;
+    if (mediaType === "movie") byType.movie++;
+    else if (mediaType === "tv") byType.tv++;
+  };
+  for (const sr of seerrRows) {
+    bump(effectiveStatus(sr, localBySeerrId, deletingIds, seasonStates), sr.media?.mediaType);
+  }
+  for (const l of localOnly) bump(l.status, l.mediaType);
+  return { total, byStatus, byType };
+}
+function effectiveStatus(sr, localBySeerrId, deletingIds, seasonStates) {
+  if (deletingIds.has(sr.id)) return "deleting";
+  return resolveRequestStatus(sr, localBySeerrId.get(sr.id), seasonStates.get(sr.media?.tmdbId ?? 0));
+}
+function collectTmdbRefs(rows) {
+  const out = [];
+  for (const sr of rows.seerrRows) {
+    if (sr.media?.tmdbId) out.push({ mediaType: sr.media.mediaType, tmdbId: sr.media.tmdbId });
+  }
+  for (const l of rows.localOnly) {
+    if (l.tmdbId) out.push({ mediaType: l.mediaType, tmdbId: l.tmdbId });
+  }
+  return out;
+}
+function metaToDetail(meta) {
+  if (!meta) return null;
+  return {
+    id: meta.tmdbId,
+    title: meta.mediaType === "movie" ? meta.title : void 0,
+    name: meta.mediaType === "tv" ? meta.title : void 0,
+    posterPath: meta.posterPath ?? void 0,
+    backdropPath: meta.backdropPath ?? void 0,
+    overview: meta.overview ?? void 0,
+    releaseDate: meta.mediaType === "movie" ? meta.releaseDate ?? void 0 : void 0,
+    firstAirDate: meta.mediaType === "tv" ? meta.releaseDate ?? void 0 : void 0
+  };
+}
+function hydrateRows(rows, meta, user) {
+  const out = rows.localOnly.map(localToUnified);
+  for (const sr of rows.seerrRows) {
+    if (!sr.media) continue;
+    const detail = metaToDetail(meta.get(tmdbKey({ mediaType: sr.media.mediaType, tmdbId: sr.media.tmdbId })));
+    const unified = seerrRequestToUnified(sr, detail, rows.localBySeerrId, {
+      jellyfinUserId: user.userId,
+      username: user.username
+    }, rows.seasonStates?.get(sr.media.tmdbId));
+    if (rows.deletingIds.has(sr.id)) unified.status = "deleting";
+    out.push(unified);
+  }
+  out.sort((a, b) => b.createdAt > a.createdAt ? 1 : -1);
+  return out;
+}
+function filterAndPaginate(items, query) {
+  let filtered = items;
+  if (query.type) filtered = filtered.filter((r) => r.mediaType === query.type);
+  if (query.status) {
+    const wanted = new Set(query.status.split(",").map((s) => s.trim()));
+    filtered = filtered.filter((r) => wanted.has(r.status));
+  }
+  if (query.q) {
+    const q = query.q.trim().toLowerCase();
+    if (q) filtered = filtered.filter((r) => (r.title ?? "").toLowerCase().includes(q));
+  }
+  const total = filtered.length;
+  const offset = (query.page - 1) * query.limit;
+  return {
+    results: filtered.slice(offset, offset + query.limit),
+    total,
+    page: query.page,
+    pages: Math.max(1, Math.ceil(total / query.limit))
+  };
+}
+
 // server/routes-requests-read.ts
 var ROWS_TTL_MS = 6e4;
 var ROWS_STALE_MS = 6e5;
@@ -3811,99 +4487,103 @@ function markLocallyPending(mediaType, tmdbId) {
   keys.add(`${mediaType}:${tmdbId}`);
 }
 
+// server/request-submit.ts
+async function submitRequest(prisma, getWorkerConfig2, user, body) {
+  if (!body.mediaType || !body.tmdbId || !body.title) {
+    return { status: 400, body: { message: "mediaType, tmdbId, and title are required" } };
+  }
+  const settings = await getOrCreateUserSettings(prisma, user.userId, user.username);
+  if (settings.blocked) {
+    return { status: 403, body: { errorKey: "seer:errUserBlocked", message: "User is blocked" } };
+  }
+  let isAnime = false;
+  const config = await getWorkerConfig2();
+  if (body.mediaType === "tv" && config) {
+    const detail = await fetchMediaDetail(config.seerrUrl, config.seerrApiKey, "tv", body.tmdbId);
+    if (detail && isAnimeFromKeywords(detail)) isAnime = true;
+  }
+  if (body.mediaType === "movie" && !settings.allowMovies) {
+    return { status: 403, body: { errorKey: "seer:errMoviesDenied", message: "Movies denied" } };
+  }
+  if (body.mediaType === "tv" && isAnime && !settings.allowAnime) {
+    return { status: 403, body: { errorKey: "seer:errAnimeDenied", message: "Anime denied" } };
+  }
+  if (body.mediaType === "tv" && !isAnime && !settings.allowTv) {
+    return { status: 403, body: { errorKey: "seer:errTvDenied", message: "TV denied" } };
+  }
+  const limit = effectiveDailyLimit(settings.dailyLimit, config?.defaultDailyLimit ?? null);
+  if (limit !== null) {
+    const todayCount = await countRequestsToday(prisma, user.userId);
+    if (todayCount >= limit) {
+      return {
+        status: 429,
+        body: { errorKey: "seer:errQuotaReached", limit, message: `Daily quota reached (${limit})` }
+      };
+    }
+  }
+  if (body.mediaType === "tv" && body.seasons?.length) {
+    const existing = await findExistingTvRequest(prisma, user.userId, body.tmdbId);
+    if (existing) {
+      const existingSeasons = new Set(existing.seasons ?? []);
+      const newSeasons = body.seasons.filter((s) => !existingSeasons.has(s));
+      if (newSeasons.length === 0) {
+        return { status: 409, body: { message: "All seasons already requested", existing } };
+      }
+      const merged = [...existing.seasons ?? [], ...newSeasons].sort((a, b) => a - b);
+      await addSeasonsToRequest(prisma, existing.id, merged);
+      await createRequest(prisma, {
+        jellyfinUserId: user.userId,
+        username: user.username,
+        mediaType: body.mediaType,
+        tmdbId: body.tmdbId,
+        title: body.title,
+        posterPath: body.posterPath,
+        backdropPath: body.backdropPath,
+        overview: body.overview,
+        year: body.year,
+        seasons: newSeasons,
+        profileId: body.profileId ?? existing.profileId,
+        isAnime
+      });
+      const updated = await getRequestById(prisma, existing.id);
+      invalidateRequestCaches(user.userId);
+      markLocallyPending(body.mediaType, body.tmdbId);
+      kickWorkerNow();
+      return { status: 201, body: updated };
+    }
+  }
+  const dup = await findDuplicate(prisma, user.userId, body.tmdbId, body.mediaType, body.seasons);
+  if (dup) {
+    return { status: 409, body: { message: "A request for this media is already active", existing: dup } };
+  }
+  const req = await createRequest(prisma, {
+    jellyfinUserId: user.userId,
+    username: user.username,
+    mediaType: body.mediaType,
+    tmdbId: body.tmdbId,
+    title: body.title,
+    posterPath: body.posterPath,
+    backdropPath: body.backdropPath,
+    overview: body.overview,
+    year: body.year,
+    seasons: body.seasons,
+    profileId: body.profileId,
+    isAnime
+  });
+  invalidateRequestCaches(user.userId);
+  markLocallyPending(body.mediaType, body.tmdbId);
+  kickWorkerNow();
+  return { status: 201, body: req };
+}
+
 // server/routes-requests.ts
 function registerRequestRoutes(app, prisma, getWorkerConfig2) {
   registerRequestReadRoutes(app, prisma, getWorkerConfig2);
   registerRequestActionRoutes(app, prisma, getWorkerConfig2);
   registerRequestForgetRoute(app, prisma, getWorkerConfig2);
   app.post("/requests", async (request, reply) => {
-    const user = getUser(request);
-    const body = request.body;
-    if (!body.mediaType || !body.tmdbId || !body.title) {
-      return reply.status(400).send({ message: "mediaType, tmdbId, and title are required" });
-    }
-    const settings = await getOrCreateUserSettings(prisma, user.userId, user.username);
-    if (settings.blocked) {
-      return reply.status(403).send({ errorKey: "seer:errUserBlocked", message: "User is blocked" });
-    }
-    let isAnime = false;
-    const config = await getWorkerConfig2();
-    if (body.mediaType === "tv" && config) {
-      const detail = await fetchMediaDetail(config.seerrUrl, config.seerrApiKey, "tv", body.tmdbId);
-      if (detail && isAnimeFromKeywords(detail)) isAnime = true;
-    }
-    if (body.mediaType === "movie" && !settings.allowMovies) {
-      return reply.status(403).send({ errorKey: "seer:errMoviesDenied", message: "Movies denied" });
-    }
-    if (body.mediaType === "tv" && isAnime && !settings.allowAnime) {
-      return reply.status(403).send({ errorKey: "seer:errAnimeDenied", message: "Anime denied" });
-    }
-    if (body.mediaType === "tv" && !isAnime && !settings.allowTv) {
-      return reply.status(403).send({ errorKey: "seer:errTvDenied", message: "TV denied" });
-    }
-    if (settings.dailyLimit !== null && settings.dailyLimit !== void 0) {
-      const todayCount = await countRequestsToday(prisma, user.userId);
-      if (todayCount >= settings.dailyLimit) {
-        return reply.status(429).send({
-          errorKey: "seer:errQuotaReached",
-          limit: settings.dailyLimit,
-          message: `Daily quota reached (${settings.dailyLimit})`
-        });
-      }
-    }
-    if (body.mediaType === "tv" && body.seasons?.length) {
-      const existing = await findExistingTvRequest(prisma, user.userId, body.tmdbId);
-      if (existing) {
-        const existingSeasons = new Set(existing.seasons ?? []);
-        const newSeasons = body.seasons.filter((s) => !existingSeasons.has(s));
-        if (newSeasons.length === 0) {
-          return reply.status(409).send({ message: "All seasons already requested", existing });
-        }
-        const merged = [...existing.seasons ?? [], ...newSeasons].sort((a, b) => a - b);
-        await addSeasonsToRequest(prisma, existing.id, merged);
-        await createRequest(prisma, {
-          jellyfinUserId: user.userId,
-          username: user.username,
-          mediaType: body.mediaType,
-          tmdbId: body.tmdbId,
-          title: body.title,
-          posterPath: body.posterPath,
-          backdropPath: body.backdropPath,
-          overview: body.overview,
-          year: body.year,
-          seasons: newSeasons,
-          profileId: body.profileId ?? existing.profileId,
-          isAnime
-        });
-        const updated = await getRequestById(prisma, existing.id);
-        invalidateRequestCaches(user.userId);
-        markLocallyPending(body.mediaType, body.tmdbId);
-        kickWorkerNow();
-        return reply.status(201).send(updated);
-      }
-    }
-    const dup = await findDuplicate(prisma, user.userId, body.tmdbId, body.mediaType, body.seasons);
-    if (dup) {
-      return reply.status(409).send({ message: "A request for this media is already active", existing: dup });
-    }
-    const req = await createRequest(prisma, {
-      jellyfinUserId: user.userId,
-      username: user.username,
-      mediaType: body.mediaType,
-      tmdbId: body.tmdbId,
-      title: body.title,
-      posterPath: body.posterPath,
-      backdropPath: body.backdropPath,
-      overview: body.overview,
-      year: body.year,
-      seasons: body.seasons,
-      profileId: body.profileId,
-      isAnime
-    });
-    invalidateRequestCaches(user.userId);
-    markLocallyPending(body.mediaType, body.tmdbId);
-    kickWorkerNow();
-    return reply.status(201).send(req);
+    const result = await submitRequest(prisma, getWorkerConfig2, getUser(request), request.body);
+    return reply.status(result.status).send(result.body);
   });
   app.delete("/requests/:id", async (request, reply) => {
     const { id } = request.params;
@@ -4186,158 +4866,332 @@ async function fetchArrOptions(seerr, type) {
   return results.filter((r) => r.status === "fulfilled").map((r) => r.value);
 }
 
+// server/users-overview.ts
+async function loadSettings(prisma) {
+  const rows = await prisma.$queryRawUnsafe(`SELECT * FROM seer_user_settings`);
+  return new Map(rows.map((r) => {
+    const s = rowToUserSettings(r);
+    return [normalizeJellyfinId(s.jellyfinUserId), s];
+  }));
+}
+async function loadStats(prisma) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT jellyfin_user_id,
+       SUM(CASE WHEN created_at >= CURDATE() AND status NOT IN ('failed','deleted') THEN 1 ELSE 0 END) AS today,
+       SUM(CASE WHEN status != 'deleted' THEN 1 ELSE 0 END) AS total
+     FROM seer_requests GROUP BY jellyfin_user_id`
+  );
+  const out = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    const key = normalizeJellyfinId(r.jellyfin_user_id);
+    const prev = out.get(key) ?? { today: 0, total: 0 };
+    out.set(key, { today: prev.today + Number(r.today ?? 0), total: prev.total + Number(r.total ?? 0) });
+  }
+  return out;
+}
+async function lastKnownName(prisma, jellyfinUserId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT username FROM seer_requests WHERE jellyfin_user_id = ? ORDER BY created_at DESC LIMIT 1`,
+    jellyfinUserId
+  ).catch(() => []);
+  return rows[0]?.username || jellyfinUserId;
+}
+function defaultSettings(id, name) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  return {
+    jellyfinUserId: id,
+    username: name,
+    blocked: false,
+    dailyLimit: null,
+    allowMovies: true,
+    allowTv: true,
+    allowAnime: true,
+    jellyseerrUserId: null,
+    jellyseerrLastSync: null,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+var seerrRef = (s) => s ? { id: s.id, name: s.name, requestCount: s.requestCount } : null;
+async function buildUsersOverview(prisma, cfg, defaults) {
+  const [snap, settings, stats] = await Promise.all([
+    collectUserSync(prisma, cfg),
+    loadSettings(prisma),
+    loadStats(prisma)
+  ]);
+  const seerrById = new Map((snap.seerr ?? []).map((s) => [s.id, s]));
+  const toDto = (s, account) => {
+    const key = normalizeJellyfinId(s.jellyfinUserId);
+    const st = stats.get(key) ?? { today: 0, total: 0 };
+    return {
+      ...s,
+      username: account?.name || s.username,
+      requestsToday: st.today,
+      requestsTotal: st.total,
+      activeRequests: snap.activeRequests.get(key) ?? 0,
+      jellyfin: account ? { isAdmin: account.isAdmin, isDisabled: account.isDisabled, imageTag: account.imageTag, lastActivityDate: account.lastActivityDate } : null,
+      link: linkStateOf(s, snap.seerr),
+      seerr: seerrRef(s.jellyseerrUserId ? seerrById.get(s.jellyseerrUserId) : void 0)
+    };
+  };
+  const users = snap.accounts ? snap.accounts.map((a) => toDto(settings.get(normalizeJellyfinId(a.id)) ?? defaultSettings(a.id, a.name), a)) : [...settings.values()].map((s) => toDto(s, null));
+  users.sort((a, b) => a.username.localeCompare(b.username, void 0, { sensitivity: "base" }));
+  const plan = snap.plan;
+  const gone = await Promise.all((plan?.gone ?? []).map(async (g) => ({
+    jellyfinUserId: g.id,
+    username: g.username === g.id ? await lastKnownName(prisma, g.id) : g.username,
+    activeRequests: g.activeRequests,
+    seerr: seerrRef(g.seerrId ? seerrById.get(g.seerrId) : void 0)
+  })));
+  return {
+    users,
+    sync: {
+      last: getLastUserSync(),
+      running: isUserSyncRunning(),
+      autoEveryMinutes: AUTO_SYNC_EVERY_MINUTES,
+      pending: plan ? pendingFixes(plan) : 0,
+      jellyfinError: snap.jellyfinError,
+      seerrError: snap.seerrError
+    },
+    attention: {
+      gone,
+      orphanSeerr: (plan?.orphanSeerr ?? []).map((o) => ({
+        ...seerrRef(o),
+        email: o.email,
+        placeholder: (o.email ?? "").toLowerCase().endsWith(PLACEHOLDER_DOMAIN)
+      })),
+      missingSeerr: (plan?.missingSeerr ?? []).map((m) => ({ jellyfinUserId: m.id, username: m.username }))
+    },
+    defaults
+  };
+}
+
 // server/routes-users.ts
-function registerUsersRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
-  app.get(
-    "/admin/users",
-    { preHandler: requireAdmin },
-    async (_request, reply) => {
-      const config = await getWorkerConfig2();
-      let jellyfinUsers = [];
-      let jellyfinError = null;
-      try {
-        jellyfinUsers = await fetchJellyfinUsers();
-      } catch (err) {
-        jellyfinError = err instanceof Error ? err.message : "Jellyfin fetch failed";
-      }
-      if (config) {
-        try {
-          const seerUsers = await listAllJellyseerrUsers(config);
-          const known = new Set(jellyfinUsers.map((u) => u.id));
-          for (const su of seerUsers) {
-            if (!su.jellyfinUserId || known.has(su.jellyfinUserId)) continue;
-            jellyfinUsers.push({
-              id: su.jellyfinUserId,
-              name: su.jellyfinUsername || su.username || su.jellyfinUserId
-            });
-          }
-        } catch {
-        }
-      }
-      if (jellyfinUsers.length === 0) {
-        return reply.status(503).send({
-          message: jellyfinError ? `Cannot list Jellyfin users: ${jellyfinError}` : "No source available to list Jellyfin users"
-        });
-      }
-      return await listJellyfinUsersWithStats(prisma, jellyfinUsers);
+function normalizeDailyLimit(raw) {
+  if (raw === void 0) return void 0;
+  if (raw === null || raw === "") return null;
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n === 0) return null;
+  return n < 0 ? -1 : n;
+}
+function registerUsersRoutes(app, prisma, getWorkerConfig2, requireAdmin, getDefaultDailyLimit) {
+  app.get("/admin/users", { preHandler: requireAdmin }, async () => {
+    const cfg = await getWorkerConfig2();
+    return buildUsersOverview(
+      prisma,
+      cfg ? { seerrUrl: cfg.seerrUrl, seerrApiKey: cfg.seerrApiKey } : null,
+      { dailyLimit: getDefaultDailyLimit() }
+    );
+  });
+  app.put("/admin/users/:jellyfinUserId", { preHandler: requireAdmin }, async (request) => {
+    const { jellyfinUserId } = request.params;
+    const body = request.body ?? {};
+    const current = await getUserSettings(prisma, jellyfinUserId);
+    if (!current) {
+      const name = typeof body.username === "string" && body.username.trim() || jellyfinUserId;
+      await getOrCreateUserSettings(prisma, jellyfinUserId, name);
     }
-  );
-  app.put(
-    "/admin/users/:jellyfinUserId",
-    { preHandler: requireAdmin },
-    async (request, reply) => {
-      const { jellyfinUserId } = request.params;
-      const body = request.body ?? {};
-      const current = await getUserSettings(prisma, jellyfinUserId);
-      const usernameForCreation = current?.username || jellyfinUserId;
-      const existing = await getOrCreateUserSettings(prisma, jellyfinUserId, usernameForCreation);
-      let dailyLimit = body.dailyLimit;
-      if (dailyLimit === 0 || typeof dailyLimit === "string" && dailyLimit === "") {
-        dailyLimit = null;
-      }
-      if (typeof dailyLimit === "number" && Number.isNaN(dailyLimit)) dailyLimit = null;
-      await updateUserSettings(prisma, jellyfinUserId, {
-        blocked: body.blocked,
-        dailyLimit,
-        allowMovies: body.allowMovies,
-        allowTv: body.allowTv,
-        allowAnime: body.allowAnime
-      });
-      const all = await listUsersWithStats(prisma);
-      const updated = all.find((u) => u.jellyfinUserId === jellyfinUserId);
-      return updated ?? existing;
-    }
-  );
-  app.post(
-    "/admin/users/sync",
-    { preHandler: requireAdmin },
-    async (_request, reply) => {
-      const config = await getWorkerConfig2();
-      if (!config) return reply.status(503).send({ message: "Seerr not configured" });
-      let invalidatedLinks = 0;
-      try {
-        invalidatedLinks = await invalidateStaleJellyseerrCache(config, prisma);
-      } catch {
-      }
-      let users = [];
-      let jellyfinError = null;
-      try {
-        users = await fetchJellyfinUsers();
-      } catch (err) {
-        jellyfinError = err instanceof Error ? err.message : "Jellyfin fetch failed";
-      }
-      try {
-        const seerUsers = await listAllJellyseerrUsers(config);
-        const known = new Set(users.map((u) => u.id));
-        for (const su of seerUsers) {
-          if (!su.jellyfinUserId || known.has(su.jellyfinUserId)) continue;
-          users.push({
-            id: su.jellyfinUserId,
-            name: su.jellyfinUsername || su.username || su.jellyfinUserId
-          });
-        }
-      } catch {
-        if (jellyfinError && users.length === 0) {
-          return reply.status(503).send({ message: `Sync failed: ${jellyfinError}` });
-        }
-      }
-      let created = 0;
-      const isUuid = /^[0-9a-f]{8,}(-[0-9a-f]+)*$/i;
-      for (const u of users) {
-        const existing = await prisma.$queryRawUnsafe(
-          `SELECT jellyfin_user_id, username FROM seer_user_settings WHERE jellyfin_user_id = ? LIMIT 1`,
-          u.id
-        );
-        if (existing.length === 0) {
-          created++;
-          await getOrCreateUserSettings(prisma, u.id, u.name);
-        } else if (u.name && u.name !== u.id && (isUuid.test(existing[0].username) || existing[0].username === u.id)) {
-          await updateUserSettings(prisma, u.id, { username: u.name });
-        }
-      }
-      const all = await listUsersWithStats(prisma);
-      let synced = 0;
-      let failed = 0;
-      for (const u of all) {
-        try {
-          await resolveJellyseerrUserId(config, prisma, u.jellyfinUserId, u.username);
-          synced++;
-        } catch {
-          failed++;
-        }
-      }
-      const aliveIds = new Set(users.map((u) => u.id));
-      let removed = 0;
-      const allSettings = await prisma.$queryRawUnsafe(
-        `SELECT jellyfin_user_id FROM seer_user_settings`
+    await updateUserSettings(prisma, jellyfinUserId, {
+      blocked: body.blocked,
+      dailyLimit: normalizeDailyLimit(body.dailyLimit),
+      allowMovies: body.allowMovies,
+      allowTv: body.allowTv,
+      allowAnime: body.allowAnime
+    });
+    return getUserSettings(prisma, jellyfinUserId);
+  });
+}
+
+// server/routes-user-sync.ts
+var SEERR_OWNER_ID2 = 1;
+var errorText2 = (err) => err instanceof Error ? err.message : String(err);
+function registerUserSyncRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
+  const seerCfg = async () => {
+    const cfg = await getWorkerConfig2();
+    return cfg ? { seerrUrl: cfg.seerrUrl, seerrApiKey: cfg.seerrApiKey } : null;
+  };
+  app.post("/admin/users/sync", { preHandler: requireAdmin }, async (request) => {
+    const body = request.body ?? {};
+    const importMissing2 = Array.isArray(body.importMissing) ? body.importMissing.filter((id) => typeof id === "string") : body.importMissing === true;
+    return runUserSync(prisma, await seerCfg(), { trigger: "manual", importMissing: importMissing2 });
+  });
+  app.post("/admin/users/:jellyfinUserId/link", { preHandler: requireAdmin }, async (request, reply) => {
+    const cfg = await seerCfg();
+    if (!cfg) return reply.status(503).send({ message: "Jellyseerr n'est pas configur\xE9" });
+    const { jellyfinUserId } = request.params;
+    const settings = await getUserSettings(prisma, jellyfinUserId);
+    const account = (await fetchJellyfinAccounts(prisma).catch(() => [])).find((a) => normalizeJellyfinId(a.id) === normalizeJellyfinId(jellyfinUserId));
+    try {
+      const seerrId = await resolveJellyseerrUserId(
+        cfg,
+        prisma,
+        jellyfinUserId,
+        account?.name || settings?.username || jellyfinUserId
       );
-      for (const row of allSettings) {
-        if (aliveIds.has(row.jellyfin_user_id)) continue;
-        const hasReqs = await prisma.$queryRawUnsafe(
-          `SELECT COUNT(*) AS cnt FROM seer_requests
-           WHERE jellyfin_user_id = ?
-             AND status NOT IN ('deleted','delete_failed')`,
-          row.jellyfin_user_id
-        );
-        if (Number(hasReqs[0]?.cnt ?? 0) === 0) {
-          await prisma.$executeRawUnsafe(
-            `DELETE FROM seer_user_settings WHERE jellyfin_user_id = ?`,
-            row.jellyfin_user_id
-          );
-          removed++;
-        }
-      }
-      return {
-        synced,
-        failed,
-        created,
-        removed,
-        invalidatedLinks,
-        total: all.length,
-        jellyfinAdminOk: jellyfinError === null
-      };
+      invalidateRequestCaches(jellyfinUserId);
+      return { seerrId };
+    } catch (err) {
+      const errorKey = err instanceof SeerrAccountError ? `seer:admErr_${err.code.replace(/-/g, "_")}` : void 0;
+      return reply.status(502).send({ message: errorText2(err), errorKey });
     }
+  });
+  app.delete("/admin/users/:jellyfinUserId", { preHandler: requireAdmin }, async (request, reply) => {
+    const { jellyfinUserId } = request.params;
+    let accounts;
+    try {
+      accounts = await fetchJellyfinAccounts(prisma);
+    } catch (err) {
+      return reply.status(503).send({ message: `Jellyfin injoignable : ${errorText2(err)}` });
+    }
+    if (accounts.some((a) => normalizeJellyfinId(a.id) === normalizeJellyfinId(jellyfinUserId))) {
+      return reply.status(409).send({ message: "Ce compte existe encore dans Jellyfin" });
+    }
+    await prisma.$executeRawUnsafe(`DELETE FROM seer_user_settings WHERE jellyfin_user_id = ?`, jellyfinUserId);
+    invalidateRequestCaches(jellyfinUserId);
+    return { ok: true };
+  });
+  app.delete("/admin/seerr-users/:seerrId", { preHandler: requireAdmin }, async (request, reply) => {
+    const cfg = await seerCfg();
+    if (!cfg) return reply.status(503).send({ message: "Jellyseerr n'est pas configur\xE9" });
+    const seerrId = Number(request.params.seerrId);
+    if (!Number.isInteger(seerrId) || seerrId <= 0) return reply.status(400).send({ message: "Identifiant invalide" });
+    if (seerrId === SEERR_OWNER_ID2) return reply.status(403).send({ message: "Le propri\xE9taire de Jellyseerr ne se supprime pas" });
+    const linked = await prisma.$queryRawUnsafe(
+      `SELECT jellyfin_user_id FROM seer_user_settings WHERE jellyseerr_user_id = ?`,
+      seerrId
+    );
+    if (linked.length > 0) {
+      const alive = new Set((await fetchJellyfinAccounts(prisma).catch(() => [])).map((a) => normalizeJellyfinId(a.id)));
+      if (linked.some((l) => alive.has(normalizeJellyfinId(l.jellyfin_user_id)))) {
+        return reply.status(409).send({ message: "Ce compte Jellyseerr sert encore un compte Jellyfin" });
+      }
+    }
+    try {
+      await deleteJellyseerrUser(cfg, seerrId);
+    } catch (err) {
+      return reply.status(502).send({ message: errorText2(err) });
+    }
+    await prisma.$executeRawUnsafe(
+      `UPDATE seer_user_settings SET jellyseerr_user_id = NULL, jellyseerr_last_sync = NULL WHERE jellyseerr_user_id = ?`,
+      seerrId
+    );
+    invalidateRequestCaches();
+    return { ok: true };
+  });
+}
+
+// server/seerr-ownership.ts
+async function pickBestUsernameFor(prisma, jellyfinUserId, fallback) {
+  const isUuid = /^[0-9a-f]{8,}(-[0-9a-f]+)*$/i;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT username FROM seer_requests
+     WHERE jellyfin_user_id = ? AND username IS NOT NULL AND username <> ''
+     ORDER BY created_at DESC LIMIT 50`,
+    jellyfinUserId
   );
+  for (const r of rows) {
+    if (r.username && !isUuid.test(r.username) && r.username !== jellyfinUserId) {
+      return r.username;
+    }
+  }
+  const settings = await prisma.$queryRawUnsafe(
+    `SELECT username FROM seer_user_settings WHERE jellyfin_user_id = ? LIMIT 1`,
+    jellyfinUserId
+  );
+  if (settings[0]?.username && !isUuid.test(settings[0].username) && settings[0].username !== jellyfinUserId) {
+    return settings[0].username;
+  }
+  return rows[0]?.username || fallback;
+}
+async function reassignSeerrRequestOwnership(config, seerrRequestId, targetUserId, localMedia) {
+  const headers = { "Content-Type": "application/json", "X-Api-Key": config.seerrApiKey };
+  const cur = await fetch(`${config.seerrUrl}/api/v1/request/${seerrRequestId}`, {
+    headers: { "X-Api-Key": config.seerrApiKey },
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (cur.status === 404) {
+    if (!localMedia.tmdbId) throw new Error("missing local tmdbId for re-creation");
+    const createBody2 = {
+      mediaType: localMedia.mediaType,
+      mediaId: localMedia.tmdbId,
+      userId: targetUserId
+    };
+    if (localMedia.seasons?.length) createBody2.seasons = localMedia.seasons;
+    const postRes2 = await fetch(`${config.seerrUrl}/api/v1/request`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(createBody2),
+      signal: AbortSignal.timeout(15e3)
+    });
+    if (!postRes2.ok) {
+      const text = await postRes2.text().catch(() => "");
+      throw new Error(`re-create missing failed (${postRes2.status}): ${text.slice(0, 200)}`);
+    }
+    const created2 = await postRes2.json();
+    return { method: "create-missing", newRequestId: created2.id };
+  }
+  if (!cur.ok) {
+    throw new Error(`GET request ${seerrRequestId} failed: ${cur.status}`);
+  }
+  const req = await cur.json();
+  if (req.requestedBy?.id === targetUserId) return { method: "skip" };
+  const putBody = {
+    mediaType: req.media?.mediaType,
+    userId: targetUserId
+  };
+  if (req.serverId != null) putBody.serverId = req.serverId;
+  if (req.profileId != null) putBody.profileId = req.profileId;
+  if (req.rootFolder) putBody.rootFolder = req.rootFolder;
+  if (req.languageProfileId != null) putBody.languageProfileId = req.languageProfileId;
+  if (req.tags?.length) putBody.tags = req.tags;
+  const putRes = await fetch(`${config.seerrUrl}/api/v1/request/${seerrRequestId}`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify(putBody),
+    signal: AbortSignal.timeout(15e3)
+  });
+  if (putRes.ok) {
+    const updated = await putRes.json().catch(() => null);
+    if (updated?.requestedBy?.id === targetUserId) {
+      return { method: "put" };
+    }
+  }
+  await fetch(`${config.seerrUrl}/api/v1/request/${seerrRequestId}`, {
+    method: "DELETE",
+    headers: { "X-Api-Key": config.seerrApiKey },
+    signal: AbortSignal.timeout(1e4)
+  }).catch(() => {
+  });
+  if (!req.media?.tmdbId || !req.media?.mediaType) {
+    throw new Error("missing media info for recreate");
+  }
+  const createBody = {
+    mediaType: req.media.mediaType,
+    mediaId: req.media.tmdbId,
+    userId: targetUserId
+  };
+  if (req.seasons?.length) createBody.seasons = req.seasons.map((s) => s.seasonNumber);
+  if (req.serverId != null) createBody.serverId = req.serverId;
+  if (req.profileId != null) createBody.profileId = req.profileId;
+  if (req.rootFolder) createBody.rootFolder = req.rootFolder;
+  if (req.languageProfileId != null) createBody.languageProfileId = req.languageProfileId;
+  if (req.tags?.length) createBody.tags = req.tags;
+  const postRes = await fetch(`${config.seerrUrl}/api/v1/request`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(createBody),
+    signal: AbortSignal.timeout(15e3)
+  });
+  if (!postRes.ok) {
+    const text = await postRes.text().catch(() => "");
+    throw new Error(`recreate failed (${postRes.status}): ${text.slice(0, 200)}`);
+  }
+  const created = await postRes.json();
+  return { method: "recreate", newRequestId: created.id };
+}
+
+// server/routes-ownership.ts
+function registerOwnershipRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
   app.post(
     "/admin/sync-requests-ownership",
     { preHandler: requireAdmin },
@@ -4461,129 +5315,90 @@ function registerUsersRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
     }
   );
 }
-async function pickBestUsernameFor(prisma, jellyfinUserId, fallback) {
-  const isUuid = /^[0-9a-f]{8,}(-[0-9a-f]+)*$/i;
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT username FROM seer_requests
-     WHERE jellyfin_user_id = ? AND username IS NOT NULL AND username <> ''
-     ORDER BY created_at DESC LIMIT 50`,
-    jellyfinUserId
-  );
-  for (const r of rows) {
-    if (r.username && !isUuid.test(r.username) && r.username !== jellyfinUserId) {
-      return r.username;
-    }
+
+// server/routes-connection.ts
+var TIMEOUT_MS = 8e3;
+function cleanUrl(raw) {
+  if (typeof raw !== "string") return null;
+  try {
+    const url = new URL(raw.trim());
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return null;
   }
-  const settings = await prisma.$queryRawUnsafe(
-    `SELECT username FROM seer_user_settings WHERE jellyfin_user_id = ? LIMIT 1`,
-    jellyfinUserId
-  );
-  if (settings[0]?.username && !isUuid.test(settings[0].username) && settings[0].username !== jellyfinUserId) {
-    return settings[0].username;
-  }
-  return rows[0]?.username || fallback;
 }
-async function reassignSeerrRequestOwnership(config, seerrRequestId, targetUserId, localMedia) {
-  const headers = { "Content-Type": "application/json", "X-Api-Key": config.seerrApiKey };
-  const cur = await fetch(`${config.seerrUrl}/api/v1/request/${seerrRequestId}`, {
-    headers: { "X-Api-Key": config.seerrApiKey },
-    signal: AbortSignal.timeout(1e4)
-  });
-  if (cur.status === 404) {
-    if (!localMedia.tmdbId) throw new Error("missing local tmdbId for re-creation");
-    const createBody2 = {
-      mediaType: localMedia.mediaType,
-      mediaId: localMedia.tmdbId,
-      userId: targetUserId
-    };
-    if (localMedia.seasons?.length) createBody2.seasons = localMedia.seasons;
-    const postRes2 = await fetch(`${config.seerrUrl}/api/v1/request`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(createBody2),
-      signal: AbortSignal.timeout(15e3)
+async function probeArr(seerrUrl, apiKey, type) {
+  try {
+    const res = await fetch(`${seerrUrl}/api/v1/settings/${type}`, {
+      headers: { "X-Api-Key": apiKey },
+      signal: AbortSignal.timeout(TIMEOUT_MS)
     });
-    if (!postRes2.ok) {
-      const text = await postRes2.text().catch(() => "");
-      throw new Error(`re-create missing failed (${postRes2.status}): ${text.slice(0, 200)}`);
-    }
-    const created2 = await postRes2.json();
-    return { method: "create-missing", newRequestId: created2.id };
+    if (!res.ok) return "unreachable";
+    const servers = await res.json();
+    const main = servers.find((s) => s.isDefault) ?? servers[0];
+    if (!main) return "missing";
+    const server = {
+      hostname: String(main.hostname ?? ""),
+      port: Number(main.port),
+      apiKey: String(main.apiKey ?? ""),
+      useSsl: !!main.useSsl,
+      baseUrl: String(main.baseUrl ?? "")
+    };
+    const ping = await fetch(`${buildArrUrl(server)}/api/v3/system/status`, {
+      headers: { "X-Api-Key": server.apiKey },
+      signal: AbortSignal.timeout(TIMEOUT_MS)
+    });
+    return ping.ok ? "ok" : "unreachable";
+  } catch {
+    return "unreachable";
   }
-  if (!cur.ok) {
-    throw new Error(`GET request ${seerrRequestId} failed: ${cur.status}`);
-  }
-  const req = await cur.json();
-  if (req.requestedBy?.id === targetUserId) return { method: "skip" };
-  const putBody = {
-    mediaType: req.media?.mediaType,
-    userId: targetUserId
-  };
-  if (req.serverId != null) putBody.serverId = req.serverId;
-  if (req.profileId != null) putBody.profileId = req.profileId;
-  if (req.rootFolder) putBody.rootFolder = req.rootFolder;
-  if (req.languageProfileId != null) putBody.languageProfileId = req.languageProfileId;
-  if (req.tags?.length) putBody.tags = req.tags;
-  const putRes = await fetch(`${config.seerrUrl}/api/v1/request/${seerrRequestId}`, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify(putBody),
-    signal: AbortSignal.timeout(15e3)
-  });
-  if (putRes.ok) {
-    const updated = await putRes.json().catch(() => null);
-    if (updated?.requestedBy?.id === targetUserId) {
-      return { method: "put" };
-    }
-  }
-  await fetch(`${config.seerrUrl}/api/v1/request/${seerrRequestId}`, {
-    method: "DELETE",
-    headers: { "X-Api-Key": config.seerrApiKey },
-    signal: AbortSignal.timeout(1e4)
-  }).catch(() => {
-  });
-  if (!req.media?.tmdbId || !req.media?.mediaType) {
-    throw new Error("missing media info for recreate");
-  }
-  const createBody = {
-    mediaType: req.media.mediaType,
-    mediaId: req.media.tmdbId,
-    userId: targetUserId
-  };
-  if (req.seasons?.length) createBody.seasons = req.seasons.map((s) => s.seasonNumber);
-  if (req.serverId != null) createBody.serverId = req.serverId;
-  if (req.profileId != null) createBody.profileId = req.profileId;
-  if (req.rootFolder) createBody.rootFolder = req.rootFolder;
-  if (req.languageProfileId != null) createBody.languageProfileId = req.languageProfileId;
-  if (req.tags?.length) createBody.tags = req.tags;
-  const postRes = await fetch(`${config.seerrUrl}/api/v1/request`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(createBody),
-    signal: AbortSignal.timeout(15e3)
-  });
-  if (!postRes.ok) {
-    const text = await postRes.text().catch(() => "");
-    throw new Error(`recreate failed (${postRes.status}): ${text.slice(0, 200)}`);
-  }
-  const created = await postRes.json();
-  return { method: "recreate", newRequestId: created.id };
 }
-async function fetchJellyfinUsers() {
-  const baseUrl = (process.env.JELLYFIN_URL || "").replace(/\/$/, "");
-  const apiKey = process.env.JELLYFIN_ADMIN_API_KEY || "";
-  if (!baseUrl || !apiKey) {
-    throw new Error("Jellyfin not configured on Tentacle backend (JELLYFIN_URL or JELLYFIN_ADMIN_API_KEY missing)");
+async function probeJellyfin(seerrUrl, apiKey) {
+  try {
+    const res = await fetch(`${seerrUrl}/api/v1/settings/jellyfin/users`, {
+      headers: { "X-Api-Key": apiKey },
+      signal: AbortSignal.timeout(TIMEOUT_MS)
+    });
+    return res.ok ? "ok" : "unreachable";
+  } catch {
+    return "unreachable";
   }
-  const res = await fetch(`${baseUrl}/Users`, {
-    headers: { "X-Emby-Token": apiKey },
-    signal: AbortSignal.timeout(15e3)
+}
+async function testSeerrConnection(rawUrl, rawKey) {
+  const url = cleanUrl(rawUrl);
+  const apiKey = typeof rawKey === "string" ? rawKey.trim() : "";
+  if (!url) return { ok: false, error: "bad-url", version: null, arr: null, jellyfin: null };
+  let version = null;
+  try {
+    const res = await fetch(`${url}/api/v1/status`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+    if (!res.ok) return { ok: false, error: "unreachable", version: null, arr: null, jellyfin: null };
+    version = (await res.json()).version ?? null;
+  } catch {
+    return { ok: false, error: "unreachable", version: null, arr: null, jellyfin: null };
+  }
+  try {
+    const res = await fetch(`${url}/api/v1/settings/main`, {
+      headers: { "X-Api-Key": apiKey },
+      signal: AbortSignal.timeout(TIMEOUT_MS)
+    });
+    if (res.status === 401 || res.status === 403) return { ok: false, error: "invalid-key", version, arr: null, jellyfin: null };
+    if (!res.ok) return { ok: false, error: "unreachable", version, arr: null, jellyfin: null };
+  } catch {
+    return { ok: false, error: "unreachable", version, arr: null, jellyfin: null };
+  }
+  const [sonarr2, radarr, jellyfin] = await Promise.all([
+    probeArr(url, apiKey, "sonarr"),
+    probeArr(url, apiKey, "radarr"),
+    probeJellyfin(url, apiKey)
+  ]);
+  return { ok: true, error: null, version, arr: { sonarr: sonarr2, radarr }, jellyfin };
+}
+function registerConnectionRoutes(app, requireAdmin) {
+  app.post("/admin/test-connection", { preHandler: requireAdmin }, async (request) => {
+    const body = request.body ?? {};
+    return testSeerrConnection(body.url, body.apiKey);
   });
-  if (!res.ok) {
-    throw new Error(`Jellyfin GET /Users failed: ${res.status}`);
-  }
-  const data = await res.json();
-  return data.filter((u) => !u.Policy?.IsDisabled).map((u) => ({ id: u.Id, name: u.Name }));
 }
 
 // server/availability.ts
@@ -5839,8 +6654,115 @@ function registerCalendarRoutes(app, prisma, getWorkerConfig2) {
   });
 }
 
+// server/user-marks.ts
+var MARK_LIBRARY = 1;
+var MARK_WATCHED = 2;
+var MARK_WATCHLIST = 4;
+var MARK_LIKED = 8;
+function vigieType(type) {
+  if (type === "Movie" || type === "movie") return "movie";
+  if (type === "Series" || type === "series" || type === "tv") return "tv";
+  return null;
+}
+function tmdbOf(ids) {
+  if (!ids) return null;
+  for (const [key, value] of Object.entries(ids)) {
+    if (key.toLowerCase() !== "tmdb" || !value) continue;
+    const id = Number(value);
+    if (Number.isInteger(id) && id > 0) return id;
+  }
+  return null;
+}
+function buildMarks(library, likes, ratings) {
+  const byKey = /* @__PURE__ */ new Map();
+  const entry = (type, id) => {
+    const key = `${type}:${id}`;
+    let found = byKey.get(key);
+    if (!found) {
+      found = [type, id, 0, 0];
+      byKey.set(key, found);
+    }
+    return found;
+  };
+  for (const item of library) {
+    const type = vigieType(item.Type);
+    const id = tmdbOf(item.ProviderIds);
+    if (!type || id === null) continue;
+    const e = entry(type, id);
+    let bits = MARK_LIBRARY;
+    if (item.UserData?.Played) bits |= MARK_WATCHED;
+    if (item.UserData?.Likes === true) bits |= MARK_WATCHLIST;
+    if (item.UserData?.IsFavorite) bits |= MARK_LIKED;
+    e[2] |= bits;
+  }
+  for (const like of likes) {
+    const type = vigieType(like.mediaType);
+    if (type && like.tmdbId > 0) entry(type, like.tmdbId)[2] |= MARK_LIKED;
+  }
+  for (const rating of ratings) {
+    const type = vigieType(rating.mediaType);
+    const score2 = Math.round(rating.score);
+    if (type && rating.tmdbId > 0 && score2 >= 1 && score2 <= 10) entry(type, rating.tmdbId)[3] = score2;
+  }
+  return [...byKey.values()].filter((e) => e[2] !== 0 || e[3] !== 0);
+}
+var TTL_MS = 6e4;
+async function fetchLibrary(prisma, userId) {
+  const creds = await jellyfinCredentials(prisma);
+  if (!creds) return [];
+  const params = new URLSearchParams({
+    Recursive: "true",
+    IncludeItemTypes: "Movie,Series",
+    Fields: "ProviderIds",
+    HasTmdbId: "true",
+    EnableImages: "false",
+    EnableUserData: "true"
+  });
+  const res = await fetch(`${creds.url}/Users/${encodeURIComponent(userId)}/Items?${params}`, {
+    headers: { "X-Emby-Token": creds.apiKey },
+    signal: AbortSignal.timeout(15e3)
+  });
+  if (!res.ok) throw new Error(`Jellyfin GET /Users/{id}/Items a r\xE9pondu ${res.status}`);
+  const data = await res.json();
+  return Array.isArray(data.Items) ? data.Items : [];
+}
+async function readRows(prisma, sql, userId) {
+  try {
+    return await prisma.$queryRawUnsafe(sql, userId);
+  } catch {
+    return [];
+  }
+}
+async function userMarks(prisma, userId) {
+  return cached(`vigie:marks:${userId}`, TTL_MS, async () => {
+    const [library, likes, ratings] = await Promise.all([
+      fetchLibrary(prisma, userId).catch(() => []),
+      readRows(
+        prisma,
+        "SELECT mediaType, tmdbId FROM user_likes WHERE jellyfinUserId = ?",
+        userId
+      ),
+      // La note d'un TITRE, pas d'un épisode ; une note en cours de retrait n'en est plus une.
+      readRows(
+        prisma,
+        "SELECT mediaType, tmdbId, score FROM user_ratings WHERE jellyfinUserId = ? AND deletedAt IS NULL AND seasonNumber = 0 AND episodeNumber = 0",
+        userId
+      )
+    ]);
+    const num4 = (v) => Number(v);
+    return {
+      items: buildMarks(
+        library,
+        likes.map((l) => ({ mediaType: l.mediaType, tmdbId: num4(l.tmdbId) })),
+        ratings.map((r) => ({ mediaType: r.mediaType, tmdbId: num4(r.tmdbId), score: num4(r.score) }))
+      )
+    };
+  });
+}
+
 // server/routes-misc.ts
 function registerMiscRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
+  app.get("/marks", async (request) => userMarks(prisma, getUser(request).userId));
   const providerCache = /* @__PURE__ */ new Map();
   app.post("/check-providers", async (request, reply) => {
     const body = request.body;
@@ -6168,9 +7090,9 @@ function nameForms(folded) {
 }
 function onlyThroughElision(names, tokens) {
   return names.some((name) => {
-    const words = name.split(" ");
-    for (let i = 1; i < words.length - 1; i++) {
-      if (ELIDED.has(words[i]) && tokens.includes(words[i] + words[i + 1])) return true;
+    const words2 = name.split(" ");
+    for (let i = 1; i < words2.length - 1; i++) {
+      if (ELIDED.has(words2[i]) && tokens.includes(words2[i] + words2[i + 1])) return true;
     }
     return false;
   });
@@ -6216,45 +7138,45 @@ function yearOf(word, maxYear) {
 }
 function parseQuery(input, now = /* @__PURE__ */ new Date()) {
   const raw = input.replace(/\s+/g, " ").trim();
-  const words = raw === "" ? [] : raw.split(" ");
+  const words2 = raw === "" ? [] : raw.split(" ");
   const maxYear = now.getFullYear() + 3;
   let year = null;
   let type = null;
   let anime = false;
-  const inParens = words.findIndex((w) => /^\(\d{4}\)$/.test(w) && yearOf(w, maxYear) !== null);
-  if (inParens >= 0 && words.length > 1) {
-    year = yearOf(words[inParens], maxYear);
-    words.splice(inParens, 1);
+  const inParens = words2.findIndex((w) => /^\(\d{4}\)$/.test(w) && yearOf(w, maxYear) !== null);
+  if (inParens >= 0 && words2.length > 1) {
+    year = yearOf(words2[inParens], maxYear);
+    words2.splice(inParens, 1);
   }
-  for (let changed = true; changed && words.length > 1; ) {
+  for (let changed = true; changed && words2.length > 1; ) {
     changed = false;
-    const first = foldText(words[0]);
-    const last = foldText(words[words.length - 1]);
-    const beforeLast = words.length > 2 ? foldText(words[words.length - 2]) : "";
+    const first = foldText(words2[0]);
+    const last = foldText(words2[words2.length - 1]);
+    const beforeLast = words2.length > 2 ? foldText(words2[words2.length - 2]) : "";
     if (type === null && (MOVIE_HINTS.has(last) || TV_HINTS.has(last))) {
       type = MOVIE_HINTS.has(last) ? "movie" : "tv";
-      words.pop();
+      words2.pop();
     } else if (type === null && (MOVIE_HINTS.has(first) || TV_HINTS.has(first))) {
       type = MOVIE_HINTS.has(first) ? "movie" : "tv";
-      words.shift();
+      words2.shift();
     } else if (!anime && (ANIME_HINTS.has(last) || ANIME_HINTS.has(first))) {
       anime = true;
-      if (ANIME_HINTS.has(last)) words.pop();
-      else words.shift();
-    } else if (year === null && yearOf(words[words.length - 1], maxYear) !== null) {
-      year = yearOf(words.pop(), maxYear);
+      if (ANIME_HINTS.has(last)) words2.pop();
+      else words2.shift();
+    } else if (year === null && yearOf(words2[words2.length - 1], maxYear) !== null) {
+      year = yearOf(words2.pop(), maxYear);
     } else if (SEASON_CODE.test(last)) {
       type = type ?? "tv";
-      words.pop();
-    } else if (words.length > 2 && SEASON_WORDS.has(beforeLast) && /^\d{1,2}$/.test(last)) {
+      words2.pop();
+    } else if (words2.length > 2 && SEASON_WORDS.has(beforeLast) && /^\d{1,2}$/.test(last)) {
       type = type ?? "tv";
-      words.splice(words.length - 2, 2);
+      words2.splice(words2.length - 2, 2);
     } else {
       break;
     }
     changed = true;
   }
-  const text = words.join(" ");
+  const text = words2.join(" ");
   return { raw, text, tokens: tokenize(text), year, type, anime };
 }
 
@@ -6444,16 +7366,16 @@ var TitleIndex = class {
    * pouvant être un début de mot. `allowFix` à faux : pas de correction.
    */
   lookup(tokens, limit = 200, allowFix = true) {
-    const words = significantTokens(tokens);
-    if (words.length === 0) return { hits: [], corrected: null, replacements: [] };
-    const direct = this.match(words, limit);
+    const words2 = significantTokens(tokens);
+    if (words2.length === 0) return { hits: [], corrected: null, replacements: [] };
+    const direct = this.match(words2, limit);
     if (!allowFix) return { hits: direct, corrected: null, replacements: [] };
-    const whole = direct.length > 0 && direct[0].matched === words.length;
+    const whole = direct.length > 0 && direct[0].matched === words2.length;
     const replacements = [];
-    const fixed = words.flatMap((word, i) => {
+    const fixed = words2.flatMap((word, i) => {
       let fix = null;
       if (this.postings.has(word)) fix = this.dominantNeighbor(word);
-      else if (!whole && !(i === words.length - 1 && this.complete(word).length > 0)) fix = this.correctToken(word);
+      else if (!whole && !(i === words2.length - 1 && this.complete(word).length > 0)) fix = this.correctToken(word);
       if (fix === null) return [word];
       replacements.push([word, fix]);
       return fix.split(" ");
@@ -6465,12 +7387,12 @@ var TitleIndex = class {
     }
     return { hits: corrected, corrected: fixed, replacements };
   }
-  match(words, limit) {
-    const sets = words.map((w, i) => this.postingsOf(w, i === words.length - 1));
+  match(words2, limit) {
+    const sets = words2.map((w, i) => this.postingsOf(w, i === words2.length - 1));
     const counts = /* @__PURE__ */ new Map();
     for (const set of sets) for (const i of set) counts.set(i, (counts.get(i) ?? 0) + 1);
     const hits = [];
-    const need = words.length === 1 ? 1 : Math.max(1, words.length - 1);
+    const need = words2.length === 1 ? 1 : Math.max(1, words2.length - 1);
     for (const [i, matched] of counts) if (matched >= need) hits.push({ entry: this.list[i], matched });
     hits.sort((a, b) => b.matched - a.matched || entryWeight(b.entry) - entryWeight(a.entry));
     return hits.slice(0, limit);
@@ -6492,7 +7414,7 @@ var TitleIndex = class {
 };
 
 // server/search/remote.ts
-var TTL_MS = 10 * 6e4;
+var TTL_MS2 = 10 * 6e4;
 var STALE_MS = 60 * 6e4;
 var str = (v) => typeof v === "string" && v !== "" ? v : null;
 var num = (v) => typeof v === "number" && Number.isFinite(v) ? v : 0;
@@ -6545,19 +7467,21 @@ async function fetchSearchPage(cfg, text, page, lang) {
 }
 async function remoteSearch(cfg, text, page, lang, showBlocked, knownSafe = () => false) {
   const key = `vigie:remote:${lang}:${showBlocked ? 1 : 0}:${page}:${foldText(text)}`;
-  const result = await cached(key, TTL_MS, async () => {
+  const result = await cached(key, TTL_MS2, async () => {
     const raw = await fetchSearchPage(cfg, text, page, lang);
     const results = (Array.isArray(raw.results) ? raw.results : []).map((r, rank) => ({ r, rank }));
     const tags = await getBlocklistedTags(cfg.seerrUrl, cfg.seerrApiKey);
     const blocked = parseTagSet(tags);
     let kept = results;
     let blockedCount = 0;
-    if (blocked.size > 0 && !showBlocked) {
+    let masked = /* @__PURE__ */ new Set();
+    if (blocked.size > 0) {
       const isSafe = ({ r }) => (r.mediaType === "movie" || r.mediaType === "tv") && typeof r.id === "number" && knownSafe(r.mediaType, r.id) && r.mediaInfo?.status !== 6;
       const unknown = results.filter((x) => !isSafe(x));
       const filtered = await filterResultsByTags(cfg.seerrUrl, cfg.seerrApiKey, unknown.map((x) => x.r), blocked);
       const survivors = new Set(filtered.kept);
-      kept = results.filter((x) => isSafe(x) || survivors.has(x.r));
+      masked = new Set(unknown.filter((x) => !survivors.has(x.r)).map((x) => x.r));
+      if (!showBlocked) kept = results.filter((x) => !masked.has(x.r));
       blockedCount = filtered.blockedCount;
     }
     const media = [];
@@ -6568,7 +7492,7 @@ async function remoteSearch(cfg, text, page, lang, showBlocked, knownSafe = () =
         if (person) people.push(person);
       } else {
         const m = toRemoteMedia(r, rank);
-        if (m) media.push(m);
+        if (m) media.push(masked.has(r) ? { ...m, masked: true } : m);
       }
     }
     for (const m of media) noteStatus(m.mediaType, m.id, m.status);
@@ -6730,7 +7654,7 @@ var CRAWL_LANGS = ["fr", "en"];
 var FULL_EVERY_MS2 = 3 * 864e5;
 var LIGHT_EVERY_MS = 864e5;
 var CHECK_EVERY_MS = 36e5;
-var CONCURRENCY2 = 2;
+var CONCURRENCY3 = 2;
 var MIN_BUILT = 1e3;
 var state = "idle";
 var crawling = false;
@@ -6782,7 +7706,7 @@ async function crawl(prisma, cfg, index, mode, tags) {
   }
   const started = Date.now();
   let learned = 0;
-  await mapLimit(jobs, CONCURRENCY2, async ({ source, page, lang }) => {
+  await mapLimit(jobs, CONCURRENCY3, async ({ source, page, lang }) => {
     const records = await fetchDiscover(cfg, source, page, lang, tags);
     for (const r of records) index.upsert(r);
     queueTitles(prisma, records);
@@ -6857,12 +7781,12 @@ var TEXT_ALL_WORDS = 650;
 var TEXT_KEY_WORDS = 560;
 var FIX_PENALTY = 80;
 var TEXT_EXACT_TITLE = 1e3 - FIX_PENALTY;
-function covered(words, wanted, lastIsPrefix) {
+function covered(words2, wanted, lastIsPrefix) {
   let found = 0;
   for (let i = 0; i < wanted.length; i++) {
     const w = wanted[i];
     const prefix = lastIsPrefix && i === wanted.length - 1;
-    if (words.some((x) => x === w || prefix && x.startsWith(w))) found++;
+    if (words2.some((x) => x === w || prefix && x.startsWith(w))) found++;
   }
   return found;
 }
@@ -6878,13 +7802,13 @@ function textScore(names, tokens) {
       best = Math.max(best, 880 - Math.min(80, name.length - phrase.length));
       continue;
     }
-    const words = name.split(" ");
-    const density = (n, span) => Math.round(span * n / Math.max(words.length, 1));
-    if (covered(words, tokens, true) === tokens.length) {
+    const words2 = name.split(" ");
+    const density = (n, span) => Math.round(span * n / Math.max(words2.length, 1));
+    if (covered(words2, tokens, true) === tokens.length) {
       best = Math.max(best, TEXT_ALL_WORDS + density(tokens.length, 150));
       continue;
     }
-    const found = covered(words, key, lastIsKey);
+    const found = covered(words2, key, lastIsKey);
     if (found === key.length) best = Math.max(best, TEXT_KEY_WORDS + density(key.length, 80));
     else if (found > 0) best = Math.max(best, Math.round(399 * found / key.length));
   }
@@ -6970,7 +7894,8 @@ function fromRemote(m) {
     remoteStatus: m.status,
     remoteRank: m.rank,
     text: 0,
-    score: 0
+    score: 0,
+    ...m.masked ? { masked: true } : {}
   };
 }
 function merge2(into, c) {
@@ -6984,7 +7909,9 @@ function merge2(into, c) {
     ...known,
     ...c,
     names: [.../* @__PURE__ */ new Set([...known.names, ...c.names])],
-    remoteRank: ranks.length > 0 ? Math.min(...ranks) : null
+    remoteRank: ranks.length > 0 ? Math.min(...ranks) : null,
+    // Masqué pour l'une des deux sources (tapée ou corrigée) : masqué.
+    ...known.masked || c.masked ? { masked: true } : {}
   });
 }
 function recordOf(m, lang) {
@@ -7086,8 +8013,8 @@ async function computeFull(ctx, q, opts) {
       }
     }
   }
-  if (!opts.showBlocked) {
-    const learned = pages.flatMap((p) => p.media).filter((m) => m.title).map((m) => recordOf(m, opts.lang));
+  {
+    const learned = pages.flatMap((p) => p.media).filter((m) => m.title && !m.masked).map((m) => recordOf(m, opts.lang));
     for (const r of learned) titleIndex.upsert(r);
     if (learned.length > 0) queueTitles(ctx.prisma, learned);
   }
@@ -7138,6 +8065,70 @@ function fullIfReady(ctx, q, opts) {
   return void 0;
 }
 
+// server/titles/title-state.ts
+var MAX_TITLE_KEYS = 60;
+var KEY = /^(movie|tv):([1-9]\d{0,9})$/;
+var LABELS = {
+  fr: {
+    requested: "Demand\xE9",
+    partial: "En partie",
+    available: "Disponible",
+    masked: "Masqu\xE9",
+    request: "Demander",
+    seasons: "Choisir les saisons",
+    moreSeasons: "Demander d'autres saisons"
+  },
+  en: {
+    requested: "Requested",
+    partial: "Partly here",
+    available: "Available",
+    masked: "Hidden",
+    request: "Request",
+    seasons: "Choose seasons",
+    moreSeasons: "Request more seasons"
+  }
+};
+function labelsFor(lang) {
+  return lang === "fr" ? LABELS.fr : LABELS.en;
+}
+function parseTitleKeys(raw) {
+  if (typeof raw !== "string") return [];
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const part of raw.split(",")) {
+    const m = KEY.exec(part.trim());
+    if (!m || seen.has(m[0])) continue;
+    const tmdbId = Number(m[2]);
+    if (!Number.isSafeInteger(tmdbId)) continue;
+    seen.add(m[0]);
+    out.push({ key: m[0], mediaType: m[1], tmdbId });
+    if (out.length >= MAX_TITLE_KEYS) break;
+  }
+  return out;
+}
+function seasonsHref(tmdbId) {
+  return `/discover?request=tv:${tmdbId}`;
+}
+function titleBadge(status, lang) {
+  const l = labelsFor(lang);
+  if (status === MEDIA_STATUS.PENDING || status === MEDIA_STATUS.PROCESSING) return { label: l.requested, tone: "info" };
+  if (status === MEDIA_STATUS.PARTIALLY_AVAILABLE) return { label: l.partial, tone: "success" };
+  if (status === MEDIA_STATUS.AVAILABLE) return { label: l.available, tone: "success" };
+  if (status === MEDIA_STATUS.BLOCKLISTED) return { label: l.masked, tone: "neutral" };
+  return null;
+}
+function titleStateFor(mediaType, tmdbId, status, rights, lang) {
+  const l = labelsFor(lang);
+  const badge = titleBadge(status, lang);
+  let request = null;
+  if (mediaType === "movie") {
+    if (rights.movies && badge === null) request = { mode: "direct", label: l.request };
+  } else if (rights.tv && status !== MEDIA_STATUS.AVAILABLE && status !== MEDIA_STATUS.BLOCKLISTED) {
+    request = { mode: "open", label: badge === null ? l.seasons : l.moreSeasons, href: seasonsHref(tmdbId) };
+  }
+  return { badge, request };
+}
+
 // server/search/present.ts
 function toSearchItem(c, status) {
   const movie = c.mediaType === "movie";
@@ -7154,12 +8145,13 @@ function toSearchItem(c, status) {
     popularity: c.popularity || void 0,
     genreIds: c.genreIds,
     originalLanguage: opt(c.originalLanguage),
-    ...status !== void 0 ? { mediaInfo: { status } } : {}
+    ...status !== void 0 ? { mediaInfo: { status } } : {},
+    ...c.masked ? { masked: true } : {}
   };
 }
-var LABELS = {
-  fr: { movie: "Film", series: "S\xE9rie", requested: "Demand\xE9", processing: "En cours", release: "sortie le" },
-  en: { movie: "Movie", series: "Series", requested: "Requested", processing: "In progress", release: "out" }
+var LABELS2 = {
+  fr: { movie: "Film", series: "S\xE9rie", release: "sortie le" },
+  en: { movie: "Movie", series: "Series", release: "out" }
 };
 function inLibrary(status) {
   return status === MEDIA_STATUS.PARTIALLY_AVAILABLE || status === MEDIA_STATUS.AVAILABLE;
@@ -7172,15 +8164,16 @@ function shortDate(iso, lang) {
   return new Intl.DateTimeFormat(lang, { day: "numeric", month: "short", year: "numeric" }).format(new Date(y, m - 1, d));
 }
 function toProviderItem(c, status, lang, today) {
-  const l = lang === "fr" ? LABELS.fr : LABELS.en;
+  const l = lang === "fr" ? LABELS2.fr : LABELS2.en;
   const kind = c.mediaType === "movie" ? "movie" : "series";
   const upcoming = c.releaseDate !== null && c.releaseDate > today;
   const kindLabel = kind === "movie" ? l.movie : l.series;
   const subtitle = upcoming && c.releaseDate ? `${kindLabel} \xB7 ${l.release} ${shortDate(c.releaseDate, lang)}` : c.year !== null ? `${kindLabel} \xB7 ${c.year}` : kindLabel;
-  const badge = status === MEDIA_STATUS.PENDING ? { label: l.requested, tone: "info" } : status === MEDIA_STATUS.PROCESSING ? { label: l.processing, tone: "warning" } : null;
+  const badge = titleBadge(status, lang);
   return {
     id: c.key,
     kind,
+    tmdbId: c.tmdbId,
     title: c.title,
     year: c.year,
     subtitle,
@@ -7203,8 +8196,9 @@ function statusFor(c) {
   if (!settled && isLocallyPending(c.key)) return MEDIA_STATUS.PENDING;
   return known;
 }
-function visible(media) {
-  return media.filter((c) => statusFor(c) !== MEDIA_STATUS.BLOCKLISTED);
+function visible(media, showMasked) {
+  if (!showMasked) return media.filter((c) => !c.masked && statusFor(c) !== MEDIA_STATUS.BLOCKLISTED);
+  return media.map((c) => statusFor(c) === MEDIA_STATUS.BLOCKLISTED && !c.masked ? { ...c, masked: true } : c);
 }
 function toPerson(p) {
   return {
@@ -7221,8 +8215,8 @@ function facetNamed(facets, query) {
   const q = foldText(query);
   return facets.some((f) => foldText(f.label) === q);
 }
-function presentHub(ranked, page, facets, indexing, startedAt) {
-  const media = visible(ranked.media);
+function presentHub(ranked, page, facets, indexing, startedAt, showMasked = false) {
+  const media = visible(ranked.media, showMasked);
   const tokens = tokenize(ranked.searched);
   const facetQuery = facetNamed(facets, ranked.parsed.raw);
   const bestMedia = media[0];
@@ -7268,7 +8262,7 @@ function presentProvider(ranked, type, limit, lang, today) {
   const threshold = best >= 1e3 ? TOP_SINGLE_WORD : TEXT_ALL_WORDS;
   const libraryHasIt = media.some((c) => c.text >= TEXT_EXACT_TITLE && inLibrary(statusFor(c)));
   const statusesKnown = statusMapReady();
-  const items = media.filter((c) => statusesKnown || c.remoteRank !== null).filter((c) => c.text >= threshold).filter((c) => !libraryHasIt || c.voteCount >= NOTABLE_VOTES || c.popularity >= NOTABLE_POPULARITY).filter((c) => type === null || type === "movie" === (c.mediaType === "movie")).filter((c) => !inLibraryOrBlocked(statusFor(c))).slice(0, limit).map((c) => toProviderItem(c, statusFor(c), lang, today));
+  const items = media.filter((c) => statusesKnown || c.remoteRank !== null).filter((c) => c.text >= threshold).filter((c) => !libraryHasIt || c.voteCount >= NOTABLE_VOTES || c.popularity >= NOTABLE_POPULARITY).filter((c) => type === null || type === "movie" === (c.mediaType === "movie")).filter((c) => !inLibraryOrBlocked(statusFor(c))).filter((c) => !c.masked).slice(0, limit).map((c) => toProviderItem(c, statusFor(c), lang, today));
   const q = ranked.parsed.raw;
   return {
     query: q,
@@ -7371,6 +8365,18 @@ var CREDITS_TTL_MS = 30 * 6e4;
 var CREDITS_STALE_MS = 6 * 36e5;
 var SELF = /^(himself|herself|themselves|self|lui-même|elle-même|eux-mêmes)\b/i;
 var CREW_JOBS = /* @__PURE__ */ new Set(["Director", "Screenplay", "Writer", "Creator", "Novel", "Story"]);
+var ROLE_JOBS = {
+  Director: /* @__PURE__ */ new Set(["Director"]),
+  Writer: /* @__PURE__ */ new Set(["Screenplay", "Writer", "Novel", "Story", "Teleplay", "Author"]),
+  Creator: /* @__PURE__ */ new Set(["Creator"]),
+  Producer: /* @__PURE__ */ new Set(["Producer", "Executive Producer"]),
+  Composer: /* @__PURE__ */ new Set(["Original Music Composer", "Music", "Composer"])
+};
+var KNOWN_JOBS = /* @__PURE__ */ new Set([...CREW_JOBS, ...Object.values(ROLE_JOBS).flatMap((jobs) => [...jobs])]);
+function readRole(raw) {
+  if (raw === "Actor" || raw === "GuestStar") return "Actor";
+  return typeof raw === "string" && Object.prototype.hasOwnProperty.call(ROLE_JOBS, raw) ? raw : null;
+}
 var TALK_OR_NEWS = /* @__PURE__ */ new Set([10767, 10763]);
 var str2 = (v) => typeof v === "string" && v.trim() !== "" ? v : null;
 var num3 = (v) => typeof v === "number" && Number.isFinite(v) ? v : 0;
@@ -7380,7 +8386,7 @@ function toCredit(r, crew) {
   if (!mediaType || id <= 0) return null;
   const role = crew ? str2(r.job) : str2(r.character);
   if (!crew && role && SELF.test(role)) return null;
-  if (crew && !CREW_JOBS.has(String(r.job ?? ""))) return null;
+  if (crew && !KNOWN_JOBS.has(String(r.job ?? ""))) return null;
   const genres = Array.isArray(r.genreIds) ? r.genreIds : [];
   if (genres.some((g) => typeof g === "number" && TALK_OR_NEWS.has(g))) return null;
   const info = r.mediaInfo;
@@ -7393,8 +8399,25 @@ function toCredit(r, crew) {
     voteCount: num3(r.voteCount),
     popularity: num3(r.popularity),
     role,
+    crew,
     status: typeof info?.status === "number" ? info.status : void 0
   };
+}
+function matchesRole(credit, role) {
+  if (role === null) return false;
+  if (role === "Actor") return !credit.crew;
+  return credit.crew && (ROLE_JOBS[role]?.has(credit.role ?? "") ?? false);
+}
+function pickCredits(credits, role) {
+  const byKey = /* @__PURE__ */ new Map();
+  for (const credit of credits) {
+    const matches2 = matchesRole(credit, role);
+    if (!matches2 && credit.crew && !CREW_JOBS.has(credit.role ?? "")) continue;
+    const key = `${credit.mediaType}:${credit.id}`;
+    const known = byKey.get(key);
+    if (!known || matches2 && !known.matches) byKey.set(key, { credit, matches: matches2 });
+  }
+  return [...byKey.values()];
 }
 async function seerrGet(cfg, path, lang) {
   const res = await fetch(`${cfg.seerrUrl}${path}`, {
@@ -7405,19 +8428,13 @@ async function seerrGet(cfg, path, lang) {
   return await res.json();
 }
 async function personCredits(cfg, personId, lang) {
-  return cached(`vigie:person:${personId}:${lang}`, CREDITS_TTL_MS, async () => {
+  return cached(`vigie:person:v2:${personId}:${lang}`, CREDITS_TTL_MS, async () => {
     const raw = await seerrGet(cfg, `/api/v1/person/${personId}/combined_credits?language=${lang}`, lang);
     const all = [
       ...Array.isArray(raw.cast) ? raw.cast.map((r) => toCredit(r, false)) : [],
       ...Array.isArray(raw.crew) ? raw.crew.map((r) => toCredit(r, true)) : []
     ];
-    const byKey = /* @__PURE__ */ new Map();
-    for (const credit of all) {
-      if (!credit || !credit.title) continue;
-      const key = `${credit.mediaType}:${credit.id}`;
-      if (!byKey.has(key)) byKey.set(key, credit);
-    }
-    const credits = [...byKey.values()];
+    const credits = all.filter((c) => c !== null && c.title !== "");
     for (const c of credits) noteStatus(c.mediaType, c.id, c.status);
     return credits;
   }, { staleMs: CREDITS_STALE_MS });
@@ -7431,24 +8448,63 @@ async function resolvePerson(cfg, name, tmdbId, lang) {
   const best = (exact.length > 0 ? exact : page.people.slice(0, 1)).sort((a, b) => b.popularity - a.popularity)[0];
   return best?.id ?? null;
 }
-var LABELS2 = {
-  fr: { movie: "Film", series: "S\xE9rie", requested: "Demand\xE9", processing: "En cours" },
-  en: { movie: "Movie", series: "Series", requested: "Requested", processing: "In progress" }
+var LABELS3 = {
+  fr: { movie: "Film", series: "S\xE9rie" },
+  en: { movie: "Movie", series: "Series" }
 };
+var JOB_LABELS = {
+  fr: {
+    Director: "R\xE9alisation",
+    Screenplay: "Sc\xE9nario",
+    Writer: "Sc\xE9nario",
+    Teleplay: "Sc\xE9nario",
+    Novel: "Roman",
+    Story: "Histoire",
+    Author: "Auteur",
+    Creator: "Cr\xE9ation",
+    Producer: "Production",
+    "Executive Producer": "Production ex\xE9cutive",
+    "Original Music Composer": "Musique",
+    Music: "Musique",
+    Composer: "Musique"
+  },
+  en: {
+    Director: "Director",
+    Screenplay: "Screenplay",
+    Writer: "Writer",
+    Teleplay: "Teleplay",
+    Novel: "Novel",
+    Story: "Story",
+    Author: "Author",
+    Creator: "Creator",
+    Producer: "Producer",
+    "Executive Producer": "Executive Producer",
+    "Original Music Composer": "Music",
+    Music: "Music",
+    Composer: "Music"
+  }
+};
+function creditLabel(c, lang) {
+  if (!c.role) return null;
+  if (!c.crew) return c.role;
+  return JOB_LABELS[lang === "fr" ? "fr" : "en"][c.role] ?? c.role;
+}
 function toItem(c, status, lang) {
-  const l = lang === "fr" ? LABELS2.fr : LABELS2.en;
+  const l = lang === "fr" ? LABELS3.fr : LABELS3.en;
   const kind = c.mediaType === "movie" ? "movie" : "series";
   const year = c.releaseDate ? Number(c.releaseDate.slice(0, 4)) || null : null;
-  const subtitle = [kind === "movie" ? l.movie : l.series, year, c.role].filter(Boolean).join(" \xB7 ");
+  const subtitle = [kind === "movie" ? l.movie : l.series, year, creditLabel(c, lang)].filter(Boolean).join(" \xB7 ");
   return {
     id: `${c.mediaType}:${c.id}`,
     kind,
+    tmdbId: c.id,
     title: c.title,
     year,
     subtitle: subtitle.slice(0, 120),
     imageUrl: c.posterPath ? `https://image.tmdb.org/t/p/w185${c.posterPath}` : null,
     href: `/discover?media=${c.mediaType}:${c.id}`,
-    badge: status === MEDIA_STATUS.PENDING ? { label: l.requested, tone: "info" } : status === MEDIA_STATUS.PROCESSING ? { label: l.processing, tone: "warning" } : null
+    // Les mots de l'affiche du hub, les mêmes que sur toutes les cartes de Tentacle.
+    badge: titleBadge(status, lang)
   };
 }
 async function personProvider(cfg, q) {
@@ -7456,7 +8512,7 @@ async function personProvider(cfg, q) {
   const personId = await resolvePerson(cfg, q.name, q.tmdbId, q.lang);
   if (personId === null) return empty;
   const credits = await personCredits(cfg, personId, q.lang);
-  const items = credits.filter((c) => q.type === null || q.type === "movie" === (c.mediaType === "movie")).map((c) => ({ c, status: statusOf(c.mediaType, c.id) ?? c.status })).filter(({ status }) => !inLibraryOrBlocked(status)).sort((a, b) => b.c.voteCount - a.c.voteCount || b.c.popularity - a.c.popularity).slice(0, q.limit).map(({ c, status }) => toItem(c, status, q.lang));
+  const items = pickCredits(credits, q.role).filter(({ credit: c }) => q.type === null || q.type === "movie" === (c.mediaType === "movie")).map(({ credit: c, matches: matches2 }) => ({ c, matches: matches2, status: statusOf(c.mediaType, c.id) ?? c.status })).filter(({ status }) => !inLibraryOrBlocked(status)).sort((a, b) => Number(b.matches) - Number(a.matches) || b.c.voteCount - a.c.voteCount || b.c.popularity - a.c.popularity).slice(0, q.limit).map(({ c, status }) => toItem(c, status, q.lang));
   return { ...empty, items, moreHref: `/discover?person=${personId}` };
 }
 
@@ -7494,7 +8550,7 @@ async function registerSearchRoutes(app, prisma, getWorkerConfig2) {
     const instant = query.mode === "instant";
     const ranked = instant ? instantSearch(ctx, q, opts) : await fullSearch(ctx, q, opts);
     const facets = opts.page === 1 && q.trim().length >= 2 ? [...genreFacets(q, opts.lang), ...await providerFacets(ctx.cfg, q, opts.lang, !instant)] : [];
-    return presentHub(ranked, opts.page, facets, titleIndexBuilding(), startedAt);
+    return presentHub(ranked, opts.page, facets, titleIndexBuilding(), startedAt, opts.showBlocked);
   });
   app.get("/search/provider", async (request, reply) => {
     const query = request.query;
@@ -7523,7 +8579,8 @@ async function registerSearchRoutes(app, prisma, getWorkerConfig2) {
         tmdbId,
         lang: readLang(query.lang),
         limit: Math.min(Math.max(1, Number(query.limit) || 20), 40),
-        type: query.type === "movie" || query.type === "series" ? query.type : null
+        type: query.type === "movie" || query.type === "series" ? query.type : null,
+        role: readRole(query.role)
       });
     } catch {
       return empty;
@@ -7531,25 +8588,114 @@ async function registerSearchRoutes(app, prisma, getWorkerConfig2) {
   });
 }
 
+// server/titles/title-messages.ts
+var FR = {
+  requested: (title) => `\xAB ${title} \xBB est demand\xE9 \u2014 vous serez pr\xE9venu \xE0 son arriv\xE9e.`,
+  blocked: "Votre compte ne peut pas faire de demandes.",
+  moviesDenied: "Votre compte ne peut pas demander de films.",
+  quota: (limit) => `Limite atteinte : ${limit} demande${limit > 1 ? "s" : ""} par jour.`,
+  already: "Ce titre est d\xE9j\xE0 demand\xE9.",
+  failed: "La demande n'a pas abouti.",
+  unreachable: "Jellyseerr ne r\xE9pond pas pour l'instant."
+};
+var EN = {
+  requested: (title) => `\u201C${title}\u201D requested \u2014 you'll be notified when it arrives.`,
+  blocked: "Your account can't make requests.",
+  moviesDenied: "Your account can't request movies.",
+  quota: (limit) => `Limit reached: ${limit} request${limit > 1 ? "s" : ""} per day.`,
+  already: "This title has already been requested.",
+  failed: "The request didn't go through.",
+  unreachable: "Jellyseerr isn't answering right now."
+};
+function words(lang) {
+  return lang === "fr" ? FR : EN;
+}
+function requestedMessage(title, lang) {
+  return words(lang).requested(title);
+}
+function unreachableMessage(lang) {
+  return words(lang).unreachable;
+}
+function refusalMessage(status, body, lang) {
+  const w = words(lang);
+  if (status === 409) return w.already;
+  if (body.errorKey === "seer:errUserBlocked") return w.blocked;
+  if (body.errorKey === "seer:errMoviesDenied") return w.moviesDenied;
+  if (body.errorKey === "seer:errQuotaReached" && typeof body.limit === "number") return w.quota(body.limit);
+  return w.failed;
+}
+
+// server/routes-titles.ts
+function readLang2(raw) {
+  return typeof raw === "string" && /^[a-z]{2}$/i.test(raw) ? raw.toLowerCase() : "en";
+}
+async function rightsOf(prisma, userId) {
+  const settings = await getUserSettings(prisma, userId).catch(() => null);
+  if (!settings) return { movies: true, tv: true };
+  if (settings.blocked) return { movies: false, tv: false };
+  return { movies: settings.allowMovies, tv: settings.allowTv || settings.allowAnime };
+}
+function registerTitleRoutes(app, prisma, getWorkerConfig2) {
+  app.get("/titles/state", async (request) => {
+    const query = request.query;
+    const keys2 = parseTitleKeys(query.keys);
+    const cfg = await getWorkerConfig2();
+    if (!cfg || keys2.length === 0) return { items: {} };
+    refreshStatusMap(cfg);
+    refreshLocalPending(prisma);
+    const lang = readLang2(query.lang);
+    const rights = await rightsOf(prisma, getUser(request).userId);
+    const items = {};
+    for (const k of keys2) {
+      const status = statusFor({ key: k.key, mediaType: k.mediaType, tmdbId: k.tmdbId, remoteStatus: void 0 });
+      items[k.key] = titleStateFor(k.mediaType, k.tmdbId, status, rights, lang);
+    }
+    return { items };
+  });
+  app.post("/titles/request", async (request, reply) => {
+    const body = request.body ?? {};
+    const mediaType = body.mediaType === "movie" || body.mediaType === "tv" ? body.mediaType : null;
+    const tmdbId = Number(body.tmdbId);
+    if (!mediaType || !Number.isSafeInteger(tmdbId) || tmdbId <= 0) {
+      return reply.status(400).send({ ok: false, message: "mediaType and tmdbId are required" });
+    }
+    const lang = readLang2(body.lang);
+    if (mediaType === "tv") return { href: seasonsHref(tmdbId) };
+    const cfg = await getWorkerConfig2();
+    if (!cfg) return { ok: false, message: unreachableMessage(lang) };
+    const user = getUser(request);
+    const rights = await rightsOf(prisma, user.userId);
+    const detail = await fetchMediaDetail(cfg.seerrUrl, cfg.seerrApiKey, "movie", tmdbId);
+    if (!detail?.title) return { ok: false, message: unreachableMessage(lang) };
+    const known = detail.mediaInfo?.status;
+    if (known !== void 0 && known >= MEDIA_STATUS.PENDING && known <= MEDIA_STATUS.BLOCKLISTED) {
+      noteStatus("movie", tmdbId, known);
+      return { ok: false, message: refusalMessage(409, {}, lang), state: titleStateFor("movie", tmdbId, known, rights, lang) };
+    }
+    const result = await submitRequest(prisma, getWorkerConfig2, user, {
+      mediaType: "movie",
+      tmdbId,
+      title: detail.title,
+      posterPath: detail.posterPath ?? null,
+      backdropPath: detail.backdropPath ?? null,
+      overview: detail.overview ?? null,
+      year: detail.releaseDate ? detail.releaseDate.slice(0, 4) : null
+    });
+    if (result.status === 201) {
+      return {
+        ok: true,
+        message: requestedMessage(detail.title, lang),
+        state: titleStateFor("movie", tmdbId, MEDIA_STATUS.PENDING, rights, lang)
+      };
+    }
+    return { ok: false, message: refusalMessage(result.status, result.body, lang) };
+  });
+}
+
 // server/index.ts
 var __pluginDir = dirname(dirname(fileURLToPath(import.meta.url)));
-var cfgCache = null;
 function getPluginConfig(ctx) {
-  try {
-    const installedPath = resolve(__pluginDir, "..", "installed.json");
-    if (!existsSync(installedPath)) return {};
-    const mtimeMs = statSync(installedPath).mtimeMs;
-    if (cfgCache && cfgCache.mtimeMs === mtimeMs) return cfgCache.value;
-    const installed = JSON.parse(readFileSync(installedPath, "utf-8"));
-    const plugin = installed.find(
-      (p) => p.pluginId === ctx.pluginId || p.id === ctx.pluginId
-    );
-    const value = plugin?.config || {};
-    cfgCache = { mtimeMs, value };
-    return value;
-  } catch {
-    return {};
-  }
+  return readPluginConfig(__pluginDir, ctx.pluginId);
 }
 async function getWorkerConfig(ctx) {
   const config = getPluginConfig(ctx);
@@ -7557,12 +8703,21 @@ async function getWorkerConfig(ctx) {
   const apiKey = config.apiKey;
   if (!url || !apiKey) return null;
   const profiles = config.profiles ?? [];
-  return { seerrUrl: url.replace(/\/$/, ""), seerrApiKey: apiKey, interval: 6e4, syncEvery: 2, profiles };
+  return {
+    seerrUrl: url.replace(/\/$/, ""),
+    seerrApiKey: apiKey,
+    interval: 6e4,
+    syncEvery: 2,
+    profiles,
+    autoApprove: config.autoApprove === true,
+    defaultDailyLimit: defaultDailyLimit(config)
+  };
 }
 async function seerBackend(app, ctx) {
   const prisma = ctx.getPrisma();
   await ensureTables(prisma);
   console.log("[SeerBackend] Database tables ready");
+  applyNavLabel(__pluginDir, ctx.pluginId, navLabelsOf(getPluginConfig(ctx)));
   startWorker(prisma, () => getWorkerConfig(ctx));
   app.addHook("onClose", async () => {
     stopWorker();
@@ -7572,21 +8727,20 @@ async function seerBackend(app, ctx) {
     const config = getPluginConfig(ctx);
     const user = request.user;
     if (user?.isAdmin) {
-      return { ...config, isAdmin: true };
+      return { ...config, navLabels: navLabelsOf(config), isAdmin: true };
     }
-    return { url: config.url || "", enabled: !!config.enabled, hasApiKey: !!config.apiKey, isAdmin: false };
+    return {
+      url: config.url || "",
+      enabled: !!config.enabled,
+      hasApiKey: !!config.apiKey,
+      isAdmin: false,
+      navLabels: navLabelsOf(config)
+    };
   });
-  app.put("/config", { preHandler: ctx.requireAdmin }, async (request) => {
-    const installedPath = resolve(__pluginDir, "..", "installed.json");
-    if (!existsSync(installedPath)) return { error: "installed.json not found" };
-    const installed = JSON.parse(readFileSync(installedPath, "utf-8"));
-    const plugin = installed.find(
-      (p) => p.pluginId === ctx.pluginId || p.id === ctx.pluginId
-    );
-    if (!plugin) return { error: "Plugin not found" };
-    plugin.config = request.body;
-    writeFileSync(installedPath, JSON.stringify(installed, null, 2));
-    return plugin.config;
+  app.put("/config", { preHandler: ctx.requireAdmin }, async (request, reply) => {
+    const saved = writePluginConfig(__pluginDir, ctx.pluginId, request.body);
+    if (!saved) return reply.status(404).send({ error: "Plugin not found in installed.json" });
+    return saved;
   });
   registerProxyRoutes(app, () => getPluginConfig(ctx));
   const gwc = () => getWorkerConfig(ctx);
@@ -7599,12 +8753,16 @@ async function seerBackend(app, ctx) {
     if (!url || !apiKey) return null;
     return { seerrUrl: url.replace(/\/$/, ""), seerrApiKey: apiKey };
   });
-  registerUsersRoutes(app, prisma, gwc, ctx.requireAdmin);
+  registerUsersRoutes(app, prisma, gwc, ctx.requireAdmin, () => defaultDailyLimit(getPluginConfig(ctx)));
+  registerUserSyncRoutes(app, prisma, gwc, ctx.requireAdmin);
+  registerOwnershipRoutes(app, prisma, gwc, ctx.requireAdmin);
+  registerConnectionRoutes(app, ctx.requireAdmin);
   registerAvailabilityRoutes(app, prisma, gwc);
   registerProgressRoutes(app, prisma, gwc, ctx.requireAdmin);
   registerCalendarRoutes(app, prisma, gwc);
   registerMiscRoutes(app, prisma, gwc, ctx.requireAdmin);
   await registerSearchRoutes(app, prisma, gwc);
+  registerTitleRoutes(app, prisma, gwc);
   console.log("[SeerBackend] Routes registered");
 }
 export {

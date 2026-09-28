@@ -18,6 +18,7 @@ import type { WorkerCfg } from "../seerr-unified";
 import { foldText } from "./fold";
 import { MEDIA_STATUS, noteStatus, statusOf } from "./status-map";
 import { inLibraryOrBlocked, type ProviderItem, type ProviderResponse } from "./present";
+import { titleBadge } from "../titles/title-state";
 import { remoteSearch } from "./remote";
 
 const CREDITS_TTL_MS = 30 * 60_000;
@@ -162,8 +163,8 @@ async function resolvePerson(cfg: WorkerCfg, name: string, tmdbId: number | null
 }
 
 const LABELS = {
-  fr: { movie: "Film", series: "Série", requested: "Demandé", processing: "En cours" },
-  en: { movie: "Movie", series: "Series", requested: "Requested", processing: "In progress" },
+  fr: { movie: "Film", series: "Série" },
+  en: { movie: "Movie", series: "Series" },
 };
 
 /* Le métier au générique, dit dans la langue de l'interface (TMDB le rend en anglais). */
@@ -195,16 +196,14 @@ function toItem(c: Credit, status: number | undefined, lang: string): ProviderIt
   return {
     id: `${c.mediaType}:${c.id}`,
     kind,
+    tmdbId: c.id,
     title: c.title,
     year,
     subtitle: subtitle.slice(0, 120),
     imageUrl: c.posterPath ? `https://image.tmdb.org/t/p/w185${c.posterPath}` : null,
     href: `/discover?media=${c.mediaType}:${c.id}`,
-    badge: status === MEDIA_STATUS.PENDING
-      ? { label: l.requested, tone: "info" }
-      : status === MEDIA_STATUS.PROCESSING
-        ? { label: l.processing, tone: "warning" }
-        : null,
+    // Les mots de l'affiche du hub, les mêmes que sur toutes les cartes de Tentacle.
+    badge: titleBadge(status, lang),
   };
 }
 
