@@ -191,15 +191,14 @@ export const seerPlugin: TentaclePlugin = {
         // Le survol d'une affiche (PosterHover) : les fondus des cartes de
         // Tentacle (reveal.css, cards.css) — opacité et transformation seules,
         // `@starting-style` pour l'entrée d'un calque qu'on vient de monter.
+        // Plus de bouton au centre, donc plus de « pop » : le plateau monte.
         ".vg-hover{opacity:0;transition:opacity 200ms cubic-bezier(0.4,0,0.2,1)}"
           + ".vg-hover[data-shown=true]{opacity:1}"
-          + ".vg-hover-pop,.vg-hover-rise{opacity:0;transition:opacity 200ms cubic-bezier(0.22,1,0.36,1),transform 200ms cubic-bezier(0.22,1,0.36,1)}"
-          + ".vg-hover-pop{transform:scale(0.86)}.vg-hover-rise{transform:translateY(10px)}"
-          + ".vg-hover-pop[data-shown=true],.vg-hover-rise[data-shown=true]{opacity:1;transform:none}"
+          + ".vg-hover-rise{opacity:0;transform:translateY(10px);transition:opacity 200ms cubic-bezier(0.22,1,0.36,1),transform 200ms cubic-bezier(0.22,1,0.36,1)}"
+          + ".vg-hover-rise[data-shown=true]{opacity:1;transform:none}"
           + "@starting-style{.vg-hover[data-shown=true]{opacity:0}"
-          + ".vg-hover-pop[data-shown=true]{opacity:0;transform:scale(0.86)}"
           + ".vg-hover-rise[data-shown=true]{opacity:0;transform:translateY(10px)}}"
-          + "@media (prefers-reduced-motion:reduce){.vg-hover-pop,.vg-hover-rise,.vg-hover-pop[data-shown=true],.vg-hover-rise[data-shown=true]{transform:none}}",
+          + "@media (prefers-reduced-motion:reduce){.vg-hover-rise,.vg-hover-rise[data-shown=true]{transform:none}}",
       ].join("");
       document.head.appendChild(style);
     }

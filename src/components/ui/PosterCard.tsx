@@ -18,9 +18,9 @@
  *
  * Un clic ouvre la fiche. Ses gestes sont ceux de TOUTES les cartes de
  * Tentacle (cf. PosterHover, usePosterGestures) : au survol — et au focus,
- * la grille se parcourt au clavier —, « Demander » au centre, la note et
- * « Ma liste » en bas ; au doigt, l'appui long ouvre la même chose en
- * feuille. Légère à dessein : rendue par centaines dans une grille
+ * la grille se parcourt au clavier —, la note puis le plateau en bas,
+ * « Demander » en tête et « Ma liste » ; au doigt, l'appui long ouvre la
+ * même chose en feuille. Légère à dessein : rendue par centaines dans une grille
  * virtualisée, rien de ce survol n'existe au repos (monté à la demande).
  */
 

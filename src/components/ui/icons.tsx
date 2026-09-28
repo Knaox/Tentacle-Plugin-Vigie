@@ -6,13 +6,15 @@
  * Un seul jeu, un seul trait (1,8), un seul endroit : les pages refaites
  * dessinaient chacune leurs flèches et leurs croix, à des épaisseurs
  * différentes. Toutes décoratives — le libellé est porté par le bouton.
+ * Une exception : le « + » de l'action primaire du survol, au trait de son
+ * jumeau des cartes de Tentacle (2,5), seul glyphe posé sur le dégradé.
  */
 
 interface IconProps {
   className?: string;
 }
 
-function Svg({ className = "h-4 w-4", children, fill = false }: IconProps & { children: React.ReactNode; fill?: boolean }) {
+function Svg({ className = "h-4 w-4", children, fill = false, weight = 1.8 }: IconProps & { children: React.ReactNode; fill?: boolean; weight?: number }) {
   return (
     <svg
       aria-hidden
@@ -20,7 +22,7 @@ function Svg({ className = "h-4 w-4", children, fill = false }: IconProps & { ch
       viewBox="0 0 24 24"
       fill={fill ? "currentColor" : "none"}
       stroke={fill ? "none" : "currentColor"}
-      strokeWidth={1.8}
+      strokeWidth={weight}
       strokeLinecap="round"
       strokeLinejoin="round"
     >
@@ -35,6 +37,7 @@ export const ChevronLeft = (p: IconProps) => <Svg {...p}><path d="M15 18l-6-6 6-
 export const ChevronRight = (p: IconProps) => <Svg {...p}><path d="M9 6l6 6-6 6" /></Svg>;
 export const ChevronDown = (p: IconProps) => <Svg {...p}><path d="M6 9l6 6 6-6" /></Svg>;
 export const PlusIcon = (p: IconProps) => <Svg {...p}><path d="M12 5v14M5 12h14" /></Svg>;
+export const PlusBoldIcon = (p: IconProps) => <Svg {...p} weight={2.5}><path d="M12 5v14M5 12h14" /></Svg>;
 export const CheckIcon = (p: IconProps) => <Svg {...p}><path d="M5 12.5l4.5 4.5L19 7.5" /></Svg>;
 export const DotsIcon = (p: IconProps) => (
   <Svg {...p} fill><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></Svg>

@@ -8,9 +8,9 @@
  * des cartes de Tentacle (`externalCardOverlay.ts` du cœur), pour qu'un titre
  * se lise pareil ici, sur la recherche ou sur les recommandations :
  *
- *   - au centre, UNE action primaire : « Demander » (un film, d'un geste),
- *     « Choisir les saisons » (une série pas entièrement là) — ou, pour un
- *     titre déjà là, « Regarder » dans Tentacle ;
+ *   - en tête du plateau, UNE action primaire : « Demander » (un film, d'un
+ *     geste), « Choisir les saisons » (une série pas entièrement là) — ou,
+ *     pour un titre déjà là, « Regarder » dans Tentacle ;
  *   - la note, en étoiles (le moteur de notes de Tentacle) ;
  *   - « Ma liste » : tout de suite pour un titre de la bibliothèque, à son
  *     arrivée pour un titre absent.

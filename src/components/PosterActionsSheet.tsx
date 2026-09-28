@@ -59,7 +59,7 @@ export function PosterActionsSheet({ item, onClose, onOpenDetail, onQuickRequest
         </div>
       </div>
 
-      {/* L'action primaire d'abord, au dégradé de marque — le bouton du centre du survol. */}
+      {/* L'action primaire d'abord, au dégradé de marque — celle qui ouvre le plateau du survol. */}
       {primary && (
         <button
           type="button"
