@@ -19,6 +19,20 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.18.0]
+### FR
+- **Chaque affiche dit où vous en êtes** : une plaque discrète en haut de l'affiche indique ce qui est déjà dans votre bibliothèque, déjà vu, dans Ma liste ou aimé, et votre propre note remplace celle de TMDB quand vous en avez donné une. Le meilleur résultat et l'en-tête de la fiche l'écrivent en toutes lettres
+- **Un titre masqué que vous cherchez s'affiche** : la recherche ne cache plus un contenu que vous demandez explicitement. Il apparaît, marqué comme masqué, et « Masquer à nouveau » le retire d'un geste. Découvrir et les rangées restent filtrées comme avant
+- **Un seul retour pour sortir d'une chaîne de fiches** : ouvrir un titre semblable, puis un autre, puis un autre remplace la fiche au lieu de les empiler ; un retour ramène à la page de départ
+- **La saga entière sur la fiche d'un film** : tous les volets de la collection (Twilight, Harry Potter…), dans l'ordre, avec ce qui est déjà sur le serveur
+- **La filmographie commence par le bon métier** : ouverte depuis un réalisateur, elle montre d'abord ses réalisations ; depuis un compositeur, ses musiques. Les métiers sont traduits (« Musique », « Scénario »)
+### EN
+- **Every poster tells you where you stand**: a discreet plate at the top of the poster shows what is already in your library, already watched, in My list or liked, and your own rating replaces TMDB's when you gave one. The top result and the detail header spell it out
+- **A hidden title you search for shows up**: search no longer hides something you explicitly look for. It appears, marked as hidden, and "Hide again" removes it in one tap. Discover and the rows stay filtered as before
+- **One back to leave a chain of titles**: opening a similar title, then another, then another replaces the page instead of stacking them; one back returns to where you started
+- **The whole saga on a movie page**: every entry of the collection (Twilight, Harry Potter…), in order, with what is already on the server
+- **Filmographies start with the right job**: opened from a director, they show their directing first; from a composer, their scores. Jobs are translated ("Music", "Screenplay")
+
 ## [1.17.0]
 ### FR
 - **Les arrivées s'annoncent dès que Sonarr ou Radarr rangent le fichier.** « Est sorti sur Tentacle TV » n'attend plus Jellyseerr (le relais de sa file, son scan de Jellyfin, puis la synchro de Vigie) : un film rangé, une saison complète s'annoncent à la minute, une entrée dans la file dit « en route ». Chaque saison demandée s'annonce à son arrivée. Jellyseerr garde la parole sur la validation, les refus et les suppressions
