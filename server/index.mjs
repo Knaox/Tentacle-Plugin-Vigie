@@ -8520,6 +8520,76 @@ async function personProvider(cfg, q) {
   return { ...empty, items, moreHref: `/discover?person=${personId}` };
 }
 
+// server/search/collection-parts.ts
+var PARTS_TTL_MS = 30 * 6e4;
+var PARTS_STALE_MS = 6 * 36e5;
+var str3 = (v) => typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+function toPart(r) {
+  const id = typeof r.id === "number" && Number.isInteger(r.id) && r.id > 0 ? r.id : 0;
+  const title = str3(r.title) ?? str3(r.name);
+  if (id === 0 || title === null) return null;
+  const date = str3(r.releaseDate);
+  const info = r.mediaInfo;
+  return {
+    id,
+    title,
+    releaseDate: date !== null && /^\d{4}-\d{2}-\d{2}/.test(date) ? date.slice(0, 10) : null,
+    posterPath: str3(r.posterPath),
+    status: typeof info?.status === "number" ? info.status : void 0
+  };
+}
+var LABELS4 = {
+  fr: { requested: "Demand\xE9", processing: "En cours", upcoming: "\xC0 venir", missing: "Pas sur le serveur", release: "Sortie le" },
+  en: { requested: "Requested", processing: "In progress", upcoming: "Upcoming", missing: "Not on the server", release: "Out" }
+};
+function shortDate2(iso, lang) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Intl.DateTimeFormat(lang, { day: "numeric", month: "short", year: "numeric" }).format(new Date(y, m - 1, d));
+}
+function toCollectionItem(p, status, lang, today) {
+  const l = lang === "fr" ? LABELS4.fr : LABELS4.en;
+  const upcoming = p.releaseDate === null || p.releaseDate > today;
+  const year = p.releaseDate ? Number(p.releaseDate.slice(0, 4)) || null : null;
+  const subtitle = upcoming ? p.releaseDate ? `${l.release} ${shortDate2(p.releaseDate, lang)}` : null : year !== null ? String(year) : null;
+  const badge = status === MEDIA_STATUS.PENDING ? { label: l.requested, tone: "info" } : status === MEDIA_STATUS.PROCESSING ? { label: l.processing, tone: "warning" } : { label: upcoming ? l.upcoming : l.missing, tone: "neutral" };
+  return {
+    id: `movie:${p.id}`,
+    kind: "movie",
+    title: p.title,
+    year,
+    subtitle,
+    imageUrl: p.posterPath ? `https://image.tmdb.org/t/p/w185${p.posterPath}` : null,
+    href: `/discover?media=movie:${p.id}`,
+    badge,
+    tmdbId: p.id
+  };
+}
+function missingParts(parts, statusFor2) {
+  return parts.map((part) => ({ part, status: statusFor2(part) })).filter(({ status }) => !inLibraryOrBlocked(status)).sort((a, b) => {
+    const left = a.part.releaseDate ?? "9999";
+    const right = b.part.releaseDate ?? "9999";
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
+}
+async function collectionParts(cfg, collectionId, lang) {
+  return cached(`vigie:collection:${collectionId}:${lang}`, PARTS_TTL_MS, async () => {
+    const res = await fetch(`${cfg.seerrUrl}/api/v1/collection/${collectionId}?language=${lang}`, {
+      headers: { "X-Api-Key": cfg.seerrApiKey, "Accept-Language": lang },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!res.ok) throw new Error(`Jellyseerr collection ${res.status}`);
+    const raw = await res.json();
+    const parts = (Array.isArray(raw.parts) ? raw.parts : []).map(toPart).filter((p) => p !== null);
+    for (const p of parts) noteStatus("movie", p.id, p.status);
+    return parts;
+  }, { staleMs: PARTS_STALE_MS });
+}
+async function collectionProvider(cfg, q) {
+  const parts = await collectionParts(cfg, q.collectionId, q.lang);
+  const items = missingParts(parts, (p) => statusOf("movie", p.id) ?? p.status).slice(0, q.limit).map(({ part, status }) => toCollectionItem(part, status, q.lang, q.today));
+  return { query: String(q.collectionId), correction: null, complete: true, items, moreHref: null };
+}
+
 // server/routes-search.ts
 var MAX_QUERY = 120;
 var MAX_PAGE = 20;
@@ -8585,6 +8655,24 @@ async function registerSearchRoutes(app, prisma, getWorkerConfig2) {
         limit: Math.min(Math.max(1, Number(query.limit) || 20), 40),
         type: query.type === "movie" || query.type === "series" ? query.type : null,
         role: readRole(query.role)
+      });
+    } catch {
+      return empty;
+    }
+  });
+  app.get("/search/collection", async (request, reply) => {
+    const query = request.query;
+    const tmdb = Number(query.tmdb);
+    const ctx = await context();
+    if (!ctx) return reply.status(503).send({ message: "Vigie is not configured" });
+    const empty = { query: String(query.tmdb ?? ""), correction: null, complete: true, items: [], moreHref: null };
+    if (!Number.isInteger(tmdb) || tmdb <= 0) return empty;
+    try {
+      return await collectionProvider(ctx.cfg, {
+        collectionId: tmdb,
+        lang: readLang(query.lang),
+        limit: Math.min(Math.max(1, Number(query.limit) || 20), 40),
+        today: todayIso2()
       });
     } catch {
       return empty;
