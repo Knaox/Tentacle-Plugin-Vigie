@@ -17,6 +17,7 @@ import adminPage from "./en/admin-page";
 import hub from "./en/hub";
 import states from "./en/states";
 import marks from "./en/marks";
+import gestures from "./en/gestures";
 
 export default {
   ...common,
@@ -28,4 +29,5 @@ export default {
   ...hub,
   ...states,
   ...marks,
+  ...gestures,
 } as const;

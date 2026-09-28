@@ -57,6 +57,11 @@ export interface HubApi {
   setQuery: (query: string) => void;
   /** Demande un film d'un geste ; pour une série, ouvre ses saisons libres à cocher. */
   quickRequest: (item: SeerrSearchResult) => void;
+  /**
+   * Les gestes d'une affiche, au doigt (appui long) : la feuille du survol.
+   * `canRequest` : l'affiche offre la demande (le « + » du survol).
+   */
+  openActions: (item: SeerrSearchResult, canRequest: boolean) => void;
 }
 
 export const HubContext = createContext<HubApi | null>(null);

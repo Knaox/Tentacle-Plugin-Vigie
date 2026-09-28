@@ -91,6 +91,8 @@ export const HeartIcon = (p: IconProps) => (
   <Svg {...p} fill><path d="M12 20.3l-1.3-1.2C6 14.9 3 12.2 3 8.8 3 6.1 5.1 4 7.8 4c1.5 0 3 .7 4.2 1.9C13.2 4.7 14.7 4 16.2 4 18.9 4 21 6.1 21 8.8c0 3.4-3 6.1-7.7 10.3z" /></Svg>
 );
 export const BookmarkIcon = (p: IconProps) => <Svg {...p} fill><path d="M6.5 3.5h11a1 1 0 011 1v16l-6.5-4-6.5 4v-16a1 1 0 011-1z" /></Svg>;
+/* Le même signet, vide : « Ma liste » qu'on peut encore poser (plateau du survol). */
+export const BookmarkOutlineIcon = (p: IconProps) => <Svg {...p}><path d="M6.5 3.5h11a1 1 0 011 1v16l-6.5-4-6.5 4v-16a1 1 0 011-1z" /></Svg>;
 export const LibraryIcon = (p: IconProps) => (
   <Svg {...p}><path d="M5 4.5v15M9.5 4.5v15M14 5.2l4.6 14.1" /><path d="M3.5 19.5h17" /></Svg>
 );

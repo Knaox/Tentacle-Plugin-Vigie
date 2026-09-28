@@ -9,7 +9,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import { getQueueStatus, getUserStats, getGlobalStats } from "./db";
 import { isWorkerRunning } from "./worker";
-import { cached } from "./cache";
+import { cached, invalidate } from "./cache";
 import { getUser, type WorkerCfg } from "./seerr-unified";
 import { userMarks } from "./user-marks";
 
@@ -22,7 +22,13 @@ export function registerMiscRoutes(
 
 /* ── Ce que le compte a fait de chaque titre (user-marks.ts) ─────── */
 
-app.get("/marks", async (request) => userMarks(prisma, getUser(request).userId));
+app.get("/marks", async (request) => {
+  const userId = getUser(request).userId;
+  // `fresh=1` : un geste vient de changer Ma liste d'un titre déjà là — c'est
+  // Jellyfin qui le dit, pas la copie d'il y a une minute.
+  if ((request.query as { fresh?: string }).fresh === "1") invalidate(`vigie:marks:${userId}`);
+  return userMarks(prisma, userId);
+});
 
 /* ── Watch providers, queue, stats, worker control ─────────────── */
 

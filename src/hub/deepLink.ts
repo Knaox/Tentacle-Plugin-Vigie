@@ -7,7 +7,9 @@
  * récents — champ facultatif) : c'est par là qu'une recommandation ouvre une
  * fiche (`?media=movie:603`), que la barre de recherche de Tentacle passe la
  * main à Vigie (`?q=dune`), qu'une filmographie de Tentacle ouvre la sienne
- * (`?person=6384`), et qu'un lien mène à un onglet (`?tab=requests`).
+ * (`?person=6384`), qu'un lien mène à un onglet (`?tab=requests`), et
+ * qu'une carte de Tentacle demande une série (`?request=tv:1399` : ses
+ * saisons libres, prêtes à cocher — cf. le contrat `titles`).
  * Le chemin de la route compte aussi : les anciens liens `/requests` et
  * `/releases` ouvrent l'onglet correspondant.
  */
@@ -19,6 +21,8 @@ export interface HubEntry {
   media: { mediaType: "movie" | "tv"; id: number } | null;
   /** Une personne TMDB dont la filmographie s'ouvre à l'arrivée. */
   person: number | null;
+  /** Un titre à demander dès l'arrivée : les saisons libres d'une série. */
+  request: { mediaType: "movie" | "tv"; id: number } | null;
   query: string;
 }
 
@@ -36,10 +40,15 @@ export function readHubEntry(routePath: string, hostQuery: string | undefined): 
   const id = media ? Number(media[2]) : NaN;
   const fromPath = routePath.endsWith("/requests") ? "requests" : routePath.endsWith("/releases") ? "calendar" : "discover";
   const person = Number(params.get("person"));
+  const request = params.get("request")?.match(/^(movie|tv):(\d+)$/);
+  const requestId = request ? Number(request[2]) : NaN;
   return {
     tab: TABS[params.get("tab") ?? ""] ?? fromPath,
     media: media && Number.isFinite(id) && id > 0 ? { mediaType: media[1] as "movie" | "tv", id } : null,
     person: Number.isInteger(person) && person > 0 ? person : null,
+    request: request && Number.isSafeInteger(requestId) && requestId > 0
+      ? { mediaType: request[1] as "movie" | "tv", id: requestId }
+      : null,
     query: (params.get("q") ?? "").slice(0, 120),
   };
 }

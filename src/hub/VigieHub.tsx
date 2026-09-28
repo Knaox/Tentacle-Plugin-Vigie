@@ -34,6 +34,7 @@ import { RequestsView } from "../requests/RequestsView";
 import { CalendarView, type CalendarFocus, type CalendarScope } from "../calendar/CalendarView";
 import { PersonSheet } from "../person/PersonSheet";
 import { QuickSeasonsSheet } from "../components/QuickSeasonsSheet";
+import { PosterActionsSheet } from "../components/PosterActionsSheet";
 import { ScrollTopButton } from "../components/ui/ScrollTopButton";
 import { HubContext, type BrowsePreset, type HubApi, type HubTab, type OpenMediaOptions } from "./HubContext";
 import { HubHeader } from "./HubHeader";
@@ -84,7 +85,11 @@ export function VigieHub({ routePath }: { routePath: string }) {
     entry.media ? { item: { id: entry.media.id, mediaType: entry.media.mediaType } } : null,
   );
   const [personId, setPersonId] = useState<number | null>(entry.person);
-  const [quickSeasons, setQuickSeasons] = useState<SeerrSearchResult | null>(null);
+  // Une carte de Tentacle qui demande une série arrive ici : ses saisons libres, prêtes à cocher.
+  const [quickSeasons, setQuickSeasons] = useState<SeerrSearchResult | null>(
+    entry.request?.mediaType === "tv" ? { id: entry.request.id, mediaType: "tv" } : null,
+  );
+  const [actionsFor, setActionsFor] = useState<{ item: SeerrSearchResult; canRequest: boolean } | null>(null);
   const [calendarFocus, setCalendarFocus] = useState<CalendarFocus | null>(null);
 
   const data = useHubData();
@@ -185,9 +190,14 @@ export function VigieHub({ routePath }: { routePath: string }) {
     );
   }, [openMedia, requestMedia, toast, t]);
 
+  const openActions = useCallback((item: SeerrSearchResult, canRequest: boolean) => {
+    dismissKeyboard();
+    setActionsFor({ item, canRequest });
+  }, []);
+
   const api = useMemo<HubApi>(() => ({
-    tab, setTab, openCalendar, openCatalog, openMedia, openPerson, browse, setQuery, quickRequest,
-  }), [tab, setTab, openCalendar, openCatalog, openMedia, openPerson, browse, setQuery, quickRequest]);
+    tab, setTab, openCalendar, openCatalog, openMedia, openPerson, browse, setQuery, quickRequest, openActions,
+  }), [tab, setTab, openCalendar, openCatalog, openMedia, openPerson, browse, setQuery, quickRequest, openActions]);
 
   const show = (view: HubTab) => !searching && tab === view;
 
@@ -253,6 +263,14 @@ export function VigieHub({ routePath }: { routePath: string }) {
           />
         )}
         {personId !== null && <PersonSheet personId={personId} onClose={() => setPersonId(null)} />}
+        {actionsFor && (
+          <PosterActionsSheet
+            item={actionsFor.item}
+            onClose={() => setActionsFor(null)}
+            onOpenDetail={(item) => { setActionsFor(null); openMedia(item); }}
+            onQuickRequest={actionsFor.canRequest ? (item) => { setActionsFor(null); quickRequest(item); } : undefined}
+          />
+        )}
         {quickSeasons && (
           <QuickSeasonsSheet
             item={quickSeasons}

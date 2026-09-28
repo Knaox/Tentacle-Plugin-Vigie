@@ -4,7 +4,7 @@ import { readHubEntry } from "./deepLink";
 
 test("une recommandation ouvre la fiche du titre", () => {
   assert.deepEqual(readHubEntry("/discover", "?media=movie:603"), {
-    tab: "discover", media: { mediaType: "movie", id: 603 }, person: null, query: "",
+    tab: "discover", media: { mediaType: "movie", id: 603 }, person: null, request: null, query: "",
   });
 });
 
@@ -30,4 +30,11 @@ test("une filmographie de Tentacle ouvre celle de Vigie", () => {
   assert.equal(readHubEntry("/discover", "?person=6384").person, 6384);
   assert.equal(readHubEntry("/discover", "?person=abc").person, null);
   assert.equal(readHubEntry("/discover", "?person=-2").person, null);
+});
+
+test("une carte de Tentacle demande une série : ses saisons s'ouvrent à l'arrivée", () => {
+  assert.deepEqual(readHubEntry("/discover", "?request=tv:1399").request, { mediaType: "tv", id: 1399 });
+  assert.equal(readHubEntry("/discover", "?request=tv:abc").request, null);
+  assert.equal(readHubEntry("/discover", "?request=person:3").request, null);
+  assert.equal(readHubEntry("/discover", "?request=tv:0").request, null);
 });

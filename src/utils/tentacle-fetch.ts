@@ -32,6 +32,31 @@ export async function tentacleApiFetch<T>(path: string): Promise<T | null> {
   }
 }
 
+/**
+ * Écriture authentifiée vers le backend core Tentacle (note, Ma liste) : même
+ * double chemin que `tentacleApiFetch`, mais qui LÈVE en cas d'échec — une
+ * mutation doit pouvoir défaire son écriture optimiste.
+ */
+export async function tentacleApiSend<T>(path: string, method: "PUT" | "POST" | "DELETE", body?: unknown): Promise<T> {
+  const init: RequestInit = { method };
+  const headers: Record<string, string> = {};
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+  let url = path;
+  if (isMobileWebView()) {
+    const backendUrl = localStorage.getItem("tentacle_server_url") ?? "";
+    const token = localStorage.getItem("tentacle_token") ?? "";
+    if (!backendUrl || !token) throw new Error("Tentacle injoignable");
+    url = `${backendUrl}${path}`;
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const res = await fetch(url, { ...init, headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as T;
+}
+
 /** Navigue dans l'app hôte Tentacle (sidebar/bridge selon plateforme). */
 export function tentacleNavigate(route: string): void {
   if (isMobileWebView()) {

@@ -6762,7 +6762,11 @@ async function userMarks(prisma, userId) {
 
 // server/routes-misc.ts
 function registerMiscRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
-  app.get("/marks", async (request) => userMarks(prisma, getUser(request).userId));
+  app.get("/marks", async (request) => {
+    const userId = getUser(request).userId;
+    if (request.query.fresh === "1") invalidate(`vigie:marks:${userId}`);
+    return userMarks(prisma, userId);
+  });
   const providerCache = /* @__PURE__ */ new Map();
   app.post("/check-providers", async (request, reply) => {
     const body = request.body;
@@ -6775,9 +6779,9 @@ function registerMiscRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
     const toFetch = [];
     for (const item of body.items.slice(0, 200)) {
       const key = `${item.mediaType}-${item.tmdbId}`;
-      const cached2 = providerCache.get(key);
-      if (cached2 && Date.now() < cached2.expires) {
-        result[item.tmdbId] = cached2.providers;
+      const cached3 = providerCache.get(key);
+      if (cached3 && Date.now() < cached3.expires) {
+        result[item.tmdbId] = cached3.providers;
       } else {
         toFetch.push(item);
       }

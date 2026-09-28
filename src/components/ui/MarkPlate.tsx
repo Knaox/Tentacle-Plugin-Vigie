@@ -28,19 +28,24 @@ import { BookmarkIcon, EyeIcon, HeartIcon, LibraryIcon, StarIcon } from "./icons
 
 const ICON = "h-3 w-3 shrink-0";
 
-/** Ce que la plaque montre ; `library` suit la règle « rien deux fois ». */
+/**
+ * Ce que la plaque montre ; `library` suit la règle « rien deux fois ». Un
+ * titre mis de côté porte le signet de Ma liste, estompé : il y entrera à
+ * son arrivée.
+ */
 function shown(marks: TitleMarks, bandSaysHere: boolean) {
   return {
     library: marks.library && !bandSaysHere,
     watched: marks.watched,
     watchlist: marks.watchlist,
+    pending: !marks.watchlist && marks.pending,
     liked: marks.liked,
   };
 }
 
 export const MarkPlate = memo(function MarkPlate({ marks, bandSaysHere }: { marks: TitleMarks; bandSaysHere: boolean }) {
   const s = shown(marks, bandSaysHere);
-  if (!s.library && !s.watched && !s.watchlist && !s.liked) return null;
+  if (!s.library && !s.watched && !s.watchlist && !s.pending && !s.liked) return null;
   return (
     <span
       aria-hidden
@@ -50,6 +55,7 @@ export const MarkPlate = memo(function MarkPlate({ marks, bandSaysHere }: { mark
       {s.library && <LibraryIcon className={`${ICON} text-[var(--vg-media-available)]`} />}
       {s.watched && <EyeIcon className={`${ICON} text-tentacle-on-media-primary`} />}
       {s.watchlist && <BookmarkIcon className={`${ICON} text-[var(--brand-light)]`} />}
+      {s.pending && <BookmarkIcon className={`${ICON} text-[var(--brand-light)] opacity-60`} />}
       {s.liked && <HeartIcon className={`${ICON} text-[var(--brand-accent-light)]`} />}
     </span>
   );
@@ -88,6 +94,7 @@ export function marksText(marks: TitleMarks | null, bandSaysHere: boolean, t: Tr
   if (s.library) words.push(t("seer:markLibrary"));
   if (s.watched) words.push(t("seer:markWatched"));
   if (s.watchlist) words.push(t("seer:markWatchlist"));
+  if (s.pending) words.push(t("seer:markWatchlistPending"));
   if (s.liked) words.push(t("seer:markLiked"));
   if (marks.score !== null) words.push(t("seer:markYourRating", { score: fiveScale(marks.score, lang) }));
   return words;
@@ -111,6 +118,7 @@ export const MarkLine = memo(function MarkLine({ marks, bandSaysHere, t, lang, o
   if (s.library) items.push({ key: "library", icon: <LibraryIcon className={`${ICON} text-[var(--seer-st-available-fg)]`} />, text: t("seer:markLibrary") });
   if (s.watched) items.push({ key: "watched", icon: <EyeIcon className={ICON} />, text: t("seer:markWatched") });
   if (s.watchlist) items.push({ key: "watchlist", icon: <BookmarkIcon className={`${ICON} text-[var(--brand-light)]`} />, text: t("seer:markWatchlist") });
+  if (s.pending) items.push({ key: "pending", icon: <BookmarkIcon className={`${ICON} text-[var(--brand-light)] opacity-60`} />, text: t("seer:markWatchlistPending") });
   if (s.liked) items.push({ key: "liked", icon: <HeartIcon className={`${ICON} text-[var(--brand-accent-light)]`} />, text: t("seer:markLiked") });
   if (marks.score !== null) {
     items.push({

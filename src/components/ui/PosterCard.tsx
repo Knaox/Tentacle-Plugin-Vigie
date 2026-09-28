@@ -10,41 +10,51 @@
  *     route (son filet avance), bloqué, disponible, en partie. Posé sur une
  *     plaque presque opaque : aucune affiche ne peut en avaler la couleur ;
  *   - qu'en a-t-on fait ? — en haut de l'affiche : dans la bibliothèque, vu,
- *     dans « Ma liste », aimé, et sa propre note (cf. MarkPlate) ;
+ *     dans « Ma liste » (ou mis de côté jusqu'à son arrivée), aimé, et sa
+ *     propre note (cf. MarkPlate) ;
  *   - par où est-il sorti ? — sous le titre, sur la page : au cinéma, en
  *     streaming, potentiellement disponible… Pour une série en partie là,
  *     cette ligne dit plutôt ce qui lui manque : « Il manque 1 saison ».
  *
- * Un clic ouvre la fiche ; sur ordinateur, le « + » du survol demande un film
- * d'un geste, et ouvre les saisons libres d'une série pour les ajouter d'un
- * autre. Légère à dessein : rendue par centaines dans une
- * grille virtualisée, sans flou ni ombre animée — seule l'affiche s'agrandit
- * au survol (une transformation, cf. la règle GPU du projet).
+ * Un clic ouvre la fiche. Ses gestes sont ceux de TOUTES les cartes de
+ * Tentacle (cf. PosterHover, usePosterGestures) : au survol — et au focus,
+ * la grille se parcourt au clavier —, « Demander » au centre, la note et
+ * « Ma liste » en bas ; au doigt, l'appui long ouvre la même chose en
+ * feuille. Légère à dessein : rendue par centaines dans une grille
+ * virtualisée, rien de ce survol n'existe au repos (monté à la demande).
  */
 
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useContext, useState, type FocusEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { SeerrSearchResult } from "../../api/types";
 import { getCurrentLanguage, mediaTitle, mediaYear, posterUrl } from "../../utils/media-helpers";
 import { statusText } from "../../utils/state-labels";
 import type { TitleStatus } from "../../utils/title-state";
 import { useTitleGaps, useTitleStatus } from "../../hub/TitleStates";
-import { useTitleMarks } from "../../hub/UserMarks";
+import { useTitleMarks, type TitleMarks } from "../../hub/UserMarks";
+import { HubContext } from "../../hub/HubContext";
 import { gapText } from "../../utils/series-gaps";
 import { useVerdict } from "../../hooks/useVerdict";
+import { useLongPress } from "../../hooks/useLongPress";
+import { useMountWhile } from "../../hooks/useMountWhile";
+import { usePosterGestures } from "../../hooks/usePosterGestures";
 import { ChannelLine, channelOf } from "./ChannelLine";
 import { GapLine } from "./GapLine";
 import { StateBadge } from "./StateBadge";
 import { MarkPlate, RatingChip, marksText } from "./MarkPlate";
-import { EyeOffIcon, PlusIcon } from "./icons";
+import { PosterHover } from "./PosterHover";
+import { EyeOffIcon } from "./icons";
 
-/** Pointeur fin (souris) : la demande rapide au survol n'a de sens que là. */
+/** Pointeur fin (souris) : le survol n'a de sens que là ; au doigt, c'est l'appui long. */
 const FINE_POINTER = typeof window !== "undefined" && window.matchMedia?.("(hover: hover) and (pointer: fine)").matches;
+
+/* Un appui long n'ouvre ni le menu du système ni une sélection de texte. */
+const NO_CALLOUT = { WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none" } as const;
 
 export interface PosterCardProps {
   item: SeerrSearchResult;
   onOpen: (item: SeerrSearchResult) => void;
-  /** Demande rapide (un film, ou les saisons libres d'une série) — absente, pas de bouton. */
+  /** Demande rapide (un film, ou les saisons libres d'une série) — absente, pas de « Demander ». */
   onQuickRequest?: (item: SeerrSearchResult) => void;
   /** Remplace la ligne du canal (« jeu. 25 · S4E18 » dans les sorties de la semaine). */
   caption?: string | null;
@@ -54,9 +64,24 @@ export interface PosterCardProps {
   eager?: boolean;
 }
 
+/** Le calque du survol, avec ses gestes : n'existe que monté (abonnements, mutations). */
+function HoverLayer({ item, status, marks, onQuickRequest, name, visible }: {
+  item: SeerrSearchResult;
+  status: TitleStatus | null;
+  marks: TitleMarks | null;
+  onQuickRequest?: (item: SeerrSearchResult) => void;
+  name: string;
+  visible: boolean;
+}) {
+  const gestures = usePosterGestures(item, status, marks, onQuickRequest);
+  return <PosterHover gestures={gestures} name={name} visible={visible} band={status !== null} />;
+}
+
 export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickRequest, caption, status: forced, eager }: PosterCardProps) {
   const { t } = useTranslation("seer");
+  const hub = useContext(HubContext);
   const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const title = mediaTitle(item) || t("seer:untitled");
   const year = mediaYear(item);
@@ -71,19 +96,21 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
   // « Potentiellement disponible » sous une affiche qui dit « Disponible » : non.
   if (channel?.kind === "uncharted" && (status?.state === "available" || status?.state === "partial")) channel = null;
   const poster = posterUrl(item.posterPath);
-  // Un film pas encore demandé ; une série tant qu'elle n'est pas entièrement là
-  // (le « + » ouvre alors ses saisons libres).
-  const canQuickRequest = FINE_POINTER && !!onQuickRequest
-    && (item.mediaType === "movie" ? status === null : item.mediaType === "tv" && status?.state !== "available");
   const rating = item.voteAverage ?? 0;
   const marks = useTitleMarks(item);
   const lang = getCurrentLanguage();
   // Le bandeau dit déjà « là » : la plaque ne le répète pas.
   const bandSaysHere = status?.state === "available" || status?.state === "partial";
+  const active = FINE_POINTER && (hovered || focused);
+  const layerMounted = useMountWhile(active, 200);
+  const longPress = useLongPress(() => hub?.openActions(item, !!onQuickRequest));
   // Une affiche déjà en cache a fini de charger avant que React n'écoute `load`.
   const imgRef = useCallback((node: HTMLImageElement | null) => {
     if (node?.complete && node.naturalWidth > 0) setLoaded(true);
   }, []);
+  const onBlur = (e: FocusEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false);
+  };
 
   const label = [
     title, item.masked ? t("seer:maskedResultLabel") : "", status ? statusText(status, t) : "",
@@ -94,14 +121,22 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
   return (
     <div
       className="group relative min-w-0"
-      onMouseEnter={canQuickRequest ? () => setHovered(true) : undefined}
-      onMouseLeave={canQuickRequest ? () => setHovered(false) : undefined}
+      onMouseEnter={FINE_POINTER ? () => setHovered(true) : undefined}
+      onMouseLeave={FINE_POINTER ? () => setHovered(false) : undefined}
+      onFocus={FINE_POINTER ? () => setFocused(true) : undefined}
+      onBlur={FINE_POINTER ? onBlur : undefined}
     >
       <button
         type="button"
-        onClick={() => onOpen(item)}
+        onClick={() => { if (!longPress.consumeClick()) onOpen(item); }}
+        onPointerDown={longPress.onPointerDown}
+        onPointerMove={longPress.onPointerMove}
+        onPointerUp={longPress.onPointerUp}
+        onPointerCancel={longPress.onPointerCancel}
+        onContextMenu={longPress.onContextMenu}
         aria-label={label}
         className="block w-full text-left focus-visible:outline-none"
+        style={NO_CALLOUT}
       >
         <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl bg-tentacle-surface-2 ring-1 ring-tentacle-border-subtle transition-shadow group-focus-visible:ring-2 group-focus-visible:ring-[rgba(var(--brand-rgb),0.8)]">
           {poster ? (
@@ -121,7 +156,8 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
               {title}
             </div>
           )}
-          <RatingChip score={marks?.score ?? null} publicRating={rating} lang={lang} />
+          {/* Au survol, les étoiles disent la note : la pastille cède la place. */}
+          {!active && <RatingChip score={marks?.score ?? null} publicRating={rating} lang={lang} />}
           {item.masked ? (
             // Masqué d'ordinaire par le filtre de contenu, montré par une recherche.
             <span
@@ -145,22 +181,8 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
         )}
       </button>
       {/* Monté au survol, jamais masqué : rien ne se compose hors écran. */}
-      {canQuickRequest && hovered && (
-        // Un calque de la taille exacte de l'affiche : le bouton s'y cale en bas
-        // à droite, quelle que soit la hauteur du texte en dessous.
-        <div className="pointer-events-none absolute inset-x-0 top-0 aspect-[2/3]">
-          <button
-            type="button"
-            onClick={() => onQuickRequest?.(item)}
-            aria-label={item.mediaType === "tv" ? t("seer:quickRequestSeasons", { title }) : t("seer:requestTitle", { title })}
-            title={item.mediaType === "tv" ? t("seer:chooseSeasons") : t("seer:request")}
-            // Au-dessus du bandeau d'état quand il y en a un (série en partie là).
-            className={`pointer-events-auto absolute right-2 flex h-9 w-9 items-center justify-center rounded-full bg-tentacle-cta-primary text-tentacle-cta-primary-fg shadow-tentacle-elev-2 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.7)] ${status ? "bottom-8" : "bottom-2"}`}
-            style={{ animation: "fadeIn 150ms ease both" }}
-          >
-            <PlusIcon className="h-4 w-4" />
-          </button>
-        </div>
+      {layerMounted && (
+        <HoverLayer item={item} status={status} marks={marks} onQuickRequest={onQuickRequest} name={title} visible={active} />
       )}
     </div>
   );
