@@ -15,7 +15,8 @@
  *      liste », tout de suite ou à son arrivée. Rien au centre de l'affiche.
  *
  * Les jumeaux de `CardTrayPrimaryButton` et `CardTrayButton` du cœur : mêmes
- * gabarits (28 px, glyphe de 14 px), mêmes tons, même ordre.
+ * gabarits (28 px, resserrables jusqu'à 22 px ; glyphe de 14 px), mêmes tons,
+ * même ordre.
  *
  * Posé sur MÉDIA : couleurs constantes des médias (`white` suit le thème dans
  * ce cadre), pas de flou — le voile est presque opaque en bas, il n'y aurait
@@ -32,10 +33,14 @@ import { BookmarkIcon, BookmarkOutlineIcon, PlayIcon, PlusBoldIcon } from "./ico
 /* Le voile des cartes de Tentacle (`--card-hover-veil`) : noir dans les deux thèmes. */
 const VEIL = "linear-gradient(180deg, rgba(var(--scrim-media-rgb, 0, 0, 0), 0.1) 0%, rgba(var(--scrim-media-rgb, 0, 0, 0), 0.3) 38%, rgba(var(--scrim-media-rgb, 0, 0, 0), 0.9) 100%)";
 
-/* Le gabarit des boutons de la capsule (`TRAY_SIZE.sm` du cœur). */
-const TRAY_BOX = "h-7 w-7";
+/*
+ * Le gabarit des boutons de la capsule (`TRAY_SIZE.sm` du cœur) : une largeur
+ * et un carré, plancher de 22 px, jamais `shrink-0` — sur une affiche étroite
+ * les boutons se resserrent ensemble au lieu de déborder de la carte.
+ */
+const TRAY_BOX = "w-7 min-w-[22px] aspect-square";
 const TRAY_ICON = "h-3.5 w-3.5";
-const TRAY_BUTTON = `${TRAY_BOX} flex shrink-0 items-center justify-center rounded-full transition-transform duration-150 hover:scale-110 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#fff]`;
+const TRAY_BUTTON = `${TRAY_BOX} flex items-center justify-center rounded-full transition-transform duration-150 hover:scale-110 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#fff]`;
 
 /* Les deux tons de l'action primaire (`CardTrayPrimaryButton` du cœur). */
 const PRIMARY_TONE = {
@@ -99,7 +104,7 @@ export function PosterHover({ gestures, name, visible, band }: {
               role="toolbar"
               aria-label={name}
               onClick={stop}
-              className="flex items-center gap-0.5 rounded-full border border-[rgba(255,255,255,0.15)] bg-[rgba(255,255,255,0.12)] p-0.5 shadow-[0_4px_14px_rgba(0,0,0,0.35)]"
+              className="flex min-w-0 max-w-full items-center gap-0.5 rounded-full border border-[rgba(255,255,255,0.15)] bg-[rgba(255,255,255,0.12)] p-0.5 shadow-[0_4px_14px_rgba(0,0,0,0.35)]"
             >
               {primary && <PrimaryButton primary={primary} name={name} />}
               <button
