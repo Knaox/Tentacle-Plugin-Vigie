@@ -35,6 +35,8 @@ export interface RemoteMedia {
   status: number | undefined;
   /** Position dans la réponse TMDB — son avis sur la pertinence. */
   rank: number;
+  /** Masqué d'ordinaire par le filtre de contenu, montré parce qu'on l'a cherché. */
+  masked?: boolean;
 }
 
 export interface RemotePerson {
@@ -138,14 +140,18 @@ export async function remoteSearch(
     const blocked = parseTagSet(tags);
     let kept = results;
     let blockedCount = 0;
-    if (blocked.size > 0 && !showBlocked) {
+    // Ce que le filtre masque d'ordinaire. `showBlocked` ne le retire plus : il
+    // le MARQUE, pour que la recherche le montre en disant pourquoi.
+    let masked = new Set<Raw>();
+    if (blocked.size > 0) {
       const isSafe = ({ r }: { r: Raw }) =>
         (r.mediaType === "movie" || r.mediaType === "tv") && typeof r.id === "number"
         && knownSafe(r.mediaType, r.id) && (r.mediaInfo as { status?: number } | undefined)?.status !== 6;
       const unknown = results.filter((x) => !isSafe(x));
       const filtered = await filterResultsByTags(cfg.seerrUrl, cfg.seerrApiKey, unknown.map((x) => x.r) as ResultItem[], blocked);
       const survivors = new Set(filtered.kept as Raw[]);
-      kept = results.filter((x) => isSafe(x) || survivors.has(x.r));
+      masked = new Set(unknown.filter((x) => !survivors.has(x.r)).map((x) => x.r));
+      if (!showBlocked) kept = results.filter((x) => !masked.has(x.r));
       blockedCount = filtered.blockedCount;
     }
     const media: RemoteMedia[] = [];
@@ -156,7 +162,7 @@ export async function remoteSearch(
         if (person) people.push(person);
       } else {
         const m = toRemoteMedia(r, rank);
-        if (m) media.push(m);
+        if (m) media.push(masked.has(r) ? { ...m, masked: true } : m);
       }
     }
     // Recopiés à la LECTURE seulement : une réponse resservie du cache ne doit

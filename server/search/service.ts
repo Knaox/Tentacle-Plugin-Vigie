@@ -87,6 +87,7 @@ function fromRemote(m: RemoteMedia): Candidate {
     posterPath: m.posterPath, backdropPath: m.backdropPath, overview: m.overview,
     voteAverage: m.voteAverage, voteCount: m.voteCount, popularity: m.popularity, genreIds: m.genreIds,
     originalLanguage: m.originalLanguage, isAnime, remoteStatus: m.status, remoteRank: m.rank, text: 0, score: 0,
+    ...(m.masked ? { masked: true } : {}),
   };
 }
 
@@ -99,6 +100,8 @@ function merge(into: Map<string, Candidate>, c: Candidate): void {
     ...known, ...c,
     names: [...new Set([...known.names, ...c.names])],
     remoteRank: ranks.length > 0 ? Math.min(...ranks) : null,
+    // Masqué pour l'une des deux sources (tapée ou corrigée) : masqué.
+    ...(known.masked || c.masked ? { masked: true } : {}),
   });
 }
 
@@ -205,8 +208,10 @@ async function computeFull(ctx: SearchContext, q: string, opts: SearchOptions): 
   }
 
   // Ce que TMDB a trouvé devient instantané pour la prochaine fois.
-  if (!opts.showBlocked) {
-    const learned = pages.flatMap((p) => p.media).filter((m) => m.title).map((m) => recordOf(m, opts.lang));
+  {
+    // Un titre masqué n'entre jamais dans l'index : l'index sert aussi les
+    // surfaces où le filtre s'applique sans exception.
+    const learned = pages.flatMap((p) => p.media).filter((m) => m.title && !m.masked).map((m) => recordOf(m, opts.lang));
     for (const r of learned) titleIndex.upsert(r);
     if (learned.length > 0) queueTitles(ctx.prisma, learned);
   }

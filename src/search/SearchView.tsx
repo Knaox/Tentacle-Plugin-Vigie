@@ -24,6 +24,7 @@ import { SearchFacets } from "./SearchFacets";
 import { PeopleRow } from "./PeopleRow";
 import { TopMediaResult, TopPersonResult } from "./TopResult";
 import type { VigieSearchState } from "./useVigieSearch";
+import { countMasked, withoutMasked } from "./masked";
 
 const GRID = "grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 2xl:grid-cols-8";
 
@@ -39,7 +40,9 @@ interface Props {
 export const SearchView = memo(function SearchView({ query, search, showBlocked, onToggleBlocked, onSearchExact }: Props) {
   const { t } = useTranslation("seer");
   const hub = useHub();
-  const data = search.data;
+  const raw = search.data;
+  const masked = raw ? countMasked(raw) : 0;
+  const data = raw && !showBlocked && masked > 0 ? withoutMasked(raw) : raw;
 
   if (!data) {
     return (
@@ -54,6 +57,10 @@ export const SearchView = memo(function SearchView({ query, search, showBlocked,
   return (
     <div className="space-y-8" style={{ animation: "viewCrossfade 180ms ease both" }}>
       <Notices data={data} typed={query} onSearchExact={onSearchExact} />
+      {/* Montrés d'office : dit tout de suite, avec le geste qui les re-masque. */}
+      {showBlocked && masked > 0 && (
+        <BlockedResultsBanner blockedCount={masked} showBlocked onToggle={onToggleBlocked} />
+      )}
       {data.facets.length > 0 && <SearchFacets facets={data.facets} />}
 
       {nothing ? (
@@ -84,9 +91,9 @@ export const SearchView = memo(function SearchView({ query, search, showBlocked,
           )}
         </>
       )}
-      {/* Après ce qu'on cherchait — ou sous « aucun résultat » quand tout a été masqué. */}
-      {data.blockedActive && (data.blockedCount > 0 || showBlocked) && (
-        <BlockedResultsBanner blockedCount={data.blockedCount} showBlocked={showBlocked} onToggle={onToggleBlocked} />
+      {/* Re-masqués : après ce qu'on cherchait — ou sous « aucun résultat ». */}
+      {!showBlocked && masked > 0 && (
+        <BlockedResultsBanner blockedCount={masked} showBlocked={false} onToggle={onToggleBlocked} />
       )}
     </div>
   );

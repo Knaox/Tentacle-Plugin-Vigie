@@ -86,3 +86,11 @@ export const MinusIcon = (p: IconProps) => <Svg {...p}><path d="M5 12h14" /></Sv
 export const LinkIcon = (p: IconProps) => <Svg {...p}><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1" /></Svg>;
 export const SlidersIcon = (p: IconProps) => <Svg {...p}><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></Svg>;
 export const UsersIcon = (p: IconProps) => <Svg {...p}><circle cx="9" cy="8.5" r="3.3" /><path d="M3 19.5c.9-3 3.2-4.8 6-4.8s5.1 1.8 6 4.8" /><path d="M15.5 5.4a3.3 3.3 0 010 6.2M18 14.9c1.4.7 2.4 2.3 3 4.6" /></Svg>;
+/* Les marques du compte (MarkPlate) : aimé, dans « Ma liste », dans la bibliothèque. */
+export const HeartIcon = (p: IconProps) => (
+  <Svg {...p} fill><path d="M12 20.3l-1.3-1.2C6 14.9 3 12.2 3 8.8 3 6.1 5.1 4 7.8 4c1.5 0 3 .7 4.2 1.9C13.2 4.7 14.7 4 16.2 4 18.9 4 21 6.1 21 8.8c0 3.4-3 6.1-7.7 10.3z" /></Svg>
+);
+export const BookmarkIcon = (p: IconProps) => <Svg {...p} fill><path d="M6.5 3.5h11a1 1 0 011 1v16l-6.5-4-6.5 4v-16a1 1 0 011-1z" /></Svg>;
+export const LibraryIcon = (p: IconProps) => (
+  <Svg {...p}><path d="M5 4.5v15M9.5 4.5v15M14 5.2l4.6 14.1" /><path d="M3.5 19.5h17" /></Svg>
+);

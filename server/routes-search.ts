@@ -85,7 +85,7 @@ export async function registerSearchRoutes(
     const facets = opts.page === 1 && q.trim().length >= 2
       ? [...genreFacets(q, opts.lang), ...(await providerFacets(ctx.cfg, q, opts.lang, !instant))]
       : [];
-    return presentHub(ranked, opts.page, facets, titleIndexBuilding(), startedAt);
+    return presentHub(ranked, opts.page, facets, titleIndexBuilding(), startedAt, opts.showBlocked);
   });
 
   app.get("/search/provider", async (request, reply) => {

@@ -10,7 +10,9 @@ interface BlockedResultsBannerProps {
 }
 
 /**
- * « N résultats masqués · Afficher quand même », en une ligne.
+ * « N résultats masqués · Afficher quand même », en une ligne — ou, dans une
+ * recherche qui les montre d'office, « N résultats masqués affichés · Masquer
+ * à nouveau ».
  *
  * Une mention, pas un bandeau : posée en tête des résultats, elle passait
  * avant le meilleur résultat et se lisait comme une erreur. Elle vient donc
@@ -19,8 +21,9 @@ interface BlockedResultsBannerProps {
 export function BlockedResultsBanner({ blockedCount = 0, showBlocked, onToggle }: BlockedResultsBannerProps) {
   const { t } = useTranslation("seer");
 
+  // Montrés par défaut dans une recherche : on dit combien, et pourquoi.
   const label = showBlocked
-    ? t("blockedShown")
+    ? blockedCount > 0 ? t("seer:blockedShownCount", { count: blockedCount }) : t("blockedShown")
     : blockedCount > 0
       ? t("blockedHidden", { count: blockedCount })
       : t("blockedFilterActive");

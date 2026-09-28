@@ -41,6 +41,8 @@ export interface Candidate {
   /** Correspondance du texte (0 à 1000) avec la requête — tapée ou corrigée. */
   text: number;
   score: number;
+  /** Masqué d'ordinaire par le filtre de contenu (cf. remote.ts). */
+  masked?: boolean;
 }
 
 export interface PersonCandidate {
@@ -72,6 +74,8 @@ export interface SearchItem {
   genreIds?: number[];
   originalLanguage?: string;
   mediaInfo?: { status: number };
+  /** Masqué d'ordinaire par le filtre de contenu : la carte le dit. */
+  masked?: boolean;
 }
 
 export interface SearchPerson {
@@ -125,6 +129,7 @@ export function toSearchItem(c: Candidate, status: number | undefined): SearchIt
     genreIds: c.genreIds,
     originalLanguage: opt(c.originalLanguage),
     ...(status !== undefined ? { mediaInfo: { status } } : {}),
+    ...(c.masked ? { masked: true } : {}),
   };
 }
 

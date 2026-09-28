@@ -16,6 +16,7 @@ import admin from "./fr/admin";
 import adminPage from "./fr/admin-page";
 import hub from "./fr/hub";
 import states from "./fr/states";
+import marks from "./fr/marks";
 
 export default {
   ...common,
@@ -26,4 +27,5 @@ export default {
   ...adminPage,
   ...hub,
   ...states,
+  ...marks,
 } as const;

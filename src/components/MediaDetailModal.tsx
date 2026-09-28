@@ -10,8 +10,11 @@
  * sur grand écran, une fenêtre large. Retour et fermeture restent accrochés
  * en haut pendant qu'on défile — la poignée, elle, défile avec l'image.
  *
- * Une autre fiche ouverte depuis celle-ci (un titre semblable, un film de la
- * filmographie) s'empile : « retour » ramène à la précédente.
+ * Une autre fiche ouverte depuis celle-ci (un titre semblable, un volet de
+ * la saga, un film de la filmographie) REMPLACE la courante au lieu de
+ * s'empiler : on enchaîne dix titres semblables, un seul « retour » (Échap,
+ * le geste de l'appareil, la croix) ramène à la page d'où la chaîne est
+ * partie — pas à neuf fiches déjà vues.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -39,7 +42,7 @@ import { DetailHero } from "./detail/DetailHero";
 import { DetailActions } from "./detail/DetailActions";
 import { MediaDetailBody, SEASONS_ANCHOR } from "./MediaDetailBody";
 import { TrailerModal } from "./TrailerModal";
-import { ChevronLeft, CloseIcon } from "./ui/icons";
+import { CloseIcon } from "./ui/icons";
 
 interface MediaDetailModalProps {
   item: SeerrSearchResult;
@@ -60,7 +63,6 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrimRef = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState(item);
-  const [stack, setStack] = useState<SeerrSearchResult[]>([]);
   const [closing, setClosing] = useState(false);
   const [requestSuccess, setRequestSuccess] = useState(false);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
@@ -68,13 +70,13 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
   const [trailer, setTrailer] = useState<number | null>(null);
 
   /* Une autre fiche demandée pendant que celle-ci est ouverte (un film de la
-   * filmographie d'un acteur du casting) : elle s'empile. */
+   * filmographie d'un acteur du casting) : elle prend la place. */
   const [shownProp, setShownProp] = useState(item);
   if (item !== shownProp) {
     setShownProp(item);
-    setStack((s) => [...s, current]);
     setCurrent(item);
     setSynopsisExpanded(false);
+    setRequestSuccess(false);
   }
 
   const mediaType = current.mediaType === "movie" ? "movie" as const : "tv" as const;
@@ -155,17 +157,11 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
     });
   };
 
+  // Remplace, n'empile pas : la fermeture ramène d'où la chaîne est partie.
   const openOther = (next: SeerrSearchResult) => {
-    setStack((s) => [...s, current]);
     setCurrent(next);
     setSynopsisExpanded(false);
-  };
-  const back = () => {
-    const previous = stack[stack.length - 1];
-    if (!previous) return;
-    setStack((s) => s.slice(0, -1));
-    setCurrent(previous);
-    setSynopsisExpanded(false);
+    setRequestSuccess(false);
   };
 
   const actions = (
@@ -217,12 +213,7 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
         </div>
         {/* Accrochés en haut pendant qu'on défile : on ne cherche jamais la sortie. */}
         <div data-sheet-grip className="sticky top-0 z-30 h-0">
-          <div className="flex items-start justify-between p-3">
-            {stack.length > 0 ? (
-              <button type="button" onClick={back} aria-label={t("seer:backToTitle", { title: mediaTitle(stack[stack.length - 1]) })} className={PLATE}>
-                <ChevronLeft className="h-5 w-5" />
-              </button>
-            ) : <span />}
+          <div className="flex items-start justify-end p-3">
             <button type="button" onClick={handleClose} aria-label={t("seer:close")} className={PLATE}>
               <CloseIcon className="h-5 w-5" />
             </button>

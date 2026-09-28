@@ -14,10 +14,12 @@ import { memo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { SeerrMovieDetail, SeerrSearchResult, SeerrTvDetail } from "../../api/types";
 import type { AvailabilityVerdict } from "../../api/types-releases";
-import { backdropUrl, formatRuntime, mediaTitle, mediaYear, posterUrl } from "../../utils/media-helpers";
+import { backdropUrl, formatRuntime, getCurrentLanguage, mediaTitle, mediaYear, posterUrl } from "../../utils/media-helpers";
 import type { TitleStatus } from "../../utils/title-state";
 import { gapText, gapsFromSeasons } from "../../utils/series-gaps";
 import { useTitleGaps } from "../../hub/TitleStates";
+import { useTitleMarks } from "../../hub/UserMarks";
+import { MarkLine } from "../ui/MarkPlate";
 import { StateBadge } from "../ui/StateBadge";
 import { channelOf } from "../ui/ChannelLine";
 import { DashedCircleIcon, DiscIcon, PlayCircleIcon, StarIcon, TicketIcon, CalendarIcon } from "../ui/icons";
@@ -60,6 +62,7 @@ export const DetailHero = memo(function DetailHero({ item, detail, mediaType, st
   const ChannelIcon = channel ? CHANNEL_ICON[channel.kind] : null;
   // Les saisons de la fiche d'abord (fraîches) ; celles de la liste du serveur à défaut.
   const listed = useTitleGaps(item);
+  const marks = useTitleMarks({ id: item.id, mediaType });
   const gap = status?.state === "partial" ? gapText(gapsFromSeasons(tv?.mediaInfo?.seasons) ?? listed, t, "long") : null;
 
   // Les saisons listées font foi : TMDB annonce « 1 saison » pour Re:Zero, qui en liste quatre.
@@ -118,6 +121,11 @@ export const DetailHero = memo(function DetailHero({ item, detail, mediaType, st
                 <span key={g.id} className="rounded-full bg-[var(--vg-glass)] px-2.5 py-0.5 text-xs font-medium text-tentacle-on-media-primary">{g.name}</span>
               ))}
             </div>
+            {marks && (
+              <div className="mt-2.5">
+                <MarkLine marks={marks} bandSaysHere={status?.state === "available" || status?.state === "partial"} t={t} lang={getCurrentLanguage()} onMedia />
+              </div>
+            )}
           </div>
         </div>
 
