@@ -19,6 +19,24 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.19.0]
+### FR
+- **Vos titres se demandent depuis les cartes de Tentacle** : dans la recherche, les filmographies, les sagas et les recommandations, un titre absent de la bibliothèque dit où il en est (Demandé, En partie, Disponible, Masqué) et offre « Demander » en tête de ses actions. Un film part d'un geste, avec les mêmes contrôles que sur Vigie (droits, quota, doublons) ; une série ouvre le choix de ses saisons. Il faut le serveur Tentacle 1.22.0
+- **Le même survol que les cartes de Tentacle** sur les affiches de Vigie : « Demander » ou « Choisir les saisons » en tête du plateau, plus de gros bouton au centre ; puis la note en étoiles, Ma liste et « J'aime ». Pour un titre absent, Ma liste et le cœur sont posés dès son arrivée, et vos recommandations comptent le « J'aime » tout de suite. Au doigt, l'appui long ouvre les mêmes gestes en feuille
+- **La saga complète sur la fiche d'un film de Tentacle** : les volets que la bibliothèque n'a pas s'y rangent à leur place, avec leur état (Demandé, À venir, Pas sur le serveur), et ouvrent leur fiche Vigie
+- **Vigie se branche depuis la vue d'ensemble de Tentacle** : l'adresse de Jellyseerr (ou Overseerr) et sa clé dans un simple formulaire ; la connexion est testée, puis Vigie s'active tout seul
+- **Une affiche survolée s'ouvre de nouveau au clic** : le calque du survol avalait le clic
+- **L'appui long ne demande plus un titre tout seul** : le relâcher du doigt pouvait toucher « Demander » dans la feuille qui venait de s'ouvrir
+- Sur une affiche étroite, les boutons du plateau se resserrent au lieu de déborder
+### EN
+- **Request titles from Tentacle's cards**: in search, filmographies, sagas and recommendations, a title missing from the library tells where it stands (Requested, Partial, Available, Hidden) and offers "Request" first among its actions. A movie goes out in one gesture, with the same checks as in Vigie (rights, quota, duplicates); a series opens its season picker. Requires Tentacle server 1.22.0
+- **The same hover as Tentacle's cards** on Vigie posters: "Request" or "Pick seasons" leading the tray, no more big button in the center; then the star rating, My list and "Like". For a missing title, My list and the heart are set as soon as it arrives, and your recommendations count the "Like" right away. On touch, a long press opens the same gestures in a sheet
+- **The whole saga on a Tentacle movie page**: the installments the library lacks take their place, with their state (Requested, Upcoming, Not on the server), and open their Vigie page
+- **Vigie connects from Tentacle's overview**: the Jellyseerr (or Overseerr) address and its key in a simple form; the connection is tested, then Vigie turns itself on
+- **A hovered poster opens again on click**: the hover layer swallowed the click
+- **A long press no longer requests a title by itself**: lifting the finger could hit "Request" in the sheet that had just opened
+- On a narrow poster, the tray buttons tighten instead of overflowing
+
 ## [1.18.0]
 ### FR
 - **Chaque affiche dit où vous en êtes** : une plaque discrète en haut de l'affiche indique ce qui est déjà dans votre bibliothèque, déjà vu, dans Ma liste ou aimé, et votre propre note remplace celle de TMDB quand vous en avez donné une. Le meilleur résultat et l'en-tête de la fiche l'écrivent en toutes lettres
