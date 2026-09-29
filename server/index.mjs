@@ -3269,6 +3269,14 @@ async function pruneOncePerDay(prisma) {
   }
 }
 
+// server/jellyfin-auth.ts
+function cleanToken(token) {
+  return token.replace(/[^\x21-\x7E]/g, "").replace(/"/g, "");
+}
+function jellyfinAuthHeaders(apiKey) {
+  return { Authorization: `MediaBrowser Token="${cleanToken(apiKey)}"` };
+}
+
 // server/jellyfin-users.ts
 var ACCOUNTS_KEY = "seer:jellyfin:accounts";
 var ACCOUNTS_TTL_MS = 3e4;
@@ -3294,7 +3302,7 @@ async function fetchJellyfinAccounts(prisma) {
     const creds = await jellyfinCredentials(prisma);
     if (!creds) throw new Error("Jellyfin n'est pas configur\xE9 sur le serveur Tentacle");
     const res = await fetch(`${creds.url}/Users`, {
-      headers: { "X-Emby-Token": creds.apiKey },
+      headers: jellyfinAuthHeaders(creds.apiKey),
       signal: AbortSignal.timeout(15e3)
     });
     if (!res.ok) throw new Error(`Jellyfin GET /Users a r\xE9pondu ${res.status}`);
@@ -6719,7 +6727,7 @@ async function fetchLibrary(prisma, userId) {
     EnableUserData: "true"
   });
   const res = await fetch(`${creds.url}/Users/${encodeURIComponent(userId)}/Items?${params}`, {
-    headers: { "X-Emby-Token": creds.apiKey },
+    headers: jellyfinAuthHeaders(creds.apiKey),
     signal: AbortSignal.timeout(15e3)
   });
   if (!res.ok) throw new Error(`Jellyfin GET /Users/{id}/Items a r\xE9pondu ${res.status}`);

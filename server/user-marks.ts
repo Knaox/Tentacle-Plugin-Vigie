@@ -26,6 +26,7 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { cached } from "./cache";
+import { jellyfinAuthHeaders } from "./jellyfin-auth";
 import { jellyfinCredentials } from "./jellyfin-users";
 
 export const MARK_LIBRARY = 1;
@@ -123,7 +124,7 @@ async function fetchLibrary(prisma: PrismaClient, userId: string): Promise<Libra
     EnableUserData: "true",
   });
   const res = await fetch(`${creds.url}/Users/${encodeURIComponent(userId)}/Items?${params}`, {
-    headers: { "X-Emby-Token": creds.apiKey },
+    headers: jellyfinAuthHeaders(creds.apiKey),
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`Jellyfin GET /Users/{id}/Items a répondu ${res.status}`);

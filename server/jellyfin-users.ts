@@ -16,6 +16,7 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { cached, invalidate } from "./cache";
+import { jellyfinAuthHeaders } from "./jellyfin-auth";
 
 export interface JellyfinAccount {
   /** Identifiant Jellyfin tel que Jellyfin le rend (32 hexadécimaux). */
@@ -73,7 +74,7 @@ export async function fetchJellyfinAccounts(prisma: PrismaClient): Promise<Jelly
     const creds = await jellyfinCredentials(prisma);
     if (!creds) throw new Error("Jellyfin n'est pas configuré sur le serveur Tentacle");
     const res = await fetch(`${creds.url}/Users`, {
-      headers: { "X-Emby-Token": creds.apiKey },
+      headers: jellyfinAuthHeaders(creds.apiKey),
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) throw new Error(`Jellyfin GET /Users a répondu ${res.status}`);
