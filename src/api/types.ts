@@ -129,6 +129,8 @@ export interface SeerrMovieDetail {
   mediaInfo?: { status: number; requests?: { id: number; status: number }[] };
   /** La saga TMDB du film (Twilight, Harry Potter…), quand il en a une. */
   collection?: { id: number; name: string; posterPath?: string; backdropPath?: string };
+  /** Où le regarder, pays par pays (TMDB, relayé par Jellyseerr). */
+  watchProviders?: import("./types-watch").SeerrWatchProviders[];
   credits?: {
     cast?: SeerrCastMember[];
     crew?: SeerrCrewMember[];
@@ -159,6 +161,8 @@ export interface SeerrTvDetail {
   productionCompanies?: SeerrProductionCompany[];
   productionCountries?: { iso_3166_1: string; name: string }[];
   networks?: { id: number; name: string; logoPath?: string }[];
+  /** Où la regarder, pays par pays (TMDB, relayé par Jellyseerr). */
+  watchProviders?: import("./types-watch").SeerrWatchProviders[];
   createdBy?: { id: number; name: string; profilePath?: string }[];
   mediaInfo?: {
     status: number;

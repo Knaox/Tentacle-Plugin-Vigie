@@ -1,38 +1,21 @@
-import { useQuery } from "@tanstack/react-query";
-import { proxyFetch } from "../api/endpoints";
+import { useMemo } from "react";
 import type { MediaType } from "../api/types";
+import type { WatchProviderEntry } from "../components/detail/DetailInfo";
 import { getCurrentLanguage } from "../utils/media-helpers";
+import { pickWatchProviders } from "../utils/watch-providers";
+import { useMediaDetail } from "./useMediaDetail";
 
-interface WatchProvider {
-  logo_path: string;
-  provider_id: number;
-  provider_name: string;
-}
-
-interface WatchProviderResult {
-  flatrate?: WatchProvider[];
-  buy?: WatchProvider[];
-  rent?: WatchProvider[];
-}
-
-interface WatchProvidersResponse {
-  results: Record<string, WatchProviderResult>;
-}
-
-export function useWatchProviders(mediaType: MediaType, tmdbId: number) {
-  return useQuery({
-    queryKey: ["seer-watch-providers", mediaType, tmdbId],
-    queryFn: async () => {
-      const data = await proxyFetch<WatchProvidersResponse>(
-        `/api/v1/${mediaType}/${tmdbId}/watch/providers`,
-      );
-      const lang = getCurrentLanguage().toUpperCase();
-      const region = data.results[lang] ?? data.results["FR"] ?? data.results["US"];
-      if (!region) return [];
-      const providers = region.flatrate ?? region.buy ?? region.rent ?? [];
-      return providers.slice(0, 6);
-    },
-    enabled: tmdbId > 0,
-    staleTime: 24 * 60 * 60_000,
-  });
+/**
+ * Où regarder le titre, lu dans sa fiche : la même requête que la fiche, en
+ * cache — Jellyseerr n'a pas de route à part (cf. utils/watch-providers.ts).
+ */
+export function useWatchProviders(mediaType: MediaType, tmdbId: number): { data: WatchProviderEntry[] | undefined } {
+  const { data: detail } = useMediaDetail(mediaType, tmdbId);
+  const regions = detail?.watchProviders;
+  const data = useMemo(
+    () => regions && pickWatchProviders(regions, getCurrentLanguage())
+      .map((p) => ({ provider_id: p.id, provider_name: p.name, logo_path: p.logoPath })),
+    [regions],
+  );
+  return { data };
 }
