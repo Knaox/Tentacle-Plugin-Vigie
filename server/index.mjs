@@ -2456,19 +2456,24 @@ async function reconcileSeerrSeasons(prisma, config, tmdbId, removedSeasons) {
         body: JSON.stringify({ mediaType: "tv", seasons: remaining }),
         signal: AbortSignal.timeout(1e4)
       });
-      if (!put2.ok && put2.status !== 404) {
+      if (put2.status === 409) {
+        console.log(
+          `[SeerReconcile] tv#${tmdbId} : Jellyseerr ne modifie plus la demande #${req.id} (statut ${req.status}) \u2014 S${seasons.join(", S")} y restent list\xE9es`
+        );
+      } else if (!put2.ok && put2.status !== 404) {
         const text = await put2.text().catch(() => "");
         throw new Error(
           `Jellyseerr PUT /request/${req.id} returned ${put2.status} ${text.slice(0, 200)}`
+        );
+      } else {
+        console.log(
+          `[SeerReconcile] tv#${tmdbId} : demande Jellyseerr #${req.id} r\xE9duite aux saisons S${remaining.join(", S")}`
         );
       }
       await prisma.$executeRawUnsafe(
         `UPDATE seer_requests SET seasons = ? WHERE seerr_request_id = ?`,
         JSON.stringify(remaining),
         req.id
-      );
-      console.log(
-        `[SeerReconcile] tv#${tmdbId} : demande Jellyseerr #${req.id} r\xE9duite aux saisons S${remaining.join(", S")}`
       );
     }
   }
@@ -2861,7 +2866,7 @@ async function processNextRequest(prisma, config, skipIds) {
       body: JSON.stringify(seerrBody),
       signal: AbortSignal.timeout(15e3)
     });
-    if (!res.ok) {
+    if (!res.ok || res.status === 202) {
       const text = await res.text().catch(() => "");
       if (text.includes("No seasons available to request")) {
         const mediaStatus = detail?.mediaInfo?.status;
@@ -5131,7 +5136,7 @@ async function reassignSeerrRequestOwnership(config, seerrRequestId, targetUserI
       body: JSON.stringify(createBody2),
       signal: AbortSignal.timeout(15e3)
     });
-    if (!postRes2.ok) {
+    if (!postRes2.ok || postRes2.status === 202) {
       const text = await postRes2.text().catch(() => "");
       throw new Error(`re-create missing failed (${postRes2.status}): ${text.slice(0, 200)}`);
     }
@@ -5164,15 +5169,18 @@ async function reassignSeerrRequestOwnership(config, seerrRequestId, targetUserI
       return { method: "put" };
     }
   }
+  if (putRes.status === 409) {
+    throw new Error("Jellyseerr ne change plus l'auteur d'une demande d\xE9j\xE0 valid\xE9e \u2014 seulement celles en attente");
+  }
+  if (!req.media?.tmdbId || !req.media?.mediaType) {
+    throw new Error("missing media info for recreate");
+  }
   await fetch(`${config.seerrUrl}/api/v1/request/${seerrRequestId}`, {
     method: "DELETE",
     headers: { "X-Api-Key": config.seerrApiKey },
     signal: AbortSignal.timeout(1e4)
   }).catch(() => {
   });
-  if (!req.media?.tmdbId || !req.media?.mediaType) {
-    throw new Error("missing media info for recreate");
-  }
   const createBody = {
     mediaType: req.media.mediaType,
     mediaId: req.media.tmdbId,
@@ -5190,7 +5198,7 @@ async function reassignSeerrRequestOwnership(config, seerrRequestId, targetUserI
     body: JSON.stringify(createBody),
     signal: AbortSignal.timeout(15e3)
   });
-  if (!postRes.ok) {
+  if (!postRes.ok || postRes.status === 202) {
     const text = await postRes.text().catch(() => "");
     throw new Error(`recreate failed (${postRes.status}): ${text.slice(0, 200)}`);
   }
@@ -6904,47 +6912,27 @@ async function filterResultsByTags(seerrUrl, apiKey, results, blockedSet) {
   return { kept, blockedCount };
 }
 
+// server/proxy-allowlist.ts
+var READABLE = [
+  /^api\/v1\/discover\/(movies|tv)(\/[\w-]+)*$/,
+  /^api\/v1\/discover\/trending$/,
+  /^api\/v1\/search$/,
+  /^api\/v1\/(movie|tv)\/\d+(\/similar)?$/,
+  /^api\/v1\/tv\/\d+\/season\/\d+$/,
+  /^api\/v1\/person\/\d+(\/combined_credits)?$/,
+  /^api\/v1\/collection\/\d+$/
+];
+function isReadableSeerrPath(method, path) {
+  return (method === "GET" || method === "HEAD") && READABLE.some((re) => re.test(path));
+}
+
 // server/routes-proxy.ts
 var PROXY_TTL_MS = 5 * 6e4;
 function registerProxyRoutes(app, getConfig) {
-  app.post("/proxy", async (request, reply) => {
-    const body = request.body;
-    if (!body.url) return reply.status(400).send({ message: "url is required" });
-    const config = getConfig();
-    const seerrUrl = config.url?.replace(/\/$/, "");
-    if (!seerrUrl) return reply.status(503).send({ message: "Seerr not configured" });
-    let parsed;
-    try {
-      parsed = new URL(body.url);
-    } catch {
-      return reply.status(400).send({ message: "Invalid URL" });
-    }
-    if (parsed.origin !== new URL(seerrUrl).origin) {
-      return reply.status(403).send({ message: "Proxy restricted to configured Seerr instance" });
-    }
-    try {
-      const res = await fetch(body.url, {
-        method: body.method || "GET",
-        headers: body.headers,
-        body: body.body ? JSON.stringify(body.body) : void 0,
-        signal: AbortSignal.timeout(1e4)
-      });
-      const text = await res.text();
-      let json;
-      try {
-        json = JSON.parse(text);
-      } catch {
-        json = null;
-      }
-      return { status: res.status, ok: res.ok, data: json ?? text };
-    } catch (err) {
-      return reply.status(502).send({ message: err instanceof Error ? err.message : "Proxy failed" });
-    }
-  });
-  app.all("/seerr/*", async (request, reply) => {
+  app.get("/seerr/*", async (request, reply) => {
     const wildcard = request.params["*"];
-    if (!wildcard || !wildcard.startsWith("api/v1/")) {
-      return reply.status(400).send({ message: "Only api/v1/* paths are allowed" });
+    if (!wildcard || !isReadableSeerrPath(request.method, wildcard)) {
+      return reply.status(403).send({ message: "Only catalogue reads are proxied" });
     }
     const config = getConfig();
     const seerrUrl = config.url?.replace(/\/$/, "");
@@ -6974,11 +6962,6 @@ function registerProxyRoutes(app, getConfig) {
     const targetUrl = `${seerrUrl}/${wildcard}${qs ? `?${qs}` : ""}`;
     const headers = { "X-Api-Key": apiKey };
     if (query._lang) headers["Accept-Language"] = query._lang;
-    let reqBody;
-    if (request.body && ["POST", "PUT", "PATCH"].includes(request.method)) {
-      headers["Content-Type"] = "application/json";
-      reqBody = JSON.stringify(request.body);
-    }
     const cacheable = request.method === "GET" && isFilterable;
     const cacheKey = cacheable ? `seer:proxy:${targetUrl}:${headers["Accept-Language"] ?? ""}` : null;
     if (cacheKey) {
@@ -6992,7 +6975,6 @@ function registerProxyRoutes(app, getConfig) {
       const response = await fetch(targetUrl, {
         method: request.method,
         headers,
-        body: reqBody,
         signal: AbortSignal.timeout(15e3)
       });
       const ct = response.headers.get("content-type");
