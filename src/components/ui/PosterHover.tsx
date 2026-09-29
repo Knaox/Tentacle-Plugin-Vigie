@@ -23,6 +23,13 @@
  * rien à flouter. Monté au survol seulement, par l'appelant ; les fondus ne
  * touchent que l'opacité et la transformation (classes `vg-hover-*`, cf.
  * plugin.tsx).
+ *
+ * Le calque est posé PAR-DESSUS le bouton de l'affiche, sans en être (un
+ * bouton ne peut en contenir d'autres) : le voile laisse donc passer le clic
+ * (`pointer-events: none`), et seuls les étoiles et le plateau le prennent.
+ * Sinon, une affiche survolée — toute affiche qu'on clique à la souris —
+ * n'ouvrait plus sa fiche. Chez Tentacle, le calque vit DANS la carte et le
+ * clic y remonte : même effet, autre chemin.
  */
 
 import type { KeyboardEvent, MouseEvent } from "react";
@@ -83,27 +90,31 @@ export function PosterHover({ gestures, name, visible, band }: {
   const { primary, watchlist, rating } = gestures;
   // Entrée/Espace sur un bouton du calque ne remontent pas à la carte.
   const stopKeys = (e: KeyboardEvent) => e.stopPropagation();
+  // Les gestes ne prennent le pointeur que calque visible — jamais pendant le fondu de sortie.
+  const live = visible ? "auto" : "none";
 
   return (
     // La géométrie de l'affiche, moins son bandeau d'état (h-6) quand il y en a un.
     <div className="pointer-events-none absolute inset-x-0 top-0 aspect-[2/3]">
       <div
-        className={`vg-hover absolute inset-x-0 top-0 overflow-hidden ${band ? "bottom-6 rounded-t-xl" : "bottom-0 rounded-xl"}`}
+        className={`vg-hover pointer-events-none absolute inset-x-0 top-0 overflow-hidden ${band ? "bottom-6 rounded-t-xl" : "bottom-0 rounded-xl"}`}
         data-shown={visible}
         onKeyDown={stopKeys}
-        style={{ pointerEvents: visible ? "auto" : "none" }}
       >
-        <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: VEIL }} />
+        <div aria-hidden className="absolute inset-0" style={{ background: VEIL }} />
 
         <div className="vg-hover-rise absolute inset-x-0 bottom-0 flex flex-col items-stretch gap-1.5 px-2 pb-2.5" data-shown={visible}>
-          <div className="flex justify-center" onClick={stop}>
-            <StarsInput value={rating.value} onRate={rating.rate} onClear={rating.clear} size="sm" tone="onMedia" />
+          <div className="flex justify-center">
+            <div onClick={stop} style={{ pointerEvents: live }}>
+              <StarsInput value={rating.value} onRate={rating.rate} onClear={rating.clear} size="sm" tone="onMedia" />
+            </div>
           </div>
           <div className="flex justify-center">
             <div
               role="toolbar"
               aria-label={name}
               onClick={stop}
+              style={{ pointerEvents: live }}
               className="flex min-w-0 max-w-full items-center gap-0.5 rounded-full border border-[rgba(255,255,255,0.15)] bg-[rgba(255,255,255,0.12)] p-0.5 shadow-[0_4px_14px_rgba(0,0,0,0.35)]"
             >
               {primary && <PrimaryButton primary={primary} name={name} />}
