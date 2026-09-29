@@ -19,6 +19,24 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.19.1]
+### FR
+- **Vigie parle de nouveau à Jellyfin 12** : depuis la mise à jour de Jellyfin, la page d'administration affichait « Jellyfin injoignable … a répondu 401 », la synchro des comptes ne voyait plus Jellyfin, et les affiches perdaient en silence « dans la bibliothèque », « vu », « Ma liste » et le favori
+- **Sécurité** : le relais vers Jellyseerr ne laisse plus passer que la lecture du catalogue. Tout compte connecté pouvait jusqu'ici atteindre des réglages et des actions réservés à l'administration, clés d'API comprises. Mettez à jour sans attendre
+- **Prêt pour Jellyseerr / Seerr 3.5** : retirer une partie des saisons d'une série n'échoue plus en boucle, et la réattribution des demandes ne risque plus d'en perdre une
+- **« Disponible sur » s'affiche enfin** sur la fiche d'un titre, avec les plateformes de votre pays
+- **Le tri par titre des séries et des animés trie vraiment** : il restait dans l'ordre de popularité
+- **En anglais, le calendrier et ses plateformes ne sont plus vides** : la langue « en » partait comme un pays
+- Une demande dont toutes les saisons étaient déjà demandées ne reste plus « envoyée » pour toujours
+### EN
+- **Vigie talks to Jellyfin 12 again**: since the Jellyfin update, the admin page showed "Jellyfin unreachable … answered 401", account sync no longer saw Jellyfin, and posters silently lost "in library", "watched", "My list" and favorite
+- **Security**: the Jellyseerr relay now only lets catalogue reads through. Until now any signed-in account could reach settings and actions reserved to administrators, API keys included. Update right away
+- **Ready for Jellyseerr / Seerr 3.5**: removing some seasons of a series no longer fails in a loop, and reassigning requests can no longer lose one
+- **"Available on" finally shows** on a title page, with your country's platforms
+- **Sorting series and anime by title really sorts**: it stayed in popularity order
+- **In English, the calendar and its platforms are no longer empty**: the "en" language was sent as a country
+- A request whose seasons were all already requested no longer stays "sent" forever
+
 ## [1.19.0]
 ### FR
 - **Vos titres se demandent depuis les cartes de Tentacle** : dans la recherche, les filmographies, les sagas et les recommandations, un titre absent de la bibliothèque dit où il en est (Demandé, En partie, Disponible, Masqué) et offre « Demander » en tête de ses actions. Un film part d'un geste, avec les mêmes contrôles que sur Vigie (droits, quota, doublons) ; une série ouvre le choix de ses saisons. Il faut le serveur Tentacle 1.22.0
