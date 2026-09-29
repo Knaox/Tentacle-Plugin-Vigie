@@ -8,15 +8,14 @@
 import { proxyFetch } from "./endpoints";
 import { getCurrentLanguage, langParam } from "../utils/media-helpers";
 import { discoverSortBy } from "../utils/discover-sort";
+import { regionForLanguage } from "../utils/region";
 import type {
   DiscoverFilters, DiscoverMediaType, SeerrPagedResponse,
   SeerrMovieDetail, SeerrTvDetail,
 } from "./types";
 
 function getWatchRegion(): string {
-  const lang = getCurrentLanguage();
-  const map: Record<string, string> = { fr: "FR", en: "US", de: "DE", es: "ES", it: "IT", pt: "BR", ja: "JP" };
-  return map[lang] ?? "US";
+  return regionForLanguage(getCurrentLanguage(), "US");
 }
 
 /* ── Search (Seerr proxy) ────────────────────────────────────────── */

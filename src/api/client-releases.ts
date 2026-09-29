@@ -4,6 +4,7 @@
 
 import { backendFetch } from "./seer-client";
 import { getCurrentLanguage } from "../utils/media-helpers";
+import { regionForLanguage } from "../utils/region";
 import type { MediaType } from "./types";
 import type {
   AvailabilityResponse, RequestsProgressResponse, QueueResponse,
@@ -12,12 +13,11 @@ import type {
 
 /**
  * Les dates de sortie sont propres à un pays. Faute de réglage dédié, la langue
- * de l'interface est le meilleur indice : « fr » → dates françaises.
+ * de l'interface est le meilleur indice : « fr » → dates françaises, « en » →
+ * américaines (« EN » n'est pas un pays : cf. utils/region.ts).
  */
 export function currentRegion(): string {
-  const lang = getCurrentLanguage();
-  const region = lang.includes("-") ? lang.split("-")[1] : lang;
-  return /^[a-z]{2}$/i.test(region) ? region.toUpperCase() : "FR";
+  return regionForLanguage(getCurrentLanguage(), "FR");
 }
 
 /** Un seul appel pour tout un écran de grille, plutôt qu'un par carte. */
