@@ -7,6 +7,7 @@
 
 import { proxyFetch } from "./endpoints";
 import { getCurrentLanguage, langParam } from "../utils/media-helpers";
+import { discoverSortBy } from "../utils/discover-sort";
 import type {
   DiscoverFilters, DiscoverMediaType, SeerrPagedResponse,
   SeerrMovieDetail, SeerrTvDetail,
@@ -39,8 +40,10 @@ export async function searchMedia(
  * on TMDB. Sending language=fr would filter for French-original content
  * only, hiding all Japanese anime, English movies, etc.
  *
- * Display language is handled via the Accept-Language header in proxyFetch.
  * Original language filter is only sent when the user explicitly sets it.
+ * Display language: Seerr ignores Accept-Language here — `req.locale` comes
+ * from the API key user's settings, or the instance default (measured on
+ * 3.4.1: fr and en return the same titles). Only search/details honour `language`.
  */
 export async function discoverMedia(
   mediaType: DiscoverMediaType,
@@ -57,15 +60,8 @@ export async function discoverMedia(
   const params: Record<string, string> = {};
   params.page = String(page);
 
-  // Sort — Seerr sends the full "field.order" string as sortBy
-  const sortField = (() => {
-    if (filters.sortBy === "release_date") {
-      return seerrType === "movies" ? "primary_release_date" : "first_air_date";
-    }
-    if (filters.sortBy === "title") return "original_title";
-    return filters.sortBy;
-  })();
-  params.sortBy = `${sortField}.${filters.sortOrder}`;
+  // Sort — le champ « field.order » propre au type (cf. utils/discover-sort.ts)
+  params.sortBy = discoverSortBy(seerrType, filters.sortBy, filters.sortOrder);
 
   // Genres — comma separated
   if (filters.genres.length > 0) {
