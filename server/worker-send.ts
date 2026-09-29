@@ -112,7 +112,10 @@ export async function processNextRequest(
       signal: AbortSignal.timeout(15_000),
     });
 
-    if (!res.ok) {
+    // Seerr répond 202 — pas une erreur — quand il n'a RIEN créé : toutes les
+    // saisons sont déjà demandées ou présentes (NoSeasonsAvailableError). Lu
+    // comme un succès, ce 202 laissait la demande « envoyée » sans identifiant.
+    if (!res.ok || res.status === 202) {
       const text = await res.text().catch(() => "");
       // Jellyseerr a déjà toutes les saisons demandées (local désynchronisé) :
       // ce n'est pas un échec, la demande est déjà satisfaite. On reflète l'état
