@@ -58,5 +58,63 @@
   "titles": {
     "state": "/titles/state",
     "request": "/titles/request"
+  },
+  "setup": {
+    "title": {
+      "fr": "Connexion à Jellyseerr",
+      "en": "Jellyseerr connection"
+    },
+    "description": {
+      "fr": "L'adresse de votre Jellyseerr ou Overseerr, et sa clé API. Vigie s'active dès que le test réussit.",
+      "en": "Your Jellyseerr or Overseerr address and its API key. Vigie turns on as soon as the test passes."
+    },
+    "fields": [
+      {
+        "key": "url",
+        "kind": "url",
+        "required": true,
+        "label": {
+          "fr": "Adresse de Jellyseerr",
+          "en": "Jellyseerr address"
+        },
+        "placeholder": "http://jellyseerr:5055",
+        "hint": {
+          "fr": "Telle que le serveur Tentacle la joint, port compris.",
+          "en": "As the Tentacle server reaches it, port included."
+        }
+      },
+      {
+        "key": "apiKey",
+        "kind": "secret",
+        "required": true,
+        "label": {
+          "fr": "Clé API",
+          "en": "API key"
+        },
+        "hint": {
+          "fr": "Dans Jellyseerr : Paramètres → Général.",
+          "en": "In Jellyseerr: Settings → General."
+        }
+      }
+    ],
+    "test": "/admin/test-connection",
+    "success": {
+      "fr": "Connecté à Jellyseerr {{version}}",
+      "en": "Connected to Jellyseerr {{version}}"
+    },
+    "errors": {
+      "bad-url": {
+        "fr": "Adresse invalide : elle commence par http:// ou https://",
+        "en": "Invalid address: it starts with http:// or https://"
+      },
+      "unreachable": {
+        "fr": "Jellyseerr ne répond pas à cette adresse",
+        "en": "Jellyseerr does not answer at this address"
+      },
+      "invalid-key": {
+        "fr": "Jellyseerr répond, mais refuse cette clé API",
+        "en": "Jellyseerr answers, but rejects this API key"
+      }
+    }
   }
 }
