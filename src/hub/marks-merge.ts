@@ -3,9 +3,10 @@
 /* ------------------------------------------------------------------ */
 
 /*
- * Les marques que rend le serveur (`/marks`), précisées par deux listes de
- * Tentacle : les notes du compte et les titres mis de côté jusqu'à leur
- * arrivée. Pur, pour les tests : UserMarks.tsx le branche sur les requêtes.
+ * Les marques que rend le serveur (`/marks`), précisées par trois listes de
+ * Tentacle : les notes du compte, les titres mis de côté jusqu'à leur
+ * arrivée, et ceux qu'on aime en l'attendant (le cœur posé à l'arrivée). Pur,
+ * pour les tests : UserMarks.tsx le branche sur les requêtes.
  */
 
 import type { CoreRating } from "../hooks/useTitleGestures";
@@ -56,12 +57,14 @@ export function titleScores(entries: readonly CoreRating[]): Map<string, number>
 /**
  * Les marques du serveur, précisées par les listes de Tentacle quand elles
  * sont là : leur note remplace celle du serveur (qui date d'une minute au
- * plus), et un titre mis de côté porte sa marque.
+ * plus), un titre mis de côté porte sa marque, et un titre aimé en attendant
+ * son arrivée porte le cœur.
  */
 export function mergeMarks(
   entries: readonly MarkEntry[],
   ratings: readonly CoreRating[] | null | undefined,
   pending: readonly string[] | null | undefined,
+  likes?: readonly string[] | null,
 ): Map<string, TitleMarks> {
   const map = new Map<string, TitleMarks>();
   for (const [type, id, bits, score] of entries) map.set(`${type}:${id}`, toMarks(bits, score));
@@ -71,5 +74,6 @@ export function mergeMarks(
     for (const [key, score] of scores) if (!map.has(key)) map.set(key, { ...EMPTY, score });
   }
   for (const key of pending ?? []) map.set(key, { ...(map.get(key) ?? EMPTY), pending: true });
+  for (const key of likes ?? []) map.set(key, { ...(map.get(key) ?? EMPTY), liked: true });
   return map;
 }

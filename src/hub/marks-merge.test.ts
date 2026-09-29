@@ -34,3 +34,15 @@ test("un titre noté ou mis de côté porte ses marques, même absent du serveur
   assert.equal(map.get("movie:11")?.score, 4);
   assert.equal(map.get("movie:11")?.pending, true);
 });
+
+test("un titre aimé en attendant son arrivée porte le cœur, sans rien perdre du reste", () => {
+  const map = mergeMarks([["movie", 603, 1, 0]], null, ["tv:42"], ["tv:42", "tv:7"]);
+  assert.equal(map.get("tv:42")?.liked, true);
+  assert.equal(map.get("tv:42")?.pending, true);
+  assert.deepEqual(map.get("tv:7"), { library: false, watched: false, watchlist: false, liked: true, score: null, pending: false });
+  assert.equal(map.get("movie:603")?.liked, false);
+});
+
+test("sans la liste des titres aimés (Tentacle d'avant ces routes), le cœur du serveur reste", () => {
+  assert.equal(mergeMarks([["tv", 1399, 8, 0]], null, null).get("tv:1399")?.liked, true);
+});

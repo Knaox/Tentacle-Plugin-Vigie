@@ -9,22 +9,25 @@
  * Vigie rouvert, doit dire « Vu ». Une réponse absente (serveur Tentacle ou
  * Jellyfin injoignable) ne marque simplement rien.
  *
- * Deux listes de Tentacle la précisent, parce que les gestes de l'affiche les
- * réécrivent sur-le-champ (cf. useTitleGestures) : les NOTES du compte, et
- * les titres mis de côté jusqu'à leur arrivée (« Ma liste à l'arrivée »).
- * Chargées, elles font foi : la note qu'on vient de poser se voit aussitôt.
+ * Trois listes de Tentacle la précisent, parce que les gestes de l'affiche les
+ * réécrivent sur-le-champ (cf. useTitleGestures) : les NOTES du compte, les
+ * titres mis de côté jusqu'à leur arrivée (« Ma liste à l'arrivée ») et ceux
+ * qu'on aime en l'attendant (le cœur posé à l'arrivée). Chargées, elles font
+ * foi : la note qu'on vient de poser se voit aussitôt. Un Tentacle d'avant la
+ * liste des titres aimés ne la rend pas : l'affiche n'offre alors pas de cœur.
  */
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { backendFetch } from "../api/seer-client";
 import { tentacleApiFetch } from "../utils/tentacle-fetch";
-import { CORE_RATINGS_KEY, MARKS_KEY, PENDING_KEY, type CoreRating } from "../hooks/useTitleGestures";
+import { CORE_RATINGS_KEY, MARKS_KEY, PENDING_KEY, PENDING_LIKES_KEY, type CoreRating } from "../hooks/useTitleGestures";
 import { mergeMarks, type MarkEntry, type TitleMarks } from "./marks-merge";
 
 export { toMarks, type TitleMarks } from "./marks-merge";
 
 const MarksContext = createContext<ReadonlyMap<string, TitleMarks>>(new Map());
+const LikesContext = createContext(false);
 
 export function UserMarksProvider({ children }: { children: ReactNode }) {
   const { data } = useQuery({
@@ -45,11 +48,26 @@ export function UserMarksProvider({ children }: { children: ReactNode }) {
     queryFn: () => tentacleApiFetch<string[]>("/api/watchlist/pending"),
     staleTime: 60_000,
   });
+  const { data: likes } = useQuery({
+    queryKey: PENDING_LIKES_KEY,
+    queryFn: () => tentacleApiFetch<string[]>("/api/likes/pending"),
+    staleTime: 60_000,
+  });
+  const likesList = Array.isArray(likes) ? likes : null;
   const map = useMemo(
-    () => mergeMarks(data?.items ?? [], Array.isArray(ratings) ? ratings : null, Array.isArray(pending) ? pending : null),
-    [data, ratings, pending],
+    () => mergeMarks(data?.items ?? [], Array.isArray(ratings) ? ratings : null, Array.isArray(pending) ? pending : null, likesList),
+    [data, ratings, pending, likesList],
   );
-  return <MarksContext.Provider value={map}>{children}</MarksContext.Provider>;
+  return (
+    <MarksContext.Provider value={map}>
+      <LikesContext.Provider value={likesList !== null}>{children}</LikesContext.Provider>
+    </MarksContext.Provider>
+  );
+}
+
+/** Tentacle sait-il aimer un titre par son tmdb ? Sinon, pas de cœur sur les affiches. */
+export function useLikesAvailable(): boolean {
+  return useContext(LikesContext);
 }
 
 /** Les marques d'un titre ; `null` quand le compte n'en a fait encore rien. */

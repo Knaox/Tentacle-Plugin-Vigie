@@ -12,7 +12,9 @@
  *   3. EN TÊTE de la capsule, l'action primaire : « Demander », « Choisir les
  *      saisons » au dégradé de marque — seule couleur du survol —, ou
  *      « Regarder », en verre discret, pour un titre déjà là ; puis « Ma
- *      liste », tout de suite ou à son arrivée. Rien au centre de l'affiche.
+ *      liste » et « J'aime », tout de suite ou à son arrivée — le signet et
+ *      le cœur des cartes de Tentacle, aux mêmes tracés. Rien au centre de
+ *      l'affiche.
  *
  * Les jumeaux de `CardTrayPrimaryButton` et `CardTrayButton` du cœur : mêmes
  * gabarits (28 px, resserrables jusqu'à 22 px ; glyphe de 14 px), mêmes tons,
@@ -35,7 +37,7 @@
 import type { KeyboardEvent, MouseEvent } from "react";
 import type { PosterGestures, PosterPrimary } from "../../hooks/usePosterGestures";
 import { StarsInput } from "./StarsInput";
-import { BookmarkIcon, BookmarkOutlineIcon, PlayIcon, PlusBoldIcon } from "./icons";
+import { CardBookmarkGlyph, CardHeartGlyph, PlayIcon, PlusBoldIcon } from "./icons";
 
 /* Le voile des cartes de Tentacle (`--card-hover-veil`) : noir dans les deux thèmes. */
 const VEIL = "linear-gradient(180deg, rgba(var(--scrim-media-rgb, 0, 0, 0), 0.1) 0%, rgba(var(--scrim-media-rgb, 0, 0, 0), 0.3) 38%, rgba(var(--scrim-media-rgb, 0, 0, 0), 0.9) 100%)";
@@ -87,7 +89,7 @@ export function PosterHover({ gestures, name, visible, band }: {
   /** Un bandeau d'état au pied de l'affiche : le calque s'arrête au-dessus, il reste lisible. */
   band: boolean;
 }) {
-  const { primary, watchlist, rating } = gestures;
+  const { primary, watchlist, favorite, rating } = gestures;
   // Entrée/Espace sur un bouton du calque ne remontent pas à la carte.
   const stopKeys = (e: KeyboardEvent) => e.stopPropagation();
   // Les gestes ne prennent le pointeur que calque visible — jamais pendant le fondu de sortie.
@@ -130,8 +132,25 @@ export function PosterHover({ gestures, name, visible, band }: {
                     : "text-tentacle-on-media-secondary hover:bg-[rgba(255,255,255,0.1)] hover:text-tentacle-on-media-primary"
                 }`}
               >
-                {watchlist.active ? <BookmarkIcon className={TRAY_ICON} /> : <BookmarkOutlineIcon className={TRAY_ICON} />}
+                <CardBookmarkGlyph className={TRAY_ICON} filled={watchlist.active} />
               </button>
+              {favorite && (
+                <button
+                  type="button"
+                  onClick={(e) => { stop(e); favorite.toggle(); }}
+                  aria-label={favorite.label}
+                  aria-pressed={favorite.active}
+                  title={favorite.label}
+                  className={`${TRAY_BUTTON} ${
+                    // Le cœur actif prend l'accent de marque, comme sur le plateau de Tentacle.
+                    favorite.active
+                      ? "bg-[rgba(255,255,255,0.15)] text-[var(--brand-accent)]"
+                      : "text-tentacle-on-media-secondary hover:bg-[rgba(255,255,255,0.1)] hover:text-tentacle-on-media-primary"
+                  }`}
+                >
+                  <CardHeartGlyph className={TRAY_ICON} filled={favorite.active} />
+                </button>
+              )}
             </div>
           </div>
         </div>

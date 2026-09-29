@@ -5,7 +5,7 @@
 /*
  * L'appui long d'une affiche ouvre cette feuille : exactement ce que le
  * survol offre à la souris (usePosterGestures), dans le même ordre — l'action
- * primaire, la note, « Ma liste » — plus la fiche, à un toucher. Au téléphone
+ * primaire, la note, « Ma liste », « J'aime » — plus la fiche, à un toucher. Au téléphone
  * le « + » des affiches restait sinon hors d'atteinte : on ne pouvait
  * demander qu'en ouvrant la fiche.
  *
@@ -23,7 +23,7 @@ import { CTA_SECONDARY, CTA_SIZE_LG } from "../styles/cta";
 import { Sheet } from "./ui/Sheet";
 import { StateBadge } from "./ui/StateBadge";
 import { StarsInput } from "./ui/StarsInput";
-import { BookmarkIcon, BookmarkOutlineIcon, PlayIcon, PlusIcon } from "./ui/icons";
+import { BookmarkIcon, BookmarkOutlineIcon, CardHeartGlyph, PlayIcon, PlusIcon } from "./ui/icons";
 
 export function PosterActionsSheet({ item, onClose, onOpenDetail, onQuickRequest }: {
   item: SeerrSearchResult;
@@ -34,7 +34,7 @@ export function PosterActionsSheet({ item, onClose, onOpenDetail, onQuickRequest
   const { t } = useTranslation("seer");
   const status = useTitleStatus(item);
   const marks = useTitleMarks(item);
-  const { primary, watchlist, rating } = usePosterGestures(item, status, marks, onQuickRequest);
+  const { primary, watchlist, favorite, rating } = usePosterGestures(item, status, marks, onQuickRequest);
   const title = mediaTitle(item) || t("seer:untitled");
   const year = mediaYear(item);
   const poster = posterUrl(item.posterPath, "w185");
@@ -94,6 +94,25 @@ export function PosterActionsSheet({ item, onClose, onOpenDetail, onQuickRequest
           : <BookmarkOutlineIcon className="h-5 w-5 shrink-0 text-tentacle-text-secondary" />}
         {watchlist.label}
       </button>
+
+      {favorite && (
+        <button
+          type="button"
+          onClick={favorite.toggle}
+          aria-pressed={favorite.active}
+          className={`mt-2 flex min-h-[52px] w-full items-center gap-3 rounded-2xl px-4 text-left text-sm font-semibold ring-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-accent-rgb),0.6)] ${
+            favorite.active
+              ? "bg-[rgba(var(--brand-accent-rgb),0.14)] text-tentacle-text-primary ring-[rgba(var(--brand-accent-rgb),0.45)]"
+              : "bg-tentacle-fill-subtle text-tentacle-text-primary ring-tentacle-border-subtle hover:bg-tentacle-fill-soft"
+          }`}
+        >
+          <CardHeartGlyph
+            className={`h-5 w-5 shrink-0 ${favorite.active ? "text-[var(--brand-accent-light)]" : "text-tentacle-text-secondary"}`}
+            filled={favorite.active}
+          />
+          {favorite.label}
+        </button>
+      )}
     </Sheet>
   );
 }

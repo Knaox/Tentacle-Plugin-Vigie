@@ -12,8 +12,10 @@
  *     geste), « Choisir les saisons » (une série pas entièrement là) — ou,
  *     pour un titre déjà là, « Regarder » dans Tentacle ;
  *   - la note, en étoiles (le moteur de notes de Tentacle) ;
- *   - « Ma liste » : tout de suite pour un titre de la bibliothèque, à son
- *     arrivée pour un titre absent.
+ *   - « Ma liste », puis « J'aime » (le cœur) : tout de suite pour un titre
+ *     de la bibliothèque, à son arrivée pour un titre absent — le goût des
+ *     recommandations de Tentacle compte le cœur aussitôt. Pas de cœur si
+ *     Tentacle ne sait pas encore aimer un titre par son tmdb.
  */
 
 import { useTranslation } from "react-i18next";
@@ -22,7 +24,8 @@ import type { TitleMarks } from "../hub/UserMarks";
 import type { TitleStatus } from "../utils/title-state";
 import { navigateToMedia } from "../utils/navigate-media";
 import { useToast } from "./useToast";
-import { useRateTitle, useTitleWatchlist } from "./useTitleGestures";
+import { useLikesAvailable } from "../hub/UserMarks";
+import { useRateTitle, useTitleFavorite, useTitleWatchlist } from "./useTitleGestures";
 
 export interface PosterPrimary {
   kind: "request" | "seasons" | "watch";
@@ -30,15 +33,19 @@ export interface PosterPrimary {
   run: () => void;
 }
 
+/** Une bascule de l'affiche : tout de suite pour un titre de la bibliothèque, sinon à son arrivée. */
+export interface PosterToggle {
+  inLibrary: boolean;
+  active: boolean;
+  label: string;
+  toggle: () => void;
+}
+
 export interface PosterGestures {
   primary: PosterPrimary | null;
-  watchlist: {
-    /** Dans la bibliothèque : Ma liste tout de suite ; sinon, à son arrivée. */
-    inLibrary: boolean;
-    active: boolean;
-    label: string;
-    toggle: () => void;
-  };
+  watchlist: PosterToggle;
+  /** Le cœur ; `null` quand Tentacle ne sait pas aimer un titre par son tmdb. */
+  favorite: PosterToggle | null;
   rating: {
     value: number | null;
     rate: (score: number) => void;
@@ -55,6 +62,8 @@ export function usePosterGestures(
   const { t } = useTranslation("seer");
   const toast = useToast();
   const watchlist = useTitleWatchlist();
+  const favorites = useTitleFavorite();
+  const likesAvailable = useLikesAvailable();
   const ratings = useRateTitle();
 
   const here = status?.state === "available" || status?.state === "partial";
@@ -87,10 +96,27 @@ export function usePosterGestures(
     });
   };
 
+  const liked = marks?.liked === true;
+  const favoriteLabel = inLibrary
+    ? t(liked ? "seer:gestureRemoveFromFavorites" : "seer:gestureAddToFavorites")
+    : t(liked ? "seer:gestureRemoveFavoriteOnArrival" : "seer:gestureAddFavoriteOnArrival");
+  const favoriteFailed = () => toast.show("error", t("seer:gestureFavoriteFailed"));
+  const toggleFavorite = () => {
+    if (liked) {
+      favorites.remove.mutate(item, { onError: favoriteFailed });
+      return;
+    }
+    favorites.add.mutate(item, {
+      onSuccess: (res) => toast.show("success", t(res.state === "favorited" ? "seer:gestureFavoriteAdded" : "seer:gestureFavoriteOnArrivalAdded")),
+      onError: favoriteFailed,
+    });
+  };
+
   const ratingFailed = () => toast.show("error", t("seer:gestureRatingFailed"));
   return {
     primary,
     watchlist: { inLibrary, active, label, toggle },
+    favorite: likesAvailable ? { inLibrary, active: liked, label: favoriteLabel, toggle: toggleFavorite } : null,
     rating: {
       value: marks?.score ?? null,
       rate: (score) => ratings.rate.mutate({ item, score }, { onError: ratingFailed }),
