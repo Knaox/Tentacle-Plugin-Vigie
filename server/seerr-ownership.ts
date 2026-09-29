@@ -87,7 +87,8 @@ export async function reassignSeerrRequestOwnership(
       method: "POST", headers, body: JSON.stringify(createBody),
       signal: AbortSignal.timeout(15_000),
     });
-    if (!postRes.ok) {
+    // 202 : « No seasons available to request » — Seerr n'a RIEN créé.
+    if (!postRes.ok || postRes.status === 202) {
       const text = await postRes.text().catch(() => "");
       throw new Error(`re-create missing failed (${postRes.status}): ${text.slice(0, 200)}`);
     }
@@ -122,16 +123,23 @@ export async function reassignSeerrRequestOwnership(
       return { method: "put" };
     }
   }
+  // Seerr 3.5 ne modifie plus qu'une demande EN ATTENTE (seerr#3385). Le repli
+  // ci-dessous la PERDRAIT : l'originale supprimée, Seerr refuse de redemander
+  // les saisons d'une série déjà arrivée (202 « No seasons available »). Elle
+  // reste donc à son auteur actuel.
+  if (putRes.status === 409) {
+    throw new Error("Jellyseerr ne change plus l'auteur d'une demande déjà validée — seulement celles en attente");
+  }
+  // Vérifié AVANT de supprimer : sans ces infos, rien ne pourrait la recréer.
+  if (!req.media?.tmdbId || !req.media?.mediaType) {
+    throw new Error("missing media info for recreate");
+  }
 
   // 2) Fallback : supprimer la request (sans toucher au media), recréer avec userId
   await fetch(`${config.seerrUrl}/api/v1/request/${seerrRequestId}`, {
     method: "DELETE", headers: { "X-Api-Key": config.seerrApiKey },
     signal: AbortSignal.timeout(10_000),
   }).catch(() => {});
-
-  if (!req.media?.tmdbId || !req.media?.mediaType) {
-    throw new Error("missing media info for recreate");
-  }
   const createBody: Record<string, unknown> = {
     mediaType: req.media.mediaType,
     mediaId: req.media.tmdbId,
@@ -148,7 +156,8 @@ export async function reassignSeerrRequestOwnership(
     method: "POST", headers, body: JSON.stringify(createBody),
     signal: AbortSignal.timeout(15_000),
   });
-  if (!postRes.ok) {
+  // 202 : « No seasons available to request » — Seerr n'a RIEN créé.
+  if (!postRes.ok || postRes.status === 202) {
     const text = await postRes.text().catch(() => "");
     throw new Error(`recreate failed (${postRes.status}): ${text.slice(0, 200)}`);
   }

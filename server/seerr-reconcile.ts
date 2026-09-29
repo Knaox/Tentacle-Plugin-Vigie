@@ -80,20 +80,31 @@ export async function reconcileSeerrSeasons(
         body: JSON.stringify({ mediaType: "tv", seasons: remaining }),
         signal: AbortSignal.timeout(10_000),
       });
-      if (!put.ok && put.status !== 404) {
+      if (put.status === 409) {
+        // Seerr 3.5 ne modifie plus qu'une demande EN ATTENTE (seerr#3385) :
+        // validée ou terminée, elle garde ses saisons. Terminée, elle ne bloque
+        // rien (Seerr l'écarte des saisons « déjà demandées ») et la
+        // disponibilité se resynchronise d'elle-même. Relancer le job n'y
+        // changerait rien : la suppression locale va au bout.
+        console.log(
+          `[SeerReconcile] tv#${tmdbId} : Jellyseerr ne modifie plus la demande #${req.id} ` +
+          `(statut ${req.status}) — S${seasons.join(", S")} y restent listées`,
+        );
+      } else if (!put.ok && put.status !== 404) {
         const text = await put.text().catch(() => "");
         throw new Error(
           `Jellyseerr PUT /request/${req.id} returned ${put.status} ${text.slice(0, 200)}`,
+        );
+      } else {
+        console.log(
+          `[SeerReconcile] tv#${tmdbId} : demande Jellyseerr #${req.id} réduite aux ` +
+          `saisons S${remaining.join(", S")}`,
         );
       }
       await prisma.$executeRawUnsafe(
         `UPDATE seer_requests SET seasons = ? WHERE seerr_request_id = ?`,
         JSON.stringify(remaining),
         req.id,
-      );
-      console.log(
-        `[SeerReconcile] tv#${tmdbId} : demande Jellyseerr #${req.id} réduite aux ` +
-        `saisons S${remaining.join(", S")}`,
       );
     }
   }
