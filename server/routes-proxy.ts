@@ -1,13 +1,14 @@
 /* ------------------------------------------------------------------ */
-/*  Seer Plugin — Proxy vers Jellyseerr (transparent + générique)      */
+/*  Seer Plugin — Proxy vers Jellyseerr (lectures du catalogue)         */
 /* ------------------------------------------------------------------ */
 
 /*
- * Extrait d'index.ts, qui dépassait la limite de trois cents lignes du projet :
- * extraction pure, comportement inchangé. Le proxy générique (`/proxy`) ne
- * sort jamais de l'instance configurée ; le proxy transparent (`/seerr/*`)
- * injecte la clé d'API côté serveur, applique le blocage par tags et met en
- * commun les pages de catalogue.
+ * Extrait d'index.ts, qui dépassait la limite de trois cents lignes du projet.
+ * Le proxy transparent (`/seerr/*`) injecte la clé d'API côté serveur,
+ * applique le blocage par tags et met en commun les pages de catalogue — pour
+ * les SEULES lectures que fait l'interface (proxy-allowlist.ts). Le proxy
+ * générique `/proxy`, qui relayait n'importe quelle requête vers l'origine de
+ * Jellyseerr et qu'aucun écran n'appelait, n'existe plus.
  */
 
 import type { FastifyInstance } from "fastify";
@@ -17,6 +18,7 @@ import {
   MEDIA_STATUS_BLOCKLISTED, getBlocklistedTags, parseTagSet,
   filterResultsByTags, type ResultItem,
 } from "./blocklist";
+import { isReadableSeerrPath } from "./proxy-allowlist";
 
 /** Durée de vie du cache des pages de catalogue, partagé par tous. */
 const PROXY_TTL_MS = 5 * 60_000;
@@ -25,43 +27,12 @@ export function registerProxyRoutes(
   app: FastifyInstance,
   getConfig: () => Record<string, unknown>,
 ): void {
-  /* ── Proxy ─────────────────────────────────────────────────────── */
-
-  app.post("/proxy", async (request, reply) => {
-    const body = request.body as { url: string; method?: string; headers?: Record<string, string>; body?: unknown };
-    if (!body.url) return reply.status(400).send({ message: "url is required" });
-
-    const config = getConfig();
-    const seerrUrl = (config.url as string)?.replace(/\/$/, "");
-    if (!seerrUrl) return reply.status(503).send({ message: "Seerr not configured" });
-
-    let parsed: URL;
-    try { parsed = new URL(body.url); } catch { return reply.status(400).send({ message: "Invalid URL" }); }
-    if (parsed.origin !== new URL(seerrUrl).origin) {
-      return reply.status(403).send({ message: "Proxy restricted to configured Seerr instance" });
-    }
-
-    try {
-      const res = await fetch(body.url, {
-        method: body.method || "GET", headers: body.headers,
-        body: body.body ? JSON.stringify(body.body) : undefined,
-        signal: AbortSignal.timeout(10_000),
-      });
-      const text = await res.text();
-      let json: unknown;
-      try { json = JSON.parse(text); } catch { json = null; }
-      return { status: res.status, ok: res.ok, data: json ?? text };
-    } catch (err) {
-      return reply.status(502).send({ message: err instanceof Error ? err.message : "Proxy failed" });
-    }
-  });
-
   /* ── Streaming proxy ───────────────────────────────────────────── */
 
-  app.all("/seerr/*", async (request, reply) => {
+  app.get("/seerr/*", async (request, reply) => {
     const wildcard = (request.params as Record<string, string>)["*"];
-    if (!wildcard || !wildcard.startsWith("api/v1/")) {
-      return reply.status(400).send({ message: "Only api/v1/* paths are allowed" });
+    if (!wildcard || !isReadableSeerrPath(request.method, wildcard)) {
+      return reply.status(403).send({ message: "Only catalogue reads are proxied" });
     }
 
     const config = getConfig();
@@ -108,12 +79,6 @@ export function registerProxyRoutes(
     const headers: Record<string, string> = { "X-Api-Key": apiKey };
     if (query._lang) headers["Accept-Language"] = query._lang;
 
-    let reqBody: string | undefined;
-    if (request.body && ["POST", "PUT", "PATCH"].includes(request.method)) {
-      headers["Content-Type"] = "application/json";
-      reqBody = JSON.stringify(request.body);
-    }
-
     /* Cache mutualisé des surfaces de navigation.
      *
      * Une page de catalogue est identique pour tout le monde : les mêmes
@@ -140,7 +105,7 @@ export function registerProxyRoutes(
 
     try {
       const response = await fetch(targetUrl, {
-        method: request.method, headers, body: reqBody,
+        method: request.method, headers,
         signal: AbortSignal.timeout(15_000),
       });
 
