@@ -17,7 +17,8 @@ import type { SeerrSearchResult } from "../api/types";
 import type { SearchPerson } from "../api/types-search";
 import { backdropUrl, getCurrentLanguage, mediaTitle, mediaYear, posterUrl, profileUrl } from "../utils/media-helpers";
 import { mediaStateOf } from "../utils/media-status";
-import { navigateToMedia } from "../utils/navigate-media";
+import { libraryIdOf } from "../utils/navigate-media";
+import { useOpenInLibrary } from "../hooks/useOpenInLibrary";
 import { CTA_PRIMARY, CTA_SECONDARY, CTA_SIZE_MD } from "../styles/cta";
 import { useHub } from "../hub/HubContext";
 import { useTitleGaps, useTitleStatus } from "../hub/TitleStates";
@@ -30,6 +31,7 @@ import { EyeOffIcon, PlayIcon, PlusIcon, StarIcon, UserIcon } from "../component
 export const TopMediaResult = memo(function TopMediaResult({ item }: { item: SeerrSearchResult }) {
   const { t } = useTranslation("seer");
   const hub = useHub();
+  const openInLibrary = useOpenInLibrary();
   const title = mediaTitle(item);
   const state = mediaStateOf(item.mediaInfo?.status);
   const status = useTitleStatus(item);
@@ -84,7 +86,7 @@ export const TopMediaResult = memo(function TopMediaResult({ item }: { item: See
           {item.overview && <p className="mt-2 hidden text-sm leading-relaxed text-tentacle-text-tertiary sm:line-clamp-2">{item.overview}</p>}
           <div className="pointer-events-auto mt-3 flex flex-wrap gap-2">
             {state === "available" || state === "partial" ? (
-              <button type="button" onClick={() => void navigateToMedia(item.id, item.mediaType)} className={`${CTA_PRIMARY} ${CTA_SIZE_MD} gap-2`}>
+              <button type="button" onClick={() => void openInLibrary(item.id, item.mediaType, libraryIdOf(item.mediaInfo))} className={`${CTA_PRIMARY} ${CTA_SIZE_MD} gap-2`}>
                 <PlayIcon className="h-4 w-4" />{t("seer:watch")}
               </button>
             ) : state === null && item.mediaType === "movie" ? (

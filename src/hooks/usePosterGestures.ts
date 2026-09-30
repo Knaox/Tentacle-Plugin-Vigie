@@ -22,7 +22,8 @@ import { useTranslation } from "react-i18next";
 import type { SeerrSearchResult } from "../api/types";
 import type { TitleMarks } from "../hub/UserMarks";
 import type { TitleStatus } from "../utils/title-state";
-import { navigateToMedia } from "../utils/navigate-media";
+import { libraryIdOf } from "../utils/navigate-media";
+import { useOpenInLibrary } from "./useOpenInLibrary";
 import { useToast } from "./useToast";
 import { useLikesAvailable } from "../hub/UserMarks";
 import { useRateTitle, useTitleFavorite, useTitleWatchlist } from "./useTitleGestures";
@@ -61,6 +62,7 @@ export function usePosterGestures(
 ): PosterGestures {
   const { t } = useTranslation("seer");
   const toast = useToast();
+  const openInLibrary = useOpenInLibrary();
   const watchlist = useTitleWatchlist();
   const favorites = useTitleFavorite();
   const likesAvailable = useLikesAvailable();
@@ -77,7 +79,7 @@ export function usePosterGestures(
     const tv = item.mediaType === "tv";
     primary = { kind: tv ? "seasons" : "request", label: t(tv ? "seer:chooseSeasons" : "seer:request"), run: () => onQuickRequest(item) };
   } else if (inLibrary) {
-    primary = { kind: "watch", label: t("seer:watch"), run: () => void navigateToMedia(item.id, item.mediaType) };
+    primary = { kind: "watch", label: t("seer:watch"), run: () => void openInLibrary(item.id, item.mediaType, libraryIdOf(item.mediaInfo)) };
   }
 
   const active = inLibrary ? marks?.watchlist === true : marks?.pending === true;

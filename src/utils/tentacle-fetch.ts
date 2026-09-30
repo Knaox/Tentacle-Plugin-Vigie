@@ -12,10 +12,34 @@ export function isMobileWebView(): boolean {
   return !!(window as any).ReactNativeWebView?.postMessage;
 }
 
-export async function tentacleApiFetch<T>(path: string): Promise<T | null> {
+/**
+ * L'adresse du serveur telle que l'hôte l'a posée — sans barre finale : une
+ * adresse enregistrée « …/ » donnait « …//api/… », que le serveur ne sert pas.
+ */
+function mobileBackendUrl(): string {
+  return (localStorage.getItem("tentacle_server_url") ?? "").replace(/\/+$/, "");
+}
+
+export async function tentacleApiFetch<T>(path: string, options?: { timeoutMs?: number }): Promise<T | null> {
+  const request = fetchJson<T>(path);
+  if (!options?.timeoutMs) return request;
+  // Une réponse qui ne vient pas ne doit pas figer ce qui l'attend (un bouton
+  // grisé pour toujours) : passé le délai, c'est un échec comme un autre. Une
+  // course plutôt qu'une annulation : sur le web, le pont de l'hôte ne
+  // transmet pas le signal d'une requête.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), options.timeoutMs); });
+  try {
+    return await Promise.race([request, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchJson<T>(path: string): Promise<T | null> {
   try {
     if (isMobileWebView()) {
-      const backendUrl = localStorage.getItem("tentacle_server_url") ?? "";
+      const backendUrl = mobileBackendUrl();
       const token = localStorage.getItem("tentacle_token") ?? "";
       if (!backendUrl || !token) return null;
       const res = await fetch(`${backendUrl}${path}`, {
@@ -46,7 +70,7 @@ export async function tentacleApiSend<T>(path: string, method: "PUT" | "POST" | 
   }
   let url = path;
   if (isMobileWebView()) {
-    const backendUrl = localStorage.getItem("tentacle_server_url") ?? "";
+    const backendUrl = mobileBackendUrl();
     const token = localStorage.getItem("tentacle_token") ?? "";
     if (!backendUrl || !token) throw new Error("Tentacle injoignable");
     url = `${backendUrl}${path}`;

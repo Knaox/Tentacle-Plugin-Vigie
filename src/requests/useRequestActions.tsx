@@ -14,7 +14,7 @@ import { useTranslation } from "react-i18next";
 import type { LocalRequest } from "../api/types";
 import { useToast } from "../hooks/useToast";
 import { useDeleteRequest, useForgetRequest, useMarkRequestStatus, useRetryDeleteRequest, useRetryRequest } from "../hooks/useRequests";
-import { navigateToMedia } from "../utils/navigate-media";
+import { useOpenInLibrary } from "../hooks/useOpenInLibrary";
 import { requestAsMedia } from "../utils/as-media";
 import { SeasonActionModal } from "../components/SeasonActionModal";
 import { MarkMenuSheet, type MarkTarget } from "../components/MarkMenuSheet";
@@ -24,6 +24,7 @@ import { RequestActionsSheet, type RequestAction } from "./RequestActionsSheet";
 export function useRequestActions() {
   const { t } = useTranslation("seer");
   const toast = useToast();
+  const openInLibrary = useOpenInLibrary();
   const hub = useHub();
   const deleteMutation = useDeleteRequest();
   const retryMutation = useRetryRequest();
@@ -37,7 +38,7 @@ export function useRequestActions() {
   const run = useCallback((action: RequestAction, request: LocalRequest) => {
     switch (action) {
       case "open": hub.openMedia(requestAsMedia(request)); break;
-      case "watch": void navigateToMedia(request.tmdbId, request.mediaType); break;
+      case "watch": void openInLibrary(request.tmdbId, request.mediaType); break;
       case "addSeasons":
         hub.openMedia(requestAsMedia(request), { lockedSeasons: request.seasons ?? undefined, defaultProfileId: request.profileId });
         break;
@@ -60,7 +61,7 @@ export function useRequestActions() {
         });
         break;
     }
-  }, [hub, retryDeleteMutation, forgetMutation, toast, t]);
+  }, [hub, openInLibrary, retryDeleteMutation, forgetMutation, toast, t]);
 
   const onMark = (request: LocalRequest, status: MarkTarget) => {
     markMutation.mutate({ id: request.id, status }, {

@@ -160,6 +160,7 @@ export default {
   trailerUnavailable: "Embedded playback unavailable — open the video on YouTube",
   libraryGoSeries: "Go to series",
   libraryGoMovie: "Watch movie",
+  libraryNotFound: "Not found in the library right now",
   viewEpisodes: "View episodes",
 
   // Episodes & air dates

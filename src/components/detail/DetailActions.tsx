@@ -14,9 +14,9 @@ import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { MediaType } from "../../api/types";
 import type { RichTrailer } from "../../utils/trailers";
-import { navigateToMedia } from "../../utils/navigate-media";
 import { openExternal, shouldOpenYouTubeExternally } from "../../utils/external";
 import { useProfiles } from "../../hooks/useProfiles";
+import { useOpenInLibrary } from "../../hooks/useOpenInLibrary";
 import { CTA_PRIMARY, CTA_SIZE_LG } from "../../styles/cta";
 import { profilesFor } from "../ProfileSelector";
 import { ChevronDown, FilmIcon, PlayIcon, PlusIcon } from "../ui/icons";
@@ -43,6 +43,8 @@ interface Props {
   tmdbId: number;
   /** Statut Jellyseerr : 4 en partie, 5 là. */
   mediaStatus: number;
+  /** L'élément Jellyfin que Jellyseerr connaît déjà : la fiche s'ouvre sans rien chercher. */
+  libraryId?: string | null;
   trailers: RichTrailer[];
   onOpenTrailer: () => void;
   /** Un film qui se demande encore. */
@@ -53,15 +55,16 @@ interface Props {
 }
 
 export const DetailActions = memo(function DetailActions(props: Props) {
-  const { mediaType, tmdbId, mediaStatus, trailers, onOpenTrailer, movieRequest, seasonsLabel, onJumpToSeasons } = props;
+  const { mediaType, tmdbId, mediaStatus, libraryId, trailers, onOpenTrailer, movieRequest, seasonsLabel, onJumpToSeasons } = props;
   const { t } = useTranslation("seer");
+  const openInLibrary = useOpenInLibrary();
   const [navigating, setNavigating] = useState(false);
   const inLibrary = mediaStatus >= 4;
 
   const watch = async () => {
     if (navigating) return;
     setNavigating(true);
-    try { await navigateToMedia(tmdbId, mediaType); } finally { setNavigating(false); }
+    try { await openInLibrary(tmdbId, mediaType, libraryId); } finally { setNavigating(false); }
   };
 
   const trailer = () => {
@@ -74,8 +77,11 @@ export const DetailActions = memo(function DetailActions(props: Props) {
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2.5">
         {inLibrary && (
-          <button type="button" onClick={() => void watch()} disabled={navigating} className={`${CTA_PRIMARY} ${CTA_SIZE_LG} gap-2`}>
-            <PlayIcon className="h-4 w-4" />
+          <button type="button" onClick={() => void watch()} disabled={navigating} aria-busy={navigating} className={`${CTA_PRIMARY} ${CTA_SIZE_LG} gap-2`}>
+            {/* La recherche de l'élément peut prendre quelques secondes : elle se voit. */}
+            {navigating
+              ? <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              : <PlayIcon className="h-4 w-4" />}
             {mediaType === "tv" ? t("seer:libraryGoSeries") : t("seer:libraryGoMovie")}
           </button>
         )}

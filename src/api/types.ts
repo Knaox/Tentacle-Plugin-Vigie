@@ -48,6 +48,9 @@ export interface SeerrSearchResult {
     requests?: SeerrMediaRequest[];
     /** Ce qui descend en ce moment, relayé de la file *arr par Jellyseerr. */
     downloadStatus?: Array<{ status?: string; size?: number; sizeLeft?: number }>;
+    /** L'élément Jellyfin du titre, quand Jellyseerr l'y a trouvé. */
+    jellyfinMediaId?: string | null;
+    jellyfinMediaId4k?: string | null;
   };
   /** Recherche seulement : masqué d'ordinaire par le filtre de contenu, montré parce qu'on l'a cherché. */
   masked?: boolean;
@@ -126,7 +129,7 @@ export interface SeerrMovieDetail {
   productionCompanies?: SeerrProductionCompany[];
   productionCountries?: { iso_3166_1: string; name: string }[];
   /** Ses demandes : une qui tient encore garde le film pris, même retombé au statut 1. */
-  mediaInfo?: { status: number; requests?: { id: number; status: number }[] };
+  mediaInfo?: { status: number; requests?: { id: number; status: number }[]; jellyfinMediaId?: string | null; jellyfinMediaId4k?: string | null };
   /** La saga TMDB du film (Twilight, Harry Potter…), quand il en a une. */
   collection?: { id: number; name: string; posterPath?: string; backdropPath?: string };
   /** Où le regarder, pays par pays (TMDB, relayé par Jellyseerr). */
@@ -170,6 +173,9 @@ export interface SeerrTvDetail {
     /** Demandes actives — Jellyseerr n'expose les saisons seulement demandées
      * (pas encore dispo) que via requests[].seasons, pas via seasons[]. */
     requests?: { id: number; status: number; seasons?: { seasonNumber: number }[] }[];
+    /** L'élément Jellyfin de la série, quand Jellyseerr l'y a trouvée. */
+    jellyfinMediaId?: string | null;
+    jellyfinMediaId4k?: string | null;
   };
   credits?: {
     cast?: SeerrCastMember[];

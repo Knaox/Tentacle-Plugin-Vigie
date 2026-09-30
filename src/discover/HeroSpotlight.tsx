@@ -20,7 +20,8 @@ import { useTranslation } from "react-i18next";
 import type { SeerrSearchResult } from "../api/types";
 import { backdropUrl, mediaTitle, mediaYear, posterUrl } from "../utils/media-helpers";
 import { mediaStateOf } from "../utils/media-status";
-import { navigateToMedia } from "../utils/navigate-media";
+import { libraryIdOf } from "../utils/navigate-media";
+import { useOpenInLibrary } from "../hooks/useOpenInLibrary";
 import { CTA_PRIMARY, CTA_SECONDARY, CTA_SIZE_LG } from "../styles/cta";
 import { useHub } from "../hub/HubContext";
 import { ChevronLeft, ChevronRight, PlayIcon, PlusIcon, StarIcon } from "../components/ui/icons";
@@ -35,6 +36,7 @@ function isWide(): boolean {
 
 export const HeroSpotlight = memo(function HeroSpotlight({ items }: { items: SeerrSearchResult[] }) {
   const { t } = useTranslation("seer");
+  const openInLibrary = useOpenInLibrary();
   const hub = useHub();
   const slides = items.filter((i) => i.backdropPath && i.mediaType !== "person").slice(0, SHOWN);
   const [index, setIndex] = useState(0);
@@ -92,7 +94,7 @@ export const HeroSpotlight = memo(function HeroSpotlight({ items }: { items: See
           {current.overview && <p className="mt-2 hidden max-w-xl text-sm leading-relaxed text-tentacle-on-media-secondary md:line-clamp-2">{current.overview}</p>}
           <div className="mt-4 flex flex-wrap gap-2">
             {state === "available" || state === "partial" ? (
-              <button type="button" onClick={() => void navigateToMedia(current.id, current.mediaType)} className={`${CTA_PRIMARY} ${CTA_SIZE_LG} gap-2`}>
+              <button type="button" onClick={() => void openInLibrary(current.id, current.mediaType, libraryIdOf(current.mediaInfo))} className={`${CTA_PRIMARY} ${CTA_SIZE_LG} gap-2`}>
                 <PlayIcon className="h-4 w-4" />{t("seer:watch")}
               </button>
             ) : state === null ? (

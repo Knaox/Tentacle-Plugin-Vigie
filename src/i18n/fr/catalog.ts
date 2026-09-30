@@ -160,6 +160,7 @@ export default {
   trailerUnavailable: "Lecture intégrée indisponible — ouvrez la vidéo sur YouTube",
   libraryGoSeries: "Voir la série",
   libraryGoMovie: "Regarder le film",
+  libraryNotFound: "Introuvable dans la bibliothèque pour le moment",
   viewEpisodes: "Voir les épisodes",
 
   // Épisodes & dates de diffusion

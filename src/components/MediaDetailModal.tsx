@@ -36,6 +36,7 @@ import { useSheetSwipe } from "../hooks/useSheetSwipe";
 import { useTitleStatus } from "../hub/TitleStates";
 import { hasActiveRequest, isAnimeTitle, seasonLocks } from "../utils/season-locks";
 import { mediaTitle, mediaYear } from "../utils/media-helpers";
+import { libraryIdOf } from "../utils/navigate-media";
 import { openTrailersViaHost } from "../utils/external";
 import { CHROME_BOTTOM } from "../utils/host-chrome";
 import { lockPageScroll } from "../utils/page-scroll";
@@ -167,6 +168,7 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
       mediaType={mediaType}
       tmdbId={current.id}
       mediaStatus={mediaStatus}
+      libraryId={libraryIdOf(detail?.mediaInfo) ?? libraryIdOf(current.mediaInfo)}
       trailers={trailers ?? []}
       onOpenTrailer={() => openTrailerAt(0)}
       movieRequest={movieFree ? {
