@@ -19,6 +19,22 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.20.0]
+### FR
+- **Sur iPhone et iPad, Vigie défile enfin comme le reste de l'application** : la page s'arrêtait presque net au lâcher du doigt — un même geste y parcourait cinq fois moins de chemin qu'ailleurs. Elle garde désormais l'élan et le rebond natifs, dans toutes ses vues, recherche et catalogue compris
+- **« Voir la série » et « Regarder le film » mènent sans attendre à la bibliothèque, sur Android comme sur iOS** : la fiche s'ouvre sur l'élément Jellyfin que Jellyseerr connaît déjà. Quand le titre reste introuvable, un message le dit au lieu d'un bouton qui ne fait rien
+- **Les épisodes spéciaux se demandent** quand Jellyseerr l'autorise (Paramètres › Général) : « Épisodes spéciaux » apparaît après les saisons, dans la fiche comme dans la demande rapide
+- **Nouvelle option : autoriser la demande de contenu masqué** (réglages de Vigie, section Demandes). Allumée, un titre que Jellyseerr masque (liste de blocage, mots-clés bloqués) se demande comme un autre : Vigie le retire de la liste de blocage juste avant d'envoyer la demande. Éteinte, la demande n'est pas proposée et la fiche le dit
+- Les rangées d'affiches restent fluides pendant qu'on les fait glisser
+- Un titre masqué ou supprimé n'affiche plus « Regarder »
+### EN
+- **On iPhone and iPad, Vigie finally scrolls like the rest of the app**: the page stopped almost dead when the finger lifted — the same gesture travelled five times less than elsewhere. It now keeps the native momentum and bounce, in every view, search and catalogue included
+- **"Go to series" and "Watch movie" lead straight to the library, on Android as on iOS**: the page opens on the Jellyfin item Jellyseerr already knows. When the title can't be found, a message says so instead of a button that does nothing
+- **Special episodes can be requested** when Jellyseerr allows it (Settings › General): "Specials" shows up after the seasons, on the title page and in the quick request
+- **New option: allow requesting hidden content** (Vigie settings, Requests section). On, a title Jellyseerr hides (blocklist, blocked keywords) is requested like any other: Vigie removes it from the blocklist right before sending the request. Off, the request isn't offered and the title page says so
+- Poster rows stay smooth while you swipe them
+- A hidden or deleted title no longer shows "Watch"
+
 ## [1.19.1]
 ### FR
 - **Vigie parle de nouveau à Jellyfin 12** : depuis la mise à jour de Jellyfin, la page d'administration affichait « Jellyfin injoignable … a répondu 401 », la synchro des comptes ne voyait plus Jellyfin, et les affiches perdaient en silence « dans la bibliothèque », « vu », « Ma liste » et le favori
