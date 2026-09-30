@@ -25,6 +25,8 @@ export default {
   toggleEnabledDesc: "Shows the tab in Tentacle and lets people make requests",
   toggleAutoApprove: "Approve automatically",
   toggleAutoApproveDesc: "A request from an account without approval rights in Jellyseerr is approved as soon as it is sent",
+  toggleMaskedRequests: "Allow requesting hidden content",
+  toggleMaskedRequestsDesc: "A title Jellyseerr hides (blocklist, blocked keywords) can be requested: Vigie removes it from the blocklist right before sending the request",
   admSpecialSeasons: "Special episodes",
   admSpecialSeasonsDesc: "Season 0 can be requested when Jellyseerr allows it (Settings › General › allow special episodes requests)",
   admSpecialSeasonsOn: "Allowed",

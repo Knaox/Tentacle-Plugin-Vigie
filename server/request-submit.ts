@@ -5,10 +5,10 @@
 /*
  * UNE porte pour toute demande, d'où qu'elle vienne : le hub (`POST
  * /requests`) comme les cartes de Tentacle (`POST /titles/request`). Elle
- * applique les règles du compte dans l'ordre — blocage, type permis (animé
- * compris), quota du jour, fusion des saisons d'une série déjà demandée,
- * doublon — puis met la demande dans la file du worker. Deux portes auraient
- * fini par ne plus appliquer les mêmes règles.
+ * applique les règles du compte dans l'ordre — blocage, titre masqué, type
+ * permis (animé compris), quota du jour, fusion des saisons d'une série déjà
+ * demandée, doublon — puis met la demande dans la file du worker. Deux
+ * portes auraient fini par ne plus appliquer les mêmes règles.
  */
 
 import type { PrismaClient } from "@prisma/client";
@@ -25,6 +25,7 @@ import { kickWorkerNow } from "./worker";
 import type { JellyfinUser, WorkerCfg } from "./seerr-unified";
 import { markLocallyPending } from "./search/pending";
 import { effectiveDailyLimit } from "./plugin-config";
+import { getBlocklistedTags, isMaskedTitle, parseTagSet } from "./blocklist";
 
 /** Ce que la route renvoie : un code HTTP et son corps, tels quels. */
 export interface SubmitResult {
@@ -50,12 +51,23 @@ export async function submitRequest(
     return { status: 403, body: { errorKey: "seer:errUserBlocked", message: "User is blocked" } };
   }
 
-  // 3) Détection du type réel (anime ?)
+  // 3) La fiche Jellyseerr, lue une fois : le type réel (animé ?) et le masquage.
+  //    Un film ne la lit que si son masquage doit être vérifié.
   let isAnime = false;
   const config = await getWorkerConfig();
-  if (body.mediaType === "tv" && config) {
-    const detail = await fetchMediaDetail(config.seerrUrl, config.seerrApiKey, "tv", body.tmdbId);
-    if (detail && isAnimeFromKeywords(detail)) isAnime = true;
+  const needDetail = !!config && (body.mediaType === "tv" || !config.allowMaskedRequests);
+  const detail = needDetail && config ? await fetchMediaDetail(config.seerrUrl, config.seerrApiKey, body.mediaType, body.tmdbId) : null;
+  if (body.mediaType === "tv" && detail && isAnimeFromKeywords(detail)) isAnime = true;
+
+  // Un titre masqué (liste de blocage, mots-clés bloqués) ne se demande que si
+  // l'administrateur l'a permis — le worker lève alors le blocage chez
+  // Jellyseerr juste avant l'envoi. Sinon, un refus clair plutôt qu'une
+  // demande en file que Jellyseerr rejetterait (« This media is blocklisted »).
+  if (config && detail && !config.allowMaskedRequests) {
+    const tags = parseTagSet(await getBlocklistedTags(config.seerrUrl, config.seerrApiKey));
+    if (isMaskedTitle(detail, tags)) {
+      return { status: 403, body: { errorKey: "seer:errMaskedDenied", message: "Masked title" } };
+    }
   }
 
   // 4) Permission par type

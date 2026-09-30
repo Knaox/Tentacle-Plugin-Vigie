@@ -20,6 +20,7 @@ export interface SeerConfig {
   apiKey: string;
   enabled: boolean;
   autoApprove: boolean;
+  allowMaskedRequests?: boolean;
   userLimit: number;
   profiles?: SeerProfile[];
 }

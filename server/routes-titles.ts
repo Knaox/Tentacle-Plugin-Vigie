@@ -35,11 +35,12 @@ function readLang(raw: unknown): string {
 }
 
 /** Ce que le compte peut demander ; sans réglages encore, tout (les défauts de Vigie). */
-async function rightsOf(prisma: PrismaClient, userId: string): Promise<RequestRights> {
+async function rightsOf(prisma: PrismaClient, userId: string, cfg: WorkerCfg | null): Promise<RequestRights> {
+  const masked = cfg?.allowMaskedRequests === true;
   const settings = await getUserSettings(prisma, userId).catch(() => null);
-  if (!settings) return { movies: true, tv: true };
+  if (!settings) return { movies: true, tv: true, masked };
   if (settings.blocked) return { movies: false, tv: false };
-  return { movies: settings.allowMovies, tv: settings.allowTv || settings.allowAnime };
+  return { movies: settings.allowMovies, tv: settings.allowTv || settings.allowAnime, masked };
 }
 
 /** Ce que Jellyseerr joint à la fiche d'un film — les champs d'une demande. */
@@ -66,7 +67,7 @@ export function registerTitleRoutes(
     refreshStatusMap(cfg);
     refreshLocalPending(prisma);
     const lang = readLang(query.lang);
-    const rights = await rightsOf(prisma, getUser(request).userId);
+    const rights = await rightsOf(prisma, getUser(request).userId, cfg);
     const items: Record<string, TitleStateOut> = {};
     for (const k of keys) {
       const status = statusFor({ key: k.key, mediaType: k.mediaType, tmdbId: k.tmdbId, remoteStatus: undefined });
@@ -89,13 +90,15 @@ export function registerTitleRoutes(
     const cfg = await getWorkerConfig();
     if (!cfg) return { ok: false, message: unreachableMessage(lang) };
     const user = getUser(request);
-    const rights = await rightsOf(prisma, user.userId);
+    const rights = await rightsOf(prisma, user.userId, cfg);
     const detail = (await fetchMediaDetail(cfg.seerrUrl, cfg.seerrApiKey, "movie", tmdbId)) as MovieDetail | null;
     if (!detail?.title) return { ok: false, message: unreachableMessage(lang) };
 
     // Déjà demandé, en route ou là — par quelqu'un d'autre peut-être : la carte se met à jour.
+    // Masqué aussi, sauf si l'administrateur laisse demander les titres masqués.
     const known = detail.mediaInfo?.status;
-    if (known !== undefined && known >= MEDIA_STATUS.PENDING && known <= MEDIA_STATUS.BLOCKLISTED) {
+    const liftable = known === MEDIA_STATUS.BLOCKLISTED && cfg.allowMaskedRequests === true;
+    if (known !== undefined && known >= MEDIA_STATUS.PENDING && known <= MEDIA_STATUS.BLOCKLISTED && !liftable) {
       noteStatus("movie", tmdbId, known);
       return { ok: false, message: refusalMessage(409, {}, lang), state: titleStateFor("movie", tmdbId, known, rights, lang) };
     }

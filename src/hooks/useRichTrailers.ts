@@ -4,6 +4,7 @@ import { resolveTmdbMedia } from "../utils/navigate-media";
 import { mergeTrailers, type RichTrailer, type TmdbVideo } from "../utils/trailers";
 import { getCurrentLanguage } from "../utils/media-helpers";
 import type { MediaType } from "../api/types";
+import { isInLibraryStatus } from "../utils/media-status";
 
 /**
  * Bandes-annonces + extras d'un média, STRICTEMENT comme MediaDetail (core) :
@@ -16,7 +17,7 @@ import type { MediaType } from "../api/types";
  */
 export function useRichTrailers(mediaType: MediaType, tmdbId: number, mediaStatus: number) {
   const lang = getCurrentLanguage();
-  const inLibrary = mediaStatus >= 4;
+  const inLibrary = isInLibraryStatus(mediaStatus);
 
   return useQuery({
     queryKey: ["seer-rich-trailers", mediaType, tmdbId, inLibrary, lang],

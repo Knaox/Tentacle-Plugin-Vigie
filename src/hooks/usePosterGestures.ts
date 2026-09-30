@@ -26,6 +26,8 @@ import { libraryIdOf } from "../utils/navigate-media";
 import { useOpenInLibrary } from "./useOpenInLibrary";
 import { useToast } from "./useToast";
 import { useLikesAvailable } from "../hub/UserMarks";
+import { isMaskedItem } from "../search/masked";
+import { useMaskedRequests } from "./useIsAdmin";
 import { useRateTitle, useTitleFavorite, useTitleWatchlist } from "./useTitleGestures";
 
 export interface PosterPrimary {
@@ -67,11 +69,14 @@ export function usePosterGestures(
   const favorites = useTitleFavorite();
   const likesAvailable = useLikesAvailable();
   const ratings = useRateTitle();
+  const maskedAllowed = useMaskedRequests();
 
   const here = status?.state === "available" || status?.state === "partial";
   const inLibrary = marks?.library === true || here;
-  // Le « + » de toujours : un film pas encore demandé, une série pas entièrement là.
+  // Le « + » de toujours : un film pas encore demandé, une série pas entièrement là
+  // — et un titre masqué seulement si l'administrateur laisse le demander.
   const requestable = !!onQuickRequest && marks?.library !== true
+    && (!isMaskedItem(item) || maskedAllowed)
     && (item.mediaType === "movie" ? status === null : item.mediaType === "tv" && status?.state !== "available");
 
   let primary: PosterPrimary | null = null;

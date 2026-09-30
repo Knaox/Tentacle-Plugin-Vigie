@@ -38,6 +38,8 @@ export interface TitleStateOut {
 export interface RequestRights {
   movies: boolean;
   tv: boolean;
+  /** Les titres masqués se demandent (option de l'administrateur). */
+  masked?: boolean;
 }
 
 /** Au plus autant de titres par question — la longueur d'URL de Tentacle. */
@@ -108,12 +110,16 @@ export function titleStateFor(
   const badge = titleBadge(status, lang);
 
   let request: TitleStateOut["request"] = null;
+  // Masqué : rien à faire, sauf si l'administrateur laisse demander les titres
+  // masqués (le blocage est levé chez Jellyseerr à l'envoi).
+  const masked = status === MEDIA_STATUS.BLOCKLISTED;
+  if (masked && !rights.masked) return { badge, request };
   if (mediaType === "movie") {
-    // Un film se demande une fois : déjà demandé, en route, là ou masqué, il n'y a plus rien à faire.
-    if (rights.movies && badge === null) request = { mode: "direct", label: l.request };
-  } else if (rights.tv && status !== MEDIA_STATUS.AVAILABLE && status !== MEDIA_STATUS.BLOCKLISTED) {
+    // Un film se demande une fois : déjà demandé, en route ou là, il n'y a plus rien à faire.
+    if (rights.movies && (badge === null || masked)) request = { mode: "direct", label: l.request };
+  } else if (rights.tv && status !== MEDIA_STATUS.AVAILABLE) {
     // Une série tant qu'elle n'est pas entièrement là : ses saisons libres, dans le hub.
-    request = { mode: "open", label: badge === null ? l.seasons : l.moreSeasons, href: seasonsHref(tmdbId) };
+    request = { mode: "open", label: badge === null || masked ? l.seasons : l.moreSeasons, href: seasonsHref(tmdbId) };
   }
   return { badge, request };
 }

@@ -9,6 +9,8 @@ interface PublicConfig {
   navLabels?: { fr?: string; en?: string };
   /** Jellyseerr laisse demander la saison 0 (« autoriser les épisodes spéciaux »). */
   specialSeasons?: boolean;
+  /** L'administrateur laisse demander les titres masqués. */
+  maskedRequests?: boolean;
 }
 
 /**
@@ -62,4 +64,12 @@ export function usePluginLabel(): string | null {
  */
 export function useSpecialSeasons(): boolean {
   return usePublicConfig()?.specialSeasons === true;
+}
+
+/**
+ * Un titre masqué se demande-t-il ? L'administrateur en décide, dans Vigie :
+ * permis, le blocage est levé chez Jellyseerr juste avant l'envoi.
+ */
+export function useMaskedRequests(): boolean {
+  return usePublicConfig()?.maskedRequests === true;
 }

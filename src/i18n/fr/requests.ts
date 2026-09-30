@@ -75,6 +75,7 @@ export default {
   errUserBlocked: "Tu n'as pas la permission de faire des demandes",
   errRequestGone: "Cette demande n'existe plus dans Jellyseerr : elle y a été supprimée.",
   errMoviesDenied: "Tu n'as pas le droit de demander des films",
+  errMaskedDenied: "Ce titre est masqué : sa demande n'est pas ouverte",
   errTvDenied: "Tu n'as pas le droit de demander des séries",
   errAnimeDenied: "Tu n'as pas le droit de demander des animés",
   errQuotaReached: "Tu as atteint ta limite de {{limit}} demande(s) par jour",

@@ -1032,6 +1032,9 @@ function normalizeConfig(body) {
     apiKey: typeof input.apiKey === "string" ? input.apiKey.trim() : "",
     enabled: input.enabled === true,
     autoApprove: input.autoApprove === true,
+    // Les titres masqués (liste de blocage, mots-clés bloqués) se demandent-ils ?
+    // Non par défaut : le masquage est un choix de l'administrateur.
+    allowMaskedRequests: input.allowMaskedRequests === true,
     userLimit: Number.isFinite(limit) && limit > 0 ? limit : 0,
     // Un nom par langue ; l'ancienne forme (un seul nom) est reprise pour les deux.
     navLabels: cleanNavLabels(input.navLabels ?? legacyLabel),
@@ -2820,6 +2823,74 @@ async function importJellyseerrUserFromJellyfin(config, jellyfinUserId) {
   return null;
 }
 
+// server/blocklist.ts
+var MEDIA_STATUS_BLOCKLISTED = 6;
+var KEYWORD_FETCH_CONCURRENCY = 8;
+async function getBlocklistedTags(seerrUrl, apiKey) {
+  return ((await getSeerrMainSettings(seerrUrl, apiKey)).blocklistedTags ?? "").trim();
+}
+function parseTagSet(csv) {
+  const set = /* @__PURE__ */ new Set();
+  for (const part of csv.split(",")) {
+    const id = Number(part.trim());
+    if (Number.isFinite(id) && id > 0) set.add(id);
+  }
+  return set;
+}
+async function getItemKeywordIds(seerrUrl, apiKey, mediaType, id) {
+  return cached(`seerr:kw:${mediaType}:${id}`, 7 * 864e5, async () => {
+    try {
+      const res = await fetch(`${seerrUrl}/api/v1/${mediaType}/${id}`, {
+        headers: { "X-Api-Key": apiKey },
+        signal: AbortSignal.timeout(8e3)
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data.keywords) ? data.keywords.map((k) => k?.id).filter((x) => typeof x === "number") : [];
+    } catch {
+      return [];
+    }
+  });
+}
+async function filterResultsByTags(seerrUrl, apiKey, results, blockedSet) {
+  const afterStatus = results.filter((r) => r?.mediaInfo?.status !== MEDIA_STATUS_BLOCKLISTED);
+  let blockedCount = results.length - afterStatus.length;
+  const blockedFlags = new Array(afterStatus.length).fill(false);
+  const checkable = afterStatus.map((item, idx) => ({ item, idx })).filter(({ item }) => (item.mediaType === "movie" || item.mediaType === "tv") && typeof item.id === "number");
+  await mapLimit(checkable, KEYWORD_FETCH_CONCURRENCY, async ({ item, idx }) => {
+    const kwIds = await getItemKeywordIds(
+      seerrUrl,
+      apiKey,
+      item.mediaType,
+      item.id
+    );
+    if (kwIds.some((id) => blockedSet.has(id))) blockedFlags[idx] = true;
+  });
+  const kept = afterStatus.filter((_, idx) => !blockedFlags[idx]);
+  blockedCount += afterStatus.length - kept.length;
+  return { kept, blockedCount };
+}
+function isMaskedTitle(detail, blockedTags) {
+  if (detail.mediaInfo?.status === MEDIA_STATUS_BLOCKLISTED) return true;
+  return (detail.keywords ?? []).some((k) => typeof k?.id === "number" && blockedTags.has(k.id));
+}
+async function liftBlocklist(seerrUrl, apiKey, mediaType, tmdbId) {
+  for (const route of ["blocklist", "blacklist"]) {
+    try {
+      const res = await fetch(`${seerrUrl}/api/v1/${route}/${tmdbId}?mediaType=${mediaType}`, {
+        method: "DELETE",
+        headers: { "X-Api-Key": apiKey },
+        signal: AbortSignal.timeout(1e4)
+      });
+      if (res.ok) return true;
+      if (res.status !== 404) return false;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 // server/worker-send.ts
 async function processNextRequest(prisma, config, skipIds) {
   const request = await getNextQueued(prisma);
@@ -2847,6 +2918,15 @@ async function processNextRequest(prisma, config, skipIds) {
           });
         }
       }
+    }
+    if (config.allowMaskedRequests && detail?.mediaInfo?.status === MEDIA_STATUS_BLOCKLISTED) {
+      const lifted = await liftBlocklist(
+        config.seerrUrl,
+        config.seerrApiKey,
+        request.mediaType === "tv" ? "tv" : "movie",
+        request.tmdbId
+      );
+      console.log(`[SeerWorker] "${request.title}" : blocage Jellyseerr ${lifted ? "lev\xE9" : "impossible \xE0 lever"} avant la demande`);
     }
     if (request.mediaType === "tv" && detail && isAnimeFromKeywords(detail)) {
       const overrides = await fetchAnimeOverrides(config.seerrUrl, config.seerrApiKey);
@@ -4537,9 +4617,14 @@ async function submitRequest(prisma, getWorkerConfig2, user, body) {
   }
   let isAnime = false;
   const config = await getWorkerConfig2();
-  if (body.mediaType === "tv" && config) {
-    const detail = await fetchMediaDetail(config.seerrUrl, config.seerrApiKey, "tv", body.tmdbId);
-    if (detail && isAnimeFromKeywords(detail)) isAnime = true;
+  const needDetail = !!config && (body.mediaType === "tv" || !config.allowMaskedRequests);
+  const detail = needDetail && config ? await fetchMediaDetail(config.seerrUrl, config.seerrApiKey, body.mediaType, body.tmdbId) : null;
+  if (body.mediaType === "tv" && detail && isAnimeFromKeywords(detail)) isAnime = true;
+  if (config && detail && !config.allowMaskedRequests) {
+    const tags = parseTagSet(await getBlocklistedTags(config.seerrUrl, config.seerrApiKey));
+    if (isMaskedTitle(detail, tags)) {
+      return { status: 403, body: { errorKey: "seer:errMaskedDenied", message: "Masked title" } };
+    }
   }
   if (body.mediaType === "movie" && !settings.allowMovies) {
     return { status: 403, body: { errorKey: "seer:errMoviesDenied", message: "Movies denied" } };
@@ -5838,12 +5923,12 @@ function metaToCalendarItems(m, from, to) {
 
 // server/calendar-providers.ts
 var EPISODE_FETCH_BUDGET = 30;
-var MEDIA_STATUS_BLOCKLISTED = 6;
+var MEDIA_STATUS_BLOCKLISTED2 = 6;
 async function buildProviderEpisodes(prisma, cfg, rows, opts) {
   const refs = [];
   const posters = /* @__PURE__ */ new Map();
   for (const r of rows) {
-    if (!r.id || r.mediaInfo?.status === MEDIA_STATUS_BLOCKLISTED) continue;
+    if (!r.id || r.mediaInfo?.status === MEDIA_STATUS_BLOCKLISTED2) continue;
     refs.push({ mediaType: "tv", tmdbId: r.id });
     posters.set(r.id, r);
   }
@@ -5886,7 +5971,7 @@ async function buildProviderEpisodes(prisma, cfg, rows, opts) {
 }
 
 // server/calendar-store-sources.ts
-var MEDIA_STATUS_BLOCKLISTED2 = 6;
+var MEDIA_STATUS_BLOCKLISTED3 = 6;
 var PAGES = 3;
 var SRC_TTL_MS = 36e5;
 var SRC_STALE_MS = 6 * 36e5;
@@ -5980,7 +6065,7 @@ function discoverRowsToItems(rows, type, from, to) {
   const out = [];
   for (const r of rows) {
     if (!r.id) continue;
-    if (r.mediaInfo?.status === MEDIA_STATUS_BLOCKLISTED2) continue;
+    if (r.mediaInfo?.status === MEDIA_STATUS_BLOCKLISTED3) continue;
     const date = toDayString(r.releaseDate ?? r.firstAirDate);
     if (!date || date < from || date > to) continue;
     const mediaType = r.mediaType === "tv" || r.mediaType === "movie" ? r.mediaType : type;
@@ -6878,54 +6963,6 @@ function registerMiscRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
 // server/routes-proxy.ts
 import { Readable } from "stream";
 
-// server/blocklist.ts
-var MEDIA_STATUS_BLOCKLISTED3 = 6;
-var KEYWORD_FETCH_CONCURRENCY = 8;
-async function getBlocklistedTags(seerrUrl, apiKey) {
-  return ((await getSeerrMainSettings(seerrUrl, apiKey)).blocklistedTags ?? "").trim();
-}
-function parseTagSet(csv) {
-  const set = /* @__PURE__ */ new Set();
-  for (const part of csv.split(",")) {
-    const id = Number(part.trim());
-    if (Number.isFinite(id) && id > 0) set.add(id);
-  }
-  return set;
-}
-async function getItemKeywordIds(seerrUrl, apiKey, mediaType, id) {
-  return cached(`seerr:kw:${mediaType}:${id}`, 7 * 864e5, async () => {
-    try {
-      const res = await fetch(`${seerrUrl}/api/v1/${mediaType}/${id}`, {
-        headers: { "X-Api-Key": apiKey },
-        signal: AbortSignal.timeout(8e3)
-      });
-      if (!res.ok) return [];
-      const data = await res.json();
-      return Array.isArray(data.keywords) ? data.keywords.map((k) => k?.id).filter((x) => typeof x === "number") : [];
-    } catch {
-      return [];
-    }
-  });
-}
-async function filterResultsByTags(seerrUrl, apiKey, results, blockedSet) {
-  const afterStatus = results.filter((r) => r?.mediaInfo?.status !== MEDIA_STATUS_BLOCKLISTED3);
-  let blockedCount = results.length - afterStatus.length;
-  const blockedFlags = new Array(afterStatus.length).fill(false);
-  const checkable = afterStatus.map((item, idx) => ({ item, idx })).filter(({ item }) => (item.mediaType === "movie" || item.mediaType === "tv") && typeof item.id === "number");
-  await mapLimit(checkable, KEYWORD_FETCH_CONCURRENCY, async ({ item, idx }) => {
-    const kwIds = await getItemKeywordIds(
-      seerrUrl,
-      apiKey,
-      item.mediaType,
-      item.id
-    );
-    if (kwIds.some((id) => blockedSet.has(id))) blockedFlags[idx] = true;
-  });
-  const kept = afterStatus.filter((_, idx) => !blockedFlags[idx]);
-  blockedCount += afterStatus.length - kept.length;
-  return { kept, blockedCount };
-}
-
 // server/proxy-allowlist.ts
 var READABLE = [
   /^api\/v1\/discover\/(movies|tv)(\/[\w-]+)*$/,
@@ -7017,7 +7054,7 @@ function registerProxyRoutes(app, getConfig) {
           } else {
             const before = data.results.length;
             data.results = data.results.filter(
-              (item) => item?.mediaInfo?.status !== MEDIA_STATUS_BLOCKLISTED3
+              (item) => item?.mediaInfo?.status !== MEDIA_STATUS_BLOCKLISTED
             );
             data.blockedCount = before - data.results.length;
           }
@@ -8129,10 +8166,12 @@ function titleStateFor(mediaType, tmdbId, status, rights, lang) {
   const l = labelsFor(lang);
   const badge = titleBadge(status, lang);
   let request = null;
+  const masked = status === MEDIA_STATUS.BLOCKLISTED;
+  if (masked && !rights.masked) return { badge, request };
   if (mediaType === "movie") {
-    if (rights.movies && badge === null) request = { mode: "direct", label: l.request };
-  } else if (rights.tv && status !== MEDIA_STATUS.AVAILABLE && status !== MEDIA_STATUS.BLOCKLISTED) {
-    request = { mode: "open", label: badge === null ? l.seasons : l.moreSeasons, href: seasonsHref(tmdbId) };
+    if (rights.movies && (badge === null || masked)) request = { mode: "direct", label: l.request };
+  } else if (rights.tv && status !== MEDIA_STATUS.AVAILABLE) {
+    request = { mode: "open", label: badge === null || masked ? l.seasons : l.moreSeasons, href: seasonsHref(tmdbId) };
   }
   return { badge, request };
 }
@@ -8689,6 +8728,7 @@ var FR = {
   requested: (title) => `\xAB ${title} \xBB est demand\xE9 \u2014 vous serez pr\xE9venu \xE0 son arriv\xE9e.`,
   blocked: "Votre compte ne peut pas faire de demandes.",
   moviesDenied: "Votre compte ne peut pas demander de films.",
+  masked: "Ce titre est masqu\xE9 : sa demande n'est pas ouverte.",
   quota: (limit) => `Limite atteinte : ${limit} demande${limit > 1 ? "s" : ""} par jour.`,
   already: "Ce titre est d\xE9j\xE0 demand\xE9.",
   failed: "La demande n'a pas abouti.",
@@ -8698,6 +8738,7 @@ var EN = {
   requested: (title) => `\u201C${title}\u201D requested \u2014 you'll be notified when it arrives.`,
   blocked: "Your account can't make requests.",
   moviesDenied: "Your account can't request movies.",
+  masked: "This title is hidden: it can't be requested.",
   quota: (limit) => `Limit reached: ${limit} request${limit > 1 ? "s" : ""} per day.`,
   already: "This title has already been requested.",
   failed: "The request didn't go through.",
@@ -8717,6 +8758,7 @@ function refusalMessage(status, body, lang) {
   if (status === 409) return w.already;
   if (body.errorKey === "seer:errUserBlocked") return w.blocked;
   if (body.errorKey === "seer:errMoviesDenied") return w.moviesDenied;
+  if (body.errorKey === "seer:errMaskedDenied") return w.masked;
   if (body.errorKey === "seer:errQuotaReached" && typeof body.limit === "number") return w.quota(body.limit);
   return w.failed;
 }
@@ -8725,11 +8767,12 @@ function refusalMessage(status, body, lang) {
 function readLang2(raw) {
   return typeof raw === "string" && /^[a-z]{2}$/i.test(raw) ? raw.toLowerCase() : "en";
 }
-async function rightsOf(prisma, userId) {
+async function rightsOf(prisma, userId, cfg) {
+  const masked = cfg?.allowMaskedRequests === true;
   const settings = await getUserSettings(prisma, userId).catch(() => null);
-  if (!settings) return { movies: true, tv: true };
+  if (!settings) return { movies: true, tv: true, masked };
   if (settings.blocked) return { movies: false, tv: false };
-  return { movies: settings.allowMovies, tv: settings.allowTv || settings.allowAnime };
+  return { movies: settings.allowMovies, tv: settings.allowTv || settings.allowAnime, masked };
 }
 function registerTitleRoutes(app, prisma, getWorkerConfig2) {
   app.get("/titles/state", async (request) => {
@@ -8740,7 +8783,7 @@ function registerTitleRoutes(app, prisma, getWorkerConfig2) {
     refreshStatusMap(cfg);
     refreshLocalPending(prisma);
     const lang = readLang2(query.lang);
-    const rights = await rightsOf(prisma, getUser(request).userId);
+    const rights = await rightsOf(prisma, getUser(request).userId, cfg);
     const items = {};
     for (const k of keys2) {
       const status = statusFor({ key: k.key, mediaType: k.mediaType, tmdbId: k.tmdbId, remoteStatus: void 0 });
@@ -8760,11 +8803,12 @@ function registerTitleRoutes(app, prisma, getWorkerConfig2) {
     const cfg = await getWorkerConfig2();
     if (!cfg) return { ok: false, message: unreachableMessage(lang) };
     const user = getUser(request);
-    const rights = await rightsOf(prisma, user.userId);
+    const rights = await rightsOf(prisma, user.userId, cfg);
     const detail = await fetchMediaDetail(cfg.seerrUrl, cfg.seerrApiKey, "movie", tmdbId);
     if (!detail?.title) return { ok: false, message: unreachableMessage(lang) };
     const known = detail.mediaInfo?.status;
-    if (known !== void 0 && known >= MEDIA_STATUS.PENDING && known <= MEDIA_STATUS.BLOCKLISTED) {
+    const liftable = known === MEDIA_STATUS.BLOCKLISTED && cfg.allowMaskedRequests === true;
+    if (known !== void 0 && known >= MEDIA_STATUS.PENDING && known <= MEDIA_STATUS.BLOCKLISTED && !liftable) {
       noteStatus("movie", tmdbId, known);
       return { ok: false, message: refusalMessage(409, {}, lang), state: titleStateFor("movie", tmdbId, known, rights, lang) };
     }
@@ -8806,7 +8850,8 @@ async function getWorkerConfig(ctx) {
     syncEvery: 2,
     profiles,
     autoApprove: config.autoApprove === true,
-    defaultDailyLimit: defaultDailyLimit(config)
+    defaultDailyLimit: defaultDailyLimit(config),
+    allowMaskedRequests: config.allowMaskedRequests === true
   };
 }
 async function seerBackend(app, ctx) {
@@ -8825,7 +8870,8 @@ async function seerBackend(app, ctx) {
     const user = request.user;
     const worker = await getWorkerConfig(ctx);
     const requests = {
-      specialSeasons: worker ? await specialSeasonsQuick(worker.seerrUrl, worker.seerrApiKey) : false
+      specialSeasons: worker ? await specialSeasonsQuick(worker.seerrUrl, worker.seerrApiKey) : false,
+      maskedRequests: config.allowMaskedRequests === true
     };
     if (user?.isAdmin) {
       return { ...config, navLabels: navLabelsOf(config), isAdmin: true, ...requests };

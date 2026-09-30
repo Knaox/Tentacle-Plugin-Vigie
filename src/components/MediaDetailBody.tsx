@@ -53,6 +53,8 @@ interface Props {
   verdict: AvailabilityVerdict | null;
   providers: WatchProviderEntry[] | undefined;
   inLibrary: boolean;
+  /** Masqué, et l'administrateur ne laisse pas le demander. */
+  requestClosed?: boolean;
   cast: SeerrCastMember[] | undefined;
   similar: SeerrSearchResult[] | undefined;
   onSelectSimilar: (item: SeerrSearchResult) => void;
@@ -62,7 +64,7 @@ export function MediaDetailBody(props: Props) {
   const {
     currentItem, detail, mediaType, isLoading, trailers, onOpenTrailer, overview, synopsisExpanded, onToggleSynopsis,
     tvSeasons, seasonLocks, episodeStates, airTimes, onSeasonRequest, requestingSeasons, isAnime, defaultProfileId,
-    verdict, providers, inLibrary, cast, similar, onSelectSimilar,
+    verdict, providers, inLibrary, requestClosed, cast, similar, onSelectSimilar,
   } = props;
   const { t } = useTranslation("seer");
   const hub = useContext(HubContext);
@@ -117,6 +119,7 @@ export function MediaDetailBody(props: Props) {
                 requesting={requestingSeasons}
                 isAnime={isAnime}
                 defaultProfileId={defaultProfileId}
+                closed={requestClosed}
               />
             </section>
           )}

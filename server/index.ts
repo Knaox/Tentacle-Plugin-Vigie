@@ -49,6 +49,7 @@ async function getWorkerConfig(ctx: PluginBackendContext) {
     seerrUrl: url.replace(/\/$/, ""), seerrApiKey: apiKey, interval: 60_000, syncEvery: 2, profiles,
     autoApprove: config.autoApprove === true,
     defaultDailyLimit: defaultDailyLimit(config),
+    allowMaskedRequests: config.allowMaskedRequests === true,
   };
 }
 
@@ -80,10 +81,12 @@ export default async function seerBackend(
   app.get("/config", async (request) => {
     const config = getPluginConfig(ctx);
     const user = (request as any).user;
-    // Ce que le client propose : la saison 0 si Jellyseerr la laisse demander.
+    // Ce que le client propose : la saison 0 si Jellyseerr la laisse demander,
+    // les titres masqués si l'administrateur l'a permis.
     const worker = await getWorkerConfig(ctx);
     const requests = {
       specialSeasons: worker ? await specialSeasonsQuick(worker.seerrUrl, worker.seerrApiKey) : false,
+      maskedRequests: config.allowMaskedRequests === true,
     };
     // Admins voient toute la config (pour la page admin)
     if (user?.isAdmin) {

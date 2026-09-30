@@ -37,7 +37,8 @@ import { useTitleStatus } from "../hub/TitleStates";
 import { hasActiveRequest, isAnimeTitle, seasonLocks } from "../utils/season-locks";
 import { mediaTitle, mediaYear } from "../utils/media-helpers";
 import { requestableSeasons } from "../utils/request-seasons";
-import { useSpecialSeasons } from "../hooks/useIsAdmin";
+import { useMaskedRequests, useSpecialSeasons } from "../hooks/useIsAdmin";
+import { isInLibraryStatus } from "../utils/media-status";
 import { libraryIdOf } from "../utils/navigate-media";
 import { openTrailersViaHost } from "../utils/external";
 import { CHROME_BOTTOM } from "../utils/host-chrome";
@@ -65,6 +66,7 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
   const { t } = useTranslation("seer");
   const toast = useToast();
   const specialSeasons = useSpecialSeasons();
+  const maskedAllowed = useMaskedRequests();
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrimRef = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState(item);
@@ -112,8 +114,13 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
   // une demande quand son statut est retombé à 1, ou par SA demande encore
   // dans la file du plugin (le badge le dit). Le bouton ne reste que le temps
   // de dire « Demande ajoutée ».
-  const movieFree = !isTv && (requestSuccess
-    || (mediaStatus < 2 && !hasActiveRequest(detail?.mediaInfo ?? current.mediaInfo) && status === null));
+  // Masqué (liste de blocage, mots-clés bloqués) : demandable seulement si
+  // l'administrateur le permet — le blocage est alors levé à l'envoi.
+  const masked = mediaStatus === 6 || current.masked === true;
+  const requestClosed = masked && !maskedAllowed;
+  const inLibrary = isInLibraryStatus(mediaStatus);
+  const movieFree = !isTv && !requestClosed && (requestSuccess
+    || ((mediaStatus < 2 || mediaStatus === 6) && !hasActiveRequest(detail?.mediaInfo ?? current.mediaInfo) && status === null));
   const streamingIds = (providers ?? []).map((p) => p.provider_id).filter((id) => id > 0);
 
   const handleClose = useCallback(() => {
@@ -178,7 +185,8 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
         requesting: requestMedia.isPending, success: requestSuccess, obtainable: verdict?.obtainable ?? true,
         isAnime, profileId: movieProfileId, onProfile: setMovieProfileId, onRequest: requestMovie,
       } : null}
-      seasonsLabel={isTv && freeSeasons > 0 ? (mediaStatus >= 4 ? t("seer:requestMoreSeasons") : t("seer:chooseSeasons")) : null}
+      seasonsLabel={isTv && freeSeasons > 0 && !requestClosed ? (inLibrary ? t("seer:requestMoreSeasons") : t("seer:chooseSeasons")) : null}
+      requestClosed={requestClosed}
       onJumpToSeasons={() => document.getElementById(SEASONS_ANCHOR)?.scrollIntoView({ behavior: "smooth", block: "start" })}
     />
   );
@@ -252,7 +260,8 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
           defaultProfileId={defaultProfileId}
           verdict={verdict}
           providers={providers}
-          inLibrary={mediaStatus >= 4}
+          inLibrary={inLibrary}
+          requestClosed={requestClosed}
           cast={detail?.credits?.cast}
           similar={similar}
           onSelectSimilar={openOther}

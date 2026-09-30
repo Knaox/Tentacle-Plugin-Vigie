@@ -28,6 +28,30 @@ test("un film demandé, en route, là ou masqué n'offre plus rien", () => {
   assert.deepEqual(titleStateFor("movie", 603, 3, ALL, "fr").badge, { label: "Demandé", tone: "info" });
 });
 
+test("masqué, et l'administrateur laisse demander les titres masqués : le « + » revient", () => {
+  // Le blocage est levé chez Jellyseerr à l'envoi ; la pastille dit toujours « Masqué ».
+  const rights = { movies: true, tv: true, masked: true };
+  assert.deepEqual(titleStateFor("movie", 603, 6, rights, "fr"), {
+    badge: { label: "Masqué", tone: "neutral" },
+    request: { mode: "direct", label: "Demander" },
+  });
+  // Une série masquée : ses saisons, toutes à choisir — pas « d'autres saisons ».
+  assert.deepEqual(titleStateFor("tv", 1399, 6, rights, "fr").request, {
+    mode: "open", label: "Choisir les saisons", href: "/discover?request=tv:1399",
+  });
+  // Le reste ne change pas : ce qui est demandé ou là n'offre toujours rien.
+  for (const status of [2, 3, 4, 5]) {
+    assert.equal(titleStateFor("movie", 603, status, rights, "fr").request, null, String(status));
+  }
+  // Et un compte sans droit sur les films reste sans « + ».
+  assert.equal(titleStateFor("movie", 603, 6, { movies: false, tv: true, masked: true }, "fr").request, null);
+});
+
+test("le refus d'un titre masqué a ses mots", () => {
+  assert.equal(refusalMessage(403, { errorKey: "seer:errMaskedDenied" }, "fr"), "Ce titre est masqué : sa demande n'est pas ouverte.");
+  assert.equal(refusalMessage(403, { errorKey: "seer:errMaskedDenied" }, "en"), "This title is hidden: it can't be requested.");
+});
+
 test("une série ouvre ses saisons libres dans le hub, tant qu'elle n'est pas entièrement là", () => {
   assert.deepEqual(titleStateFor("tv", 1399, undefined, ALL, "fr").request, {
     mode: "open", label: "Choisir les saisons", href: "/discover?request=tv:1399",

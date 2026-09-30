@@ -17,6 +17,8 @@ import type { SeerrSearchResult } from "../api/types";
 import type { SearchPerson } from "../api/types-search";
 import { backdropUrl, getCurrentLanguage, mediaTitle, mediaYear, posterUrl, profileUrl } from "../utils/media-helpers";
 import { mediaStateOf } from "../utils/media-status";
+import { isMaskedItem } from "./masked";
+import { useMaskedRequests } from "../hooks/useIsAdmin";
 import { libraryIdOf } from "../utils/navigate-media";
 import { useOpenInLibrary } from "../hooks/useOpenInLibrary";
 import { CTA_PRIMARY, CTA_SECONDARY, CTA_SIZE_MD } from "../styles/cta";
@@ -32,8 +34,11 @@ export const TopMediaResult = memo(function TopMediaResult({ item }: { item: See
   const { t } = useTranslation("seer");
   const hub = useHub();
   const openInLibrary = useOpenInLibrary();
+  const maskedAllowed = useMaskedRequests();
   const title = mediaTitle(item);
   const state = mediaStateOf(item.mediaInfo?.status);
+  // Masqué, et l'administrateur ne laisse pas le demander : rien à proposer.
+  const closed = isMaskedItem(item) && !maskedAllowed;
   const status = useTitleStatus(item);
   const gaps = useTitleGaps(item);
   const marks = useTitleMarks(item);
@@ -89,6 +94,10 @@ export const TopMediaResult = memo(function TopMediaResult({ item }: { item: See
               <button type="button" onClick={() => void openInLibrary(item.id, item.mediaType, libraryIdOf(item.mediaInfo))} className={`${CTA_PRIMARY} ${CTA_SIZE_MD} gap-2`}>
                 <PlayIcon className="h-4 w-4" />{t("seer:watch")}
               </button>
+            ) : state === null && closed ? (
+              <span className="inline-flex h-10 items-center gap-1.5 rounded-full bg-tentacle-fill-soft px-4 text-sm font-semibold text-tentacle-text-secondary">
+                <EyeOffIcon className="h-4 w-4" />{t("seer:maskedResult")}
+              </span>
             ) : state === null && item.mediaType === "movie" ? (
               <button type="button" onClick={() => hub.quickRequest(item)} className={`${CTA_PRIMARY} ${CTA_SIZE_MD} gap-2`}>
                 <PlusIcon className="h-4 w-4" />{t("seer:request")}

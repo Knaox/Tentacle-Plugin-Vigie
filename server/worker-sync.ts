@@ -23,6 +23,8 @@ export interface WorkerConfig {
   profiles?: SeerProfile[];
   autoApprove?: boolean;
   defaultDailyLimit?: number | null;
+  /** Lever le blocage Jellyseerr d'un titre masqué avant d'envoyer sa demande. */
+  allowMaskedRequests?: boolean;
 }
 
 /* ── Sync statuses with Seerr ──────────────────────────────────────── */

@@ -162,6 +162,7 @@ export default {
   libraryGoSeries: "Go to series",
   libraryGoMovie: "Watch movie",
   libraryNotFound: "Not found in the library right now",
+  maskedRequestClosed: "Hidden by the administrator: this title can't be requested.",
   viewEpisodes: "View episodes",
 
   // Episodes & air dates

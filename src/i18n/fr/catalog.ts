@@ -162,6 +162,7 @@ export default {
   libraryGoSeries: "Voir la série",
   libraryGoMovie: "Regarder le film",
   libraryNotFound: "Introuvable dans la bibliothèque pour le moment",
+  maskedRequestClosed: "Titre masqué par l'administrateur : sa demande n'est pas ouverte.",
   viewEpisodes: "Voir les épisodes",
 
   // Épisodes & dates de diffusion

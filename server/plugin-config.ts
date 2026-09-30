@@ -57,6 +57,9 @@ export function normalizeConfig(body: unknown): PluginConfig {
     apiKey: typeof input.apiKey === "string" ? input.apiKey.trim() : "",
     enabled: input.enabled === true,
     autoApprove: input.autoApprove === true,
+    // Les titres masqués (liste de blocage, mots-clés bloqués) se demandent-ils ?
+    // Non par défaut : le masquage est un choix de l'administrateur.
+    allowMaskedRequests: input.allowMaskedRequests === true,
     userLimit: Number.isFinite(limit) && limit > 0 ? limit : 0,
     // Un nom par langue ; l'ancienne forme (un seul nom) est reprise pour les deux.
     navLabels: cleanNavLabels(input.navLabels ?? legacyLabel),

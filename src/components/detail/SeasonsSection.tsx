@@ -30,10 +30,12 @@ interface Props {
   requesting: boolean;
   isAnime: boolean;
   defaultProfileId?: string | null;
+  /** Masqué, et l'administrateur ne laisse pas le demander : l'état seul, rien à cocher. */
+  closed?: boolean;
 }
 
 export function SeasonsSection({
-  tvId, seasons, locks, episodeStates, airTimes, onRequest, requesting, isAnime, defaultProfileId,
+  tvId, seasons, locks, episodeStates, airTimes, onRequest, requesting, isAnime, defaultProfileId, closed = false,
 }: Props) {
   const { t } = useTranslation("seer");
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
@@ -52,7 +54,9 @@ export function SeasonsSection({
   }));
   // Libre : ni là, ni demandée chez Jellyseerr (les épisodes n'y changent rien).
   const free = rows.filter((r) => locks.get(r.season.seasonNumber) === undefined).map((r) => r.season.seasonNumber);
-  const allChosen = free.length > 0 && free.every((n) => selected.has(n));
+  // Ce qui se propose : les saisons libres — aucune pour un titre masqué fermé.
+  const offered = closed ? [] : free;
+  const allChosen = offered.length > 0 && offered.every((n) => selected.has(n));
 
   const toggle = (n: number) => setSelected((cur) => {
     const next = new Set(cur);
@@ -62,14 +66,14 @@ export function SeasonsSection({
 
   return (
     <div className="space-y-3">
-      {free.length > 1 && (
+      {offered.length > 1 && (
         <div className="flex justify-end">
           <button
             type="button"
-            onClick={() => setSelected(allChosen ? new Set() : new Set(free))}
+            onClick={() => setSelected(allChosen ? new Set() : new Set(offered))}
             className="min-h-[36px] rounded-full px-3 text-[13px] font-semibold text-[var(--brand-light)] transition-colors hover:bg-tentacle-fill-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)]"
           >
-            {allChosen ? t("seer:selectNone") : t("seer:quickSeasonsAll", { count: free.length })}
+            {allChosen ? t("seer:selectNone") : t("seer:quickSeasonsAll", { count: offered.length })}
           </button>
         </div>
       )}
@@ -82,7 +86,7 @@ export function SeasonsSection({
             season={season}
             // Une saison libre n'a pas d'état ; une saison prise, le sien.
             status={free.includes(season.seasonNumber) ? null : status ?? { state: "requested", percent: null }}
-            selectable={free.length > 0}
+            selectable={offered.length > 0}
             checked={selected.has(season.seasonNumber)}
             onToggle={() => toggle(season.seasonNumber)}
             expanded={expanded === season.seasonNumber}
@@ -94,7 +98,7 @@ export function SeasonsSection({
         ))}
       </div>
 
-      {free.length > 0 && (
+      {offered.length > 0 && (
         <div className="space-y-3 pt-1">
           <ProfileSelector mediaType="tv" isAnime={isAnime} selectedId={profileId} onChange={setProfileId} />
           <button

@@ -25,6 +25,8 @@ export default {
   toggleEnabledDesc: "Montre l'onglet dans Tentacle et permet d'y faire des demandes",
   toggleAutoApprove: "Approuver automatiquement",
   toggleAutoApproveDesc: "La demande d'un compte sans droit d'approbation dans Jellyseerr est validée dès son envoi",
+  toggleMaskedRequests: "Autoriser la demande de contenu masqué",
+  toggleMaskedRequestsDesc: "Un titre que Jellyseerr masque (liste de blocage, mots-clés bloqués) peut être demandé : Vigie le retire de la liste de blocage juste avant d'envoyer la demande",
   admSpecialSeasons: "Épisodes spéciaux",
   admSpecialSeasonsDesc: "La saison 0 se demande si Jellyseerr l'autorise (Paramètres › Général › autoriser les demandes d'épisodes spéciaux)",
   admSpecialSeasonsOn: "Autorisés",

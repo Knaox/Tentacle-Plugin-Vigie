@@ -26,6 +26,8 @@ export interface SeerAdminConfig {
   apiKey: string;
   enabled: boolean;
   autoApprove: boolean;
+  /** Les titres masqués se demandent (le blocage est levé chez Jellyseerr à l'envoi). */
+  allowMaskedRequests: boolean;
   /** Limite quotidienne par défaut ; 0 = aucune. */
   userLimit: number;
   navLabels: NavLabels;
@@ -48,6 +50,7 @@ function fromServer(data: Record<string, unknown>): SeerAdminConfig {
     apiKey: typeof data.apiKey === "string" ? data.apiKey : "",
     enabled: data.enabled === true,
     autoApprove: data.autoApprove === true,
+    allowMaskedRequests: data.allowMaskedRequests === true,
     userLimit: Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 0,
     navLabels: labelsOf(data.navLabels ?? data.navLabel),
     profiles: Array.isArray(data.profiles) ? (data.profiles as SeerProfile[]) : [],

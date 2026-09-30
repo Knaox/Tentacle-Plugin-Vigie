@@ -109,3 +109,47 @@ export async function filterResultsByTags(
   return { kept, blockedCount };
 }
 
+/** Ce que la fiche Jellyseerr d'un titre dit de son masquage. */
+export interface MaskableDetail {
+  mediaInfo?: { status?: number } | null;
+  keywords?: Array<{ id?: number } | null>;
+}
+
+/**
+ * Un titre masqué : Jellyseerr l'a mis sur sa liste de blocage (statut 6),
+ * ou il porte un des mots-clés bloqués — les deux que la recherche marque
+ * « Masqué ».
+ */
+export function isMaskedTitle(detail: MaskableDetail, blockedTags: ReadonlySet<number>): boolean {
+  if (detail.mediaInfo?.status === MEDIA_STATUS_BLOCKLISTED) return true;
+  return (detail.keywords ?? []).some((k) => typeof k?.id === "number" && blockedTags.has(k.id));
+}
+
+/**
+ * Retire un titre de la liste de blocage de Jellyseerr — il redevient
+ * demandable (Jellyseerr efface aussi sa fiche média, qui repart « inconnue »).
+ * `blocklist` depuis Jellyseerr 2.x ; les versions d'avant disaient
+ * `blacklist` : appelé pour un titre qu'on SAIT bloqué, un 404 veut dire que
+ * la route n'existe pas encore sous ce nom. Vrai : le blocage est levé.
+ */
+export async function liftBlocklist(
+  seerrUrl: string,
+  apiKey: string,
+  mediaType: "movie" | "tv",
+  tmdbId: number,
+): Promise<boolean> {
+  for (const route of ["blocklist", "blacklist"]) {
+    try {
+      const res = await fetch(`${seerrUrl}/api/v1/${route}/${tmdbId}?mediaType=${mediaType}`, {
+        method: "DELETE",
+        headers: { "X-Api-Key": apiKey },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.ok) return true;
+      if (res.status !== 404) return false;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}

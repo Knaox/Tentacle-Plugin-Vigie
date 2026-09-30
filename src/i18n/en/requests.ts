@@ -75,6 +75,7 @@ export default {
   errUserBlocked: "You are not allowed to make requests",
   errRequestGone: "This request no longer exists in Jellyseerr: it was deleted there.",
   errMoviesDenied: "You are not allowed to request movies",
+  errMaskedDenied: "This title is hidden: it can't be requested",
   errTvDenied: "You are not allowed to request TV series",
   errAnimeDenied: "You are not allowed to request anime",
   errQuotaReached: "You have reached your limit of {{limit}} request(s) per day",

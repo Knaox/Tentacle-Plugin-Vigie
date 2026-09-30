@@ -4,7 +4,7 @@
 
 /* Extrait de worker.ts pour tenir sous 300 lignes : la boucle du worker
  * reste là-bas, l'envoi d'une demande (profil, anime, compte Jellyseerr,
- * contenu déjà présent) vit ici. */
+ * contenu déjà présent, blocage levé) vit ici. */
 
 import type { PrismaClient } from "@prisma/client";
 import { getNextQueued, updateRequestStatus, getRequestById, upsertContentClaim } from "./db";
@@ -14,6 +14,7 @@ import type { WorkerConfig } from "./worker-sync";
 import { resolveJellyseerrUserId } from "./jellyseerr-user";
 import { invalidateRequestCaches } from "./cache";
 import type { SeerProfile } from "./types";
+import { MEDIA_STATUS_BLOCKLISTED, liftBlocklist } from "./blocklist";
 
 /* ── Process next queued request ───────────────────────────────────── */
 
@@ -62,6 +63,16 @@ export async function processNextRequest(
     // le média remettait existingSeasons à zéro et re-demandait tout (bug saison
     // partielle). La suppression légitime reste gérée par : retry forceRedownload
     // (routes-requests), retries auto (worker-sync), cleanup deleteFiles.
+
+    // Un titre masqué que l'administrateur laisse demander : Jellyseerr
+    // refuserait la demande tant qu'il est sur sa liste de blocage (403
+    // « This media is blocklisted ») — on l'en retire juste avant l'envoi.
+    if (config.allowMaskedRequests && detail?.mediaInfo?.status === MEDIA_STATUS_BLOCKLISTED) {
+      const lifted = await liftBlocklist(
+        config.seerrUrl, config.seerrApiKey, request.mediaType === "tv" ? "tv" : "movie", request.tmdbId,
+      );
+      console.log(`[SeerWorker] "${request.title}" : blocage Jellyseerr ${lifted ? "levé" : "impossible à lever"} avant la demande`);
+    }
 
     // Anime detection
     if (request.mediaType === "tv" && detail && isAnimeFromKeywords(detail)) {

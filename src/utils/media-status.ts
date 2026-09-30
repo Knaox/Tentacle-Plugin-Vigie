@@ -11,6 +11,15 @@ export function isRequestedSeasonStatus(status: number | undefined): boolean {
 }
 
 /**
+ * Le titre est-il dans la bibliothèque (en partie ou en entier) ? Jamais au-delà
+ * de 5 : 6 est la liste de blocage de Jellyseerr, 7 un titre supprimé — un
+ * « statut ≥ 4 » faisait proposer « Regarder » pour un titre masqué.
+ */
+export function isInLibraryStatus(status: number | undefined): boolean {
+  return status === 4 || status === 5;
+}
+
+/**
  * Ce qu'une affiche dit de son titre, en un mot — le statut Jellyseerr
  * ramené à ce que l'utilisateur veut savoir : puis-je le regarder, l'ai-je
  * déjà demandé ? `null` : rien à dire, le titre se demande.

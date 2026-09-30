@@ -19,7 +19,8 @@ import { useProfiles } from "../../hooks/useProfiles";
 import { useOpenInLibrary } from "../../hooks/useOpenInLibrary";
 import { CTA_PRIMARY, CTA_SIZE_LG } from "../../styles/cta";
 import { profilesFor } from "../ProfileSelector";
-import { ChevronDown, FilmIcon, PlayIcon, PlusIcon } from "../ui/icons";
+import { ChevronDown, EyeOffIcon, FilmIcon, PlayIcon, PlusIcon } from "../ui/icons";
+import { isInLibraryStatus } from "../../utils/media-status";
 
 /** Bouton de verre, sur l'en-tête sombre. */
 export const HERO_SECONDARY =
@@ -51,15 +52,17 @@ interface Props {
   movieRequest?: MovieRequest | null;
   /** Une série dont des saisons se demandent encore : le libellé du bouton qui y mène. */
   seasonsLabel?: string | null;
+  /** Masqué, et l'administrateur ne laisse pas le demander : on le dit. */
+  requestClosed?: boolean;
   onJumpToSeasons?: () => void;
 }
 
 export const DetailActions = memo(function DetailActions(props: Props) {
-  const { mediaType, tmdbId, mediaStatus, libraryId, trailers, onOpenTrailer, movieRequest, seasonsLabel, onJumpToSeasons } = props;
+  const { mediaType, tmdbId, mediaStatus, libraryId, trailers, onOpenTrailer, movieRequest, seasonsLabel, onJumpToSeasons, requestClosed } = props;
   const { t } = useTranslation("seer");
   const openInLibrary = useOpenInLibrary();
   const [navigating, setNavigating] = useState(false);
-  const inLibrary = mediaStatus >= 4;
+  const inLibrary = isInLibraryStatus(mediaStatus);
 
   const watch = async () => {
     if (navigating) return;
@@ -99,6 +102,11 @@ export const DetailActions = memo(function DetailActions(props: Props) {
           </button>
         )}
       </div>
+      {requestClosed && (
+        <p className="inline-flex max-w-xl items-center gap-1.5 text-xs leading-relaxed text-tentacle-on-media-secondary">
+          <EyeOffIcon className="h-3.5 w-3.5 shrink-0" />{t("seer:maskedRequestClosed")}
+        </p>
+      )}
       {movieRequest && !movieRequest.obtainable && !movieRequest.success && (
         <p className="max-w-xl text-xs leading-relaxed text-tentacle-on-media-secondary">{t("seer:availRequestAnywayHint")}</p>
       )}

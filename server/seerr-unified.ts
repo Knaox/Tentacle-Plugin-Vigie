@@ -21,6 +21,8 @@ export type WorkerCfg = {
   defaultDailyLimit?: number | null;
   /** Valider d'office les demandes restées « en attente » dans Jellyseerr. */
   autoApprove?: boolean;
+  /** Les titres masqués se demandent (le blocage est levé avant l'envoi). */
+  allowMaskedRequests?: boolean;
 };
 
 export interface SeerrRequestRow {

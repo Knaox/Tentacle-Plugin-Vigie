@@ -14,6 +14,15 @@ import type { VigieSearchResponse } from "../api/types-search";
 
 const isMasked = (item: SeerrSearchResult) => item.masked === true;
 
+/**
+ * Masqué : marqué par la recherche (mots-clés bloqués), ou sur la liste de
+ * blocage de Jellyseerr (statut 6) d'où qu'il vienne. Sa demande n'est
+ * ouverte que si l'administrateur le permet (`useMaskedRequests`).
+ */
+export function isMaskedItem(item: Pick<SeerrSearchResult, "masked" | "mediaInfo">): boolean {
+  return item.masked === true || item.mediaInfo?.status === 6;
+}
+
 /** Combien de titres masqués la réponse montre (le meilleur résultat compris, une fois). */
 export function countMasked(data: VigieSearchResponse): number {
   const keys = new Set<string>();
