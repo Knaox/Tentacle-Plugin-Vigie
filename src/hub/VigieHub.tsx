@@ -24,6 +24,7 @@ import { useRequestMedia } from "../hooks/useRequestMedia";
 import { useToast } from "../hooks/useToast";
 import { mediaTitle, mediaYear, posterUrl } from "../utils/media-helpers";
 import { CHROME_BOTTOM } from "../utils/host-chrome";
+import { PAGE_BOX_CLASS, ownsPageScroll, pageScrollTop, registerPageBox, scrollPageTo } from "../utils/page-scroll";
 import { MediaDetailModal } from "../components/MediaDetailModal";
 import { SearchView } from "../search/SearchView";
 import { useVigieSearch } from "../search/useVigieSearch";
@@ -103,14 +104,14 @@ export function VigieHub({ routePath }: { routePath: string }) {
   const positions = useRef(new Map<string, number>());
   const currentView = useRef(viewKey);
   const restoreNext = useRef(false);
-  const leave = useCallback(() => { positions.current.set(currentView.current, window.scrollY); }, []);
+  const leave = useCallback(() => { positions.current.set(currentView.current, pageScrollTop()); }, []);
   useLayoutEffect(() => {
     if (currentView.current === viewKey) return;
     const fromSearch = currentView.current === "search";
     currentView.current = viewKey;
     const restore = restoreNext.current || fromSearch;
     restoreNext.current = false;
-    window.scrollTo({ top: restore ? positions.current.get(viewKey) ?? 0 : 0 });
+    scrollPageTo(restore ? positions.current.get(viewKey) ?? 0 : 0);
   }, [viewKey]);
 
   const setQuery = useCallback((next: string) => {
@@ -137,7 +138,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
    *  le catalogue sur « Tout le catalogue ». */
   const tapTab = useCallback((next: HubTab) => {
     if (next === tab && !searching) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      scrollPageTo(0, true);
       return;
     }
     if (next !== tab) {
@@ -205,6 +206,9 @@ export function VigieHub({ routePath }: { routePath: string }) {
     <HubContext.Provider value={api}>
       <TitleStatesProvider data={data}>
       <UserMarksProvider>
+        {/* La boîte qui défile, dans la WebView iOS : la page y garde l'élan
+            natif (cf. page-scroll.ts). Ailleurs, un simple bloc. */}
+        <div ref={registerPageBox} className={ownsPageScroll() ? PAGE_BOX_CLASS : undefined}>
         <div className="min-h-screen bg-tentacle-surface-0" style={{ paddingBottom: `calc(2.5rem + ${CHROME_BOTTOM})` }}>
           <HubHeader
             query={query}
@@ -248,6 +252,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
               <div hidden={!show("calendar")}><CalendarView key={`calendar:${fresh.calendar}`} active={show("calendar")} focus={calendarFocus} /></div>
             )}
           </main>
+        </div>
         </div>
 
         {/* Sous la fiche et les feuilles (z-50 et plus), au-dessus des barres accrochées. */}

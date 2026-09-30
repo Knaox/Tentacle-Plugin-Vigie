@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { CTA_PRIMARY } from "../../styles/cta";
 import { ICON_BUTTON } from "../../styles/pills";
 import { CHROME_BOTTOM } from "../../utils/host-chrome";
+import { lockPageScroll } from "../../utils/page-scroll";
 import { useOverlay } from "../../hooks/useOverlay";
 import { useSheetSwipe } from "../../hooks/useSheetSwipe";
 import { CloseIcon } from "../ui/icons";
@@ -51,11 +52,10 @@ export function FilterSheet({
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlock = lockPageScroll();
     panel.current?.focus();
     return () => {
-      document.body.style.overflow = overflow;
+      unlock();
       previous?.focus();
     };
   }, [open]);

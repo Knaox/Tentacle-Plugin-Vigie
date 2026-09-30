@@ -19,6 +19,7 @@
 import { memo, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { searchShortcutLabel, showsKeyboardHints } from "../utils/host-env";
+import { scrollPageTo } from "../utils/page-scroll";
 import { useSearchHotkey } from "../hooks/useSearchHotkey";
 import { usePluginLabel } from "../hooks/useIsAdmin";
 import { CalendarIcon, CloseIcon, CompassIcon, LayersIcon, ListIcon, SearchIcon } from "../components/ui/icons";
@@ -76,7 +77,7 @@ export const HubHeader = memo(function HubHeader(props: HubHeaderProps) {
   // Focus SYNCHRONE, dans le geste : iOS ne sort le clavier que pour un focus
   // donné pendant le toucher lui-même.
   const jumpToSearch = () => {
-    window.scrollTo({ top: 0 });
+    scrollPageTo(0);
     input.current?.focus({ preventScroll: true });
   };
 

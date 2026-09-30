@@ -28,6 +28,7 @@ import { ActiveFilterPills } from "../components/ActiveFilterPills";
 import { EmptyState } from "../components/EmptyState";
 import { CTA_SECONDARY, CTA_SIZE_MD } from "../styles/cta";
 import { getCurrentLanguage } from "../utils/media-helpers";
+import { scrollPageTo } from "../utils/page-scroll";
 import { useSparseCatalog } from "./useSparseCatalog";
 import { useMixedCatalog } from "./mixCatalogs";
 import { VirtualGrid } from "./VirtualGrid";
@@ -81,7 +82,7 @@ export function BrowseView({ preset, active, back, openFilters = false }: Props)
   const catalog = useMixedCatalog(first, second, mixed);
 
   // Un autre parcours, un autre filtre, un autre type : on repart du haut de la grille.
-  useEffect(() => { if (active) window.scrollTo({ top: 0 }); }, [key, mixed]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (active) scrollPageTo(0); }, [key, mixed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Les genres ne portent pas les mêmes identifiants pour les films et les séries.
   const changeType = (next: BrowseType) => {

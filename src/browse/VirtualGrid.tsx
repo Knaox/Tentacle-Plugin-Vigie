@@ -10,11 +10,13 @@
  * premier chargement.
  *
  * Toutes les rangées ont la MÊME hauteur, calculée depuis la largeur : rien
- * à mesurer, rien qui saute. La grille suit le défilement de la fenêtre (celui
- * de la page du plugin), lu au plus une fois par image.
+ * à mesurer, rien qui saute. La grille suit le défilement de la page du plugin
+ * (la fenêtre, ou la boîte de la WebView iOS — cf. page-scroll.ts), lu au plus
+ * une fois par image.
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { onPageScroll, pageViewportHeight } from "../utils/page-scroll";
 
 const GAP_X = 12;
 const GAP_Y = 20;
@@ -64,7 +66,7 @@ export const VirtualGrid = memo(function VirtualGrid({ count, renderItem, onRang
     if (!el) return;
     const top = el.getBoundingClientRect().top;
     const first = Math.max(0, Math.floor(-top / rowHeight) - OVERSCAN_ROWS);
-    const last = Math.min(rowCount - 1, Math.floor((window.innerHeight - top) / rowHeight) + OVERSCAN_ROWS);
+    const last = Math.min(rowCount - 1, Math.floor((pageViewportHeight() - top) / rowHeight) + OVERSCAN_ROWS);
     setRows((cur) => (cur.first === first && cur.last === last ? cur : { first, last }));
   }, [rowHeight, rowCount]);
 
@@ -75,10 +77,10 @@ export const VirtualGrid = memo(function VirtualGrid({ count, renderItem, onRang
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(() => { frame = 0; measure(); });
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
+    const stop = onPageScroll(onScroll);
     window.addEventListener("resize", onScroll);
     return () => {
-      window.removeEventListener("scroll", onScroll);
+      stop();
       window.removeEventListener("resize", onScroll);
       cancelAnimationFrame(frame);
     };

@@ -15,6 +15,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { CHROME_BOTTOM } from "../../utils/host-chrome";
+import { lockPageScroll } from "../../utils/page-scroll";
 import { CloseIcon } from "./icons";
 import { useOverlay } from "../../hooks/useOverlay";
 import { useSheetSwipe } from "../../hooks/useSheetSwipe";
@@ -43,11 +44,10 @@ export function Sheet({ open, onClose, title, size = "md", children, footer }: S
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlock = lockPageScroll();
     panel.current?.focus();
     return () => {
-      document.body.style.overflow = overflow;
+      unlock();
       previous?.focus();
     };
   }, [open]);

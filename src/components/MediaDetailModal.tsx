@@ -38,6 +38,7 @@ import { hasActiveRequest, isAnimeTitle, seasonLocks } from "../utils/season-loc
 import { mediaTitle, mediaYear } from "../utils/media-helpers";
 import { openTrailersViaHost } from "../utils/external";
 import { CHROME_BOTTOM } from "../utils/host-chrome";
+import { lockPageScroll } from "../utils/page-scroll";
 import { DetailHero } from "./detail/DetailHero";
 import { DetailActions } from "./detail/DetailActions";
 import { MediaDetailBody, SEASONS_ANCHOR } from "./MediaDetailBody";
@@ -116,11 +117,8 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
     setTimeout(onClose, 180);
   }, [onClose]);
 
-  useEffect(() => {
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = overflow; };
-  }, []);
+  // La page dessous ne défile plus tant que la fiche est ouverte.
+  useEffect(() => lockPageScroll(), []);
   // La bande-annonce, ouverte par-dessus, prend Échap tant qu'elle est là.
   useOverlay(true, handleClose);
   // Tirée vers le bas, la feuille est déjà hors de l'écran : pas de fondu.

@@ -16,6 +16,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CHROME_BOTTOM } from "../../utils/host-chrome";
+import { onPageScroll, pageScrollTop, pageViewportHeight, scrollPageTo } from "../../utils/page-scroll";
 import { ArrowUpIcon } from "./icons";
 
 /** En écrans de défilement : au-delà, le bouton se montre. */
@@ -33,18 +34,18 @@ export function ScrollTopButton() {
     let frame = 0;
     const measure = () => {
       frame = 0;
-      setShown(window.scrollY > window.innerHeight * THRESHOLD_SCREENS);
+      setShown(pageScrollTop() > pageViewportHeight() * THRESHOLD_SCREENS);
     };
     const onScroll = () => { if (!frame) frame = requestAnimationFrame(measure); };
     measure();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => { window.removeEventListener("scroll", onScroll); cancelAnimationFrame(frame); };
+    const stop = onPageScroll(onScroll);
+    return () => { stop(); cancelAnimationFrame(frame); };
   }, []);
 
   return (
     <button
       type="button"
-      onClick={() => window.scrollTo({ top: 0, behavior: reducedMotion() ? "auto" : "smooth" })}
+      onClick={() => scrollPageTo(0, !reducedMotion())}
       aria-label={t("seer:scrollToTop")}
       aria-hidden={!shown}
       tabIndex={shown ? 0 : -1}
