@@ -36,6 +36,8 @@ import { useSheetSwipe } from "../hooks/useSheetSwipe";
 import { useTitleStatus } from "../hub/TitleStates";
 import { hasActiveRequest, isAnimeTitle, seasonLocks } from "../utils/season-locks";
 import { mediaTitle, mediaYear } from "../utils/media-helpers";
+import { requestableSeasons } from "../utils/request-seasons";
+import { useSpecialSeasons } from "../hooks/useIsAdmin";
 import { libraryIdOf } from "../utils/navigate-media";
 import { openTrailersViaHost } from "../utils/external";
 import { CHROME_BOTTOM } from "../utils/host-chrome";
@@ -62,6 +64,7 @@ const PLATE = "flex h-10 w-10 items-center justify-center rounded-full bg-[var(-
 export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileId }: MediaDetailModalProps) {
   const { t } = useTranslation("seer");
   const toast = useToast();
+  const specialSeasons = useSpecialSeasons();
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrimRef = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState(item);
@@ -103,7 +106,7 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
     () => seasonLocks(tvDetail?.mediaInfo, [...(localSeasons ?? []), ...(lockedSeasons ?? [])]),
     [tvDetail?.mediaInfo, localSeasons, lockedSeasons],
   );
-  const tvSeasons = (tvDetail?.seasons ?? []).filter((s) => s.seasonNumber > 0);
+  const tvSeasons = requestableSeasons(tvDetail?.seasons ?? [], specialSeasons);
   const freeSeasons = tvSeasons.filter((s) => locks.get(s.seasonNumber) === undefined).length;
   // Un film déjà pris ne se redemande pas : suivi par Jellyseerr, attendu par
   // une demande quand son statut est retombé à 1, ou par SA demande encore

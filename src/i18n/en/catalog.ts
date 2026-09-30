@@ -135,6 +135,7 @@ export default {
   selectAll: "All",
   selectNone: "None",
   seasonFallback: "Season {{number}}",
+  seasonSpecials: "Specials",
   episodeCount_one: "{{count}} episode",
   episodeCount_other: "{{count}} episodes",
   requestSeasons_one: "Request {{count}} season",

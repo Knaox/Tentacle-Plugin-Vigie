@@ -7,12 +7,14 @@ interface PublicConfig {
   isAdmin?: boolean;
   /** Les noms donnés à l'onglet par l'administrateur, par langue ; vides : « Vigie ». */
   navLabels?: { fr?: string; en?: string };
+  /** Jellyseerr laisse demander la saison 0 (« autoriser les épisodes spéciaux »). */
+  specialSeasons?: boolean;
 }
 
 /**
  * `GET /config`, lu une fois par session : ce qu'un client a le droit d'en
- * savoir (drapeau administrateur, nom de l'onglet). Invalidé par la page
- * d'administration quand elle enregistre.
+ * savoir (drapeau administrateur, nom de l'onglet, ce qui se demande).
+ * Invalidé par la page d'administration quand elle enregistre.
  */
 function usePublicConfig(): PublicConfig | undefined {
   const { data } = useQuery({
@@ -51,4 +53,13 @@ export function usePluginLabel(): string | null {
   if (!labels) return null;
   const label = labelFor({ fr: labels.fr ?? "", en: labels.en ?? "" }, i18n.language);
   return label === DEFAULT_NAV_LABEL ? null : label;
+}
+
+/**
+ * Les épisodes spéciaux (la saison 0) se demandent-ils ? C'est Jellyseerr qui
+ * en décide (« autoriser la demande d'épisodes spéciaux ») : éteint, il les
+ * retirerait de toute demande — Vigie ne les propose donc qu'allumé.
+ */
+export function useSpecialSeasons(): boolean {
+  return usePublicConfig()?.specialSeasons === true;
 }

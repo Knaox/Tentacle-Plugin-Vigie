@@ -40,11 +40,13 @@ export function SeasonsSection({
   const [expanded, setExpanded] = useState<number | null>(null);
   const [profileId, setProfileId] = useState<string | null>(defaultProfileId ?? null);
 
-  const shown = seasons.filter((s) => s.seasonNumber > 0);
-  // Un animé en une saison chez TMDB, en quatre chez Sonarr : les épisodes se
-  // retrouvent par leur date, la saison garde l'état que Jellyseerr lui donne.
-  const sameNumbering = numberingMatches(episodeStates, shown.length);
-  const rows = shown.map((season) => ({
+  // Les saisons à montrer (la saison 0 comprise quand Jellyseerr la laisse
+  // demander — cf. requestableSeasons). Un animé en une saison chez TMDB, en
+  // quatre chez Sonarr : les épisodes se retrouvent par leur date, la saison
+  // garde l'état que Jellyseerr lui donne — la comparaison se fait donc sur les
+  // saisons NUMÉROTÉES.
+  const sameNumbering = numberingMatches(episodeStates, seasons.filter((s) => s.seasonNumber > 0).length);
+  const rows = seasons.map((season) => ({
     season,
     status: seasonStatus(season.seasonNumber, season.episodeCount, locks.get(season.seasonNumber), episodeStates, sameNumbering),
   }));

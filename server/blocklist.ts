@@ -23,6 +23,7 @@
 
 import { cached } from "./cache";
 import { mapLimit } from "./concurrency";
+import { getSeerrMainSettings } from "./seerr-settings";
 
 export const MEDIA_STATUS_BLOCKLISTED = 6;
 const KEYWORD_FETCH_CONCURRENCY = 8;
@@ -34,19 +35,7 @@ export interface ResultItem {
 }
 
 export async function getBlocklistedTags(seerrUrl: string, apiKey: string): Promise<string> {
-  return cached(`seerr:blocklistedTags:${seerrUrl}`, 5 * 60_000, async () => {
-    try {
-      const res = await fetch(`${seerrUrl}/api/v1/settings/main`, {
-        headers: { "X-Api-Key": apiKey },
-        signal: AbortSignal.timeout(8_000),
-      });
-      if (!res.ok) return "";
-      const data = (await res.json()) as { blocklistedTags?: string };
-      return (data.blocklistedTags ?? "").trim();
-    } catch {
-      return "";
-    }
-  });
+  return ((await getSeerrMainSettings(seerrUrl, apiKey)).blocklistedTags ?? "").trim();
 }
 
 /** Convertit la CSV `blocklistedTags` en Set d'IDs numériques. */
@@ -119,3 +108,4 @@ export async function filterResultsByTags(
   blockedCount += afterStatus.length - kept.length;
   return { kept, blockedCount };
 }
+

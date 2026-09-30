@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { useToast } from "../../hooks/useToast";
 import { labelFor } from "../../utils/nav-labels";
 import { AlertIcon, CheckIcon, ClockIcon, CompassIcon, EyeIcon, FilmIcon, LinkIcon, TvIcon, UsersIcon } from "../ui/icons";
+import { useSpecialSeasons } from "../../hooks/useIsAdmin";
 import { Chip, Stepper, Switch } from "./adminKit";
 import { Group, NavLabelPill, Row } from "./adminRows";
 import type { ArrProbe } from "./connectionTest";
@@ -35,6 +36,7 @@ function hostOf(url: string): string {
 export function SettingsTab({ state }: { state: SeerAdminState }) {
   const { t, i18n } = useTranslation("seer");
   const toast = useToast();
+  const specialSeasons = useSpecialSeasons();
   const config = state.config as SeerAdminConfig;
   const [sheet, setSheet] = useState<"connection" | "label" | null>(null);
   const [limit, setLimit] = useState(config.userLimit);
@@ -119,6 +121,13 @@ export function SettingsTab({ state }: { state: SeerAdminState }) {
           title={t("seer:toggleAutoApprove")}
           description={t("seer:toggleAutoApproveDesc")}
           trailing={<Switch checked={config.autoApprove} label={t("seer:toggleAutoApprove")} disabled={state.saving} onChange={(autoApprove) => void commit({ autoApprove })} />}
+        />
+        {/* Réglé dans Jellyseerr, pas ici : on dit seulement ce qu'il en est. */}
+        <Row
+          icon={<TvIcon className="h-[18px] w-[18px]" />}
+          title={t("seer:admSpecialSeasons")}
+          description={t("seer:admSpecialSeasonsDesc")}
+          trailing={<Chip tone={specialSeasons ? "success" : "neutral"} dot>{t(specialSeasons ? "seer:admSpecialSeasonsOn" : "seer:admSpecialSeasonsOff")}</Chip>}
         />
         <Row
           icon={<ClockIcon className="h-[18px] w-[18px]" />}

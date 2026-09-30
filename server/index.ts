@@ -9,6 +9,7 @@ import { fileURLToPath } from "url";
 import { ensureTables } from "./db";
 import { readPluginConfig, writePluginConfig, defaultDailyLimit, navLabelsOf } from "./plugin-config";
 import { applyNavLabel } from "./nav-label";
+import { specialSeasonsEnabled, specialSeasonsQuick } from "./seerr-settings";
 import { startWorker, stopWorker } from "./worker";
 import { registerRequestRoutes } from "./routes-requests";
 import { registerBulkRoutes } from "./routes-bulk";
@@ -67,6 +68,10 @@ export default async function seerBackend(
   applyNavLabel(__pluginDir, ctx.pluginId, navLabelsOf(getPluginConfig(ctx)));
 
   startWorker(prisma, () => getWorkerConfig(ctx));
+  // Les réglages de Jellyseerr lus d'avance : `GET /config` ne les attend pas.
+  void getWorkerConfig(ctx)
+    .then((w) => (w ? specialSeasonsEnabled(w.seerrUrl, w.seerrApiKey) : false))
+    .catch(() => false);
   app.addHook("onClose", async () => { stopWorker(); });
   app.addHook("preHandler", ctx.requireAuth);
 
@@ -75,15 +80,20 @@ export default async function seerBackend(
   app.get("/config", async (request) => {
     const config = getPluginConfig(ctx);
     const user = (request as any).user;
+    // Ce que le client propose : la saison 0 si Jellyseerr la laisse demander.
+    const worker = await getWorkerConfig(ctx);
+    const requests = {
+      specialSeasons: worker ? await specialSeasonsQuick(worker.seerrUrl, worker.seerrApiKey) : false,
+    };
     // Admins voient toute la config (pour la page admin)
     if (user?.isAdmin) {
-      return { ...config, navLabels: navLabelsOf(config), isAdmin: true };
+      return { ...config, navLabels: navLabelsOf(config), isAdmin: true, ...requests };
     }
     // Non-admins : infos non-sensibles. `isAdmin` dit au client quoi proposer ;
     // `navLabels`, les noms que l'administrateur a donnés à l'onglet.
     return {
       url: config.url || "", enabled: !!config.enabled, hasApiKey: !!config.apiKey, isAdmin: false,
-      navLabels: navLabelsOf(config),
+      navLabels: navLabelsOf(config), ...requests,
     };
   });
 

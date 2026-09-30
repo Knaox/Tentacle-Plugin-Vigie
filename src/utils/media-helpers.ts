@@ -78,5 +78,6 @@ export function langParam(): string {
 /** Le nom d'une saison ; TMDB en nomme certaines « 1 », « 2 » — on dit alors « Saison 1 ». */
 export function seasonName(name: string | undefined, seasonNumber: number, t: (k: string, o?: Record<string, unknown>) => string): string {
   const trimmed = (name ?? "").trim();
-  return trimmed && !/^\d+$/.test(trimmed) ? trimmed : t("seer:seasonFallback", { number: seasonNumber });
+  if (trimmed && !/^\d+$/.test(trimmed)) return trimmed;
+  return seasonNumber === 0 ? t("seer:seasonSpecials") : t("seer:seasonFallback", { number: seasonNumber });
 }

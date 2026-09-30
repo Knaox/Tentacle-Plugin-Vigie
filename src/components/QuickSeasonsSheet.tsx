@@ -20,6 +20,8 @@ import { useToast } from "../hooks/useToast";
 import { isRequestedSeasonStatus } from "../utils/media-status";
 import { isAnimeTitle, seasonLocks } from "../utils/season-locks";
 import { mediaTitle, mediaYear, posterUrl, seasonName } from "../utils/media-helpers";
+import { requestableSeasons } from "../utils/request-seasons";
+import { useSpecialSeasons } from "../hooks/useIsAdmin";
 import type { TitleStatus } from "../utils/title-state";
 import { CTA_PRIMARY, CTA_SECONDARY, CTA_SIZE_LG } from "../styles/cta";
 import { Sheet } from "./ui/Sheet";
@@ -41,6 +43,7 @@ export function QuickSeasonsSheet({ item, onClose, onOpenDetail }: {
   const { t } = useTranslation("seer");
   const toast = useToast();
   const requestMedia = useRequestMedia();
+  const specialSeasons = useSpecialSeasons();
   const { data, isPending } = useMediaDetail("tv", item.id);
   const detail = data as SeerrTvDetail | undefined;
   const { data: localSeasons } = useLocalRequestedSeasons("tv", item.id);
@@ -49,7 +52,7 @@ export function QuickSeasonsSheet({ item, onClose, onOpenDetail }: {
 
   const title = mediaTitle(item) || detail?.name || t("seer:untitled");
   const locks = useMemo(() => seasonLocks(detail?.mediaInfo, localSeasons), [detail?.mediaInfo, localSeasons]);
-  const seasons = (detail?.seasons ?? []).filter((s) => s.seasonNumber > 0);
+  const seasons = requestableSeasons(detail?.seasons ?? [], specialSeasons);
   const free = seasons.filter((s) => lockStatus(locks.get(s.seasonNumber)) === null).map((s) => s.seasonNumber);
   const allChosen = free.length > 0 && free.every((n) => selected.has(n));
   const poster = posterUrl(item.posterPath ?? detail?.posterPath, "w185");

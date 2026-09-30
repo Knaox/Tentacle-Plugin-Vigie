@@ -1133,6 +1133,32 @@ setInterval(() => {
   }
 }, 6e4).unref?.();
 
+// server/seerr-settings.ts
+function getSeerrMainSettings(seerrUrl, apiKey) {
+  return cached(`seerr:settingsMain:${seerrUrl}`, 5 * 6e4, async () => {
+    try {
+      const res = await fetch(`${seerrUrl}/api/v1/settings/main`, {
+        headers: { "X-Api-Key": apiKey },
+        signal: AbortSignal.timeout(8e3)
+      });
+      if (!res.ok) return {};
+      return await res.json();
+    } catch {
+      return {};
+    }
+  }, { staleMs: 24 * 36e5 });
+}
+async function specialSeasonsEnabled(seerrUrl, apiKey) {
+  return (await getSeerrMainSettings(seerrUrl, apiKey)).enableSpecialEpisodes === true;
+}
+function specialSeasonsQuick(seerrUrl, apiKey, capMs = 400) {
+  let timer2;
+  const late = new Promise((resolve3) => {
+    timer2 = setTimeout(() => resolve3(false), capMs);
+  });
+  return Promise.race([specialSeasonsEnabled(seerrUrl, apiKey), late]).finally(() => clearTimeout(timer2));
+}
+
 // server/anime.ts
 var overridesCache = null;
 async function fetchMediaDetail(seerrUrl, apiKey, mediaType, tmdbId) {
@@ -6856,19 +6882,7 @@ import { Readable } from "stream";
 var MEDIA_STATUS_BLOCKLISTED3 = 6;
 var KEYWORD_FETCH_CONCURRENCY = 8;
 async function getBlocklistedTags(seerrUrl, apiKey) {
-  return cached(`seerr:blocklistedTags:${seerrUrl}`, 5 * 6e4, async () => {
-    try {
-      const res = await fetch(`${seerrUrl}/api/v1/settings/main`, {
-        headers: { "X-Api-Key": apiKey },
-        signal: AbortSignal.timeout(8e3)
-      });
-      if (!res.ok) return "";
-      const data = await res.json();
-      return (data.blocklistedTags ?? "").trim();
-    } catch {
-      return "";
-    }
-  });
+  return ((await getSeerrMainSettings(seerrUrl, apiKey)).blocklistedTags ?? "").trim();
 }
 function parseTagSet(csv) {
   const set = /* @__PURE__ */ new Set();
@@ -8801,6 +8815,7 @@ async function seerBackend(app, ctx) {
   console.log("[SeerBackend] Database tables ready");
   applyNavLabel(__pluginDir, ctx.pluginId, navLabelsOf(getPluginConfig(ctx)));
   startWorker(prisma, () => getWorkerConfig(ctx));
+  void getWorkerConfig(ctx).then((w) => w ? specialSeasonsEnabled(w.seerrUrl, w.seerrApiKey) : false).catch(() => false);
   app.addHook("onClose", async () => {
     stopWorker();
   });
@@ -8808,15 +8823,20 @@ async function seerBackend(app, ctx) {
   app.get("/config", async (request) => {
     const config = getPluginConfig(ctx);
     const user = request.user;
+    const worker = await getWorkerConfig(ctx);
+    const requests = {
+      specialSeasons: worker ? await specialSeasonsQuick(worker.seerrUrl, worker.seerrApiKey) : false
+    };
     if (user?.isAdmin) {
-      return { ...config, navLabels: navLabelsOf(config), isAdmin: true };
+      return { ...config, navLabels: navLabelsOf(config), isAdmin: true, ...requests };
     }
     return {
       url: config.url || "",
       enabled: !!config.enabled,
       hasApiKey: !!config.apiKey,
       isAdmin: false,
-      navLabels: navLabelsOf(config)
+      navLabels: navLabelsOf(config),
+      ...requests
     };
   });
   app.put("/config", { preHandler: ctx.requireAdmin }, async (request, reply) => {

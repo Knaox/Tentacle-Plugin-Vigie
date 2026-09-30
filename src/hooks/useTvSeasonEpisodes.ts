@@ -24,7 +24,7 @@ export function useTvSeasonEpisodes(tvId: number, seasonNumber: number | null) {
       );
       return data.episodes ?? [];
     },
-    enabled: tvId > 0 && seasonNumber != null && seasonNumber > 0,
+    enabled: tvId > 0 && seasonNumber != null && seasonNumber >= 0,
     staleTime: 30 * 60_000,
   });
 }
