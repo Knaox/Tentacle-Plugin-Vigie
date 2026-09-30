@@ -80,7 +80,10 @@ export const Rail = memo(function Rail({ title, subtitle, count, action, icon, c
   const measure = useCallback(() => {
     const el = scroller.current;
     if (!el) return;
-    setEdges({ start: el.scrollLeft < 8, end: el.scrollLeft + el.clientWidth >= el.scrollWidth - 8 });
+    const start = el.scrollLeft < 8;
+    const end = el.scrollLeft + el.clientWidth >= el.scrollWidth - 8;
+    // Un rendu seulement quand une extrémité bascule — pas à chaque image du glissé.
+    setEdges((cur) => (cur.start === start && cur.end === end ? cur : { start, end }));
   }, []);
 
   useEffect(() => {
