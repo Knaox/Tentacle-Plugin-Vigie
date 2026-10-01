@@ -2034,10 +2034,10 @@ function seriesFiles(seasons, facts) {
 function verdictFor(req, queue, files) {
   const source = req.mediaType === "movie" ? "radarr" : "sonarr";
   if (queue.unreachable.includes(source)) return null;
-  const arriving = summarizeQueue(matchQueue(req, queue.items));
-  if (arriving) {
+  const arriving2 = summarizeQueue(matchQueue(req, queue.items));
+  if (arriving2) {
     const status = req.status === "partially_available" ? "partially_available" : "downloading";
-    return { status, download: arriving.summary, downloads: arriving.items.length > 1 ? arriving.items : void 0 };
+    return { status, download: arriving2.summary, downloads: arriving2.items.length > 1 ? arriving2.items : void 0 };
   }
   if (files === "all") return { status: "available", download: null };
   if (files === "some" && req.status !== "partially_available") return { status: "partially_available", download: null };
@@ -8763,7 +8763,65 @@ function refusalMessage(status, body, lang) {
   return w.failed;
 }
 
+// server/titles/my-titles.ts
+var MAX_MY_TITLES = 50;
+var WAITING2 = /* @__PURE__ */ new Set([
+  "queued",
+  "processing",
+  "sent_to_seer",
+  "approved",
+  "unavailable",
+  "retry_pending"
+]);
+var RANK2 = { pending: 1, blocked: 2, importing: 3, arriving: 4 };
+function arriving(download) {
+  if (download.stalled) return { state: "blocked", percent: null };
+  if (download.validating) return { state: "importing", percent: null };
+  const percent = download.percent;
+  return { state: "arriving", percent: typeof percent === "number" && Number.isFinite(percent) ? Math.round(percent * 10) / 10 : null };
+}
+function verdictOf(request, arr) {
+  const status = arr?.status ?? request.status;
+  const download = arr ? arr.download : request.download ?? null;
+  if (status === "downloading") return download ? arriving(download) : { state: "arriving", percent: null };
+  if (status === "partially_available") return download ? arriving(download) : null;
+  return WAITING2.has(status) ? { state: "pending", percent: null } : null;
+}
+function yearOf2(raw) {
+  const year = raw && /^\d{4}/.test(raw) ? Number(raw.slice(0, 4)) : NaN;
+  return Number.isInteger(year) ? year : null;
+}
+function myTitles(requests, verdicts) {
+  const byKey = /* @__PURE__ */ new Map();
+  for (const request of requests) {
+    if (!(request.tmdbId > 0)) continue;
+    const verdict = verdictOf(request, verdicts.get(request.id));
+    if (!verdict) continue;
+    const key = `${request.mediaType}:${request.tmdbId}`;
+    const seasons = request.mediaType === "tv" && request.seasons?.length ? request.seasons : null;
+    const known = byKey.get(key);
+    if (!known) {
+      if (byKey.size >= MAX_MY_TITLES) continue;
+      byKey.set(key, {
+        key,
+        title: request.title,
+        year: yearOf2(request.year),
+        imageUrl: request.posterPath ? `https://image.tmdb.org/t/p/w185${request.posterPath}` : null,
+        seasons: seasons ? [...new Set(seasons)].sort((a, b) => a - b) : null,
+        ...verdict
+      });
+      continue;
+    }
+    if (known.seasons && seasons) known.seasons = [.../* @__PURE__ */ new Set([...known.seasons, ...seasons])].sort((a, b) => a - b);
+    else known.seasons = null;
+    if (RANK2[verdict.state] > RANK2[known.state]) Object.assign(known, verdict);
+  }
+  return [...byKey.values()];
+}
+
 // server/routes-titles.ts
+var MINE_TTL_MS = 1e4;
+var MINE_META_BUDGET = 10;
 function readLang2(raw) {
   return typeof raw === "string" && /^[a-z]{2}$/i.test(raw) ? raw.toLowerCase() : "en";
 }
@@ -8829,6 +8887,32 @@ function registerTitleRoutes(app, prisma, getWorkerConfig2) {
       };
     }
     return { ok: false, message: refusalMessage(result.status, result.body, lang) };
+  });
+  app.get("/titles/access", async (request) => {
+    const cfg = await getWorkerConfig2();
+    if (!cfg) return { request: false };
+    const rights = await rightsOf(prisma, getUser(request).userId, cfg);
+    return { request: rights.movies || rights.tv };
+  });
+  app.get("/titles/mine", async (request) => {
+    const user = getUser(request);
+    const cfg = await getWorkerConfig2();
+    if (!cfg) return { items: [] };
+    return cached(`seer-cache:${user.userId}:mine`, MINE_TTL_MS, async () => {
+      const rows = await loadMergedRows(prisma, cfg, user, (err, msg) => app.log?.warn?.({ err }, msg));
+      const { meta, missing } = await resolveTmdbMeta(prisma, cfg, collectTmdbRefs(rows), { maxFetch: 0 });
+      const requests = hydrateRows(rows, meta, user);
+      const verdicts = await arrVerdicts(cfg, requests).catch(() => /* @__PURE__ */ new Map());
+      let items = myTitles(requests, verdicts);
+      const waiting = new Set(items.map((i) => i.key));
+      const absent = missing.filter((ref) => waiting.has(tmdbKey(ref)));
+      if (absent.length > 0) {
+        const filled = await resolveTmdbMeta(prisma, cfg, absent, { maxFetch: MINE_META_BUDGET });
+        for (const [k, v] of filled.meta) meta.set(k, v);
+        items = myTitles(hydrateRows(rows, meta, user), verdicts);
+      }
+      return { items };
+    });
   });
 }
 

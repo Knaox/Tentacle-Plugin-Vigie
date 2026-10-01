@@ -14,6 +14,16 @@
  *          qui ouvre ses saisons libres. Un refus (quota, droits, déjà
  *          demandé) répond 200 avec `ok: false` et une phrase à afficher :
  *          c'est un résultat, pas une panne.
+ *   GET  /titles/access
+ *        — le compte peut-il demander quoi que ce soit : `{ request }`, faux
+ *          pour un compte bloqué ou sans aucun type permis. Tentacle s'en sert
+ *          pour n'offrir AUCUNE de nos fonctions à un tel compte.
+ *   GET  /titles/mine?lang=fr
+ *        — les titres que le compte attend, un par titre, les plus récents
+ *          d'abord, dans un des quatre états de Tentacle (titles/my-titles.ts).
+ *          Mêmes verdicts que le hub (Sonarr et Radarr d'abord), sur la même
+ *          liste en cache ; sa propre clé, sous celle du compte : une demande
+ *          faite l'invalide avec le reste (`invalidateRequestCaches`).
  *
  * Déclarées dans `plugin.json` → `titles`.
  */
@@ -29,6 +39,18 @@ import { statusFor } from "./search/respond";
 import { submitRequest } from "./request-submit";
 import { parseTitleKeys, seasonsHref, titleStateFor, type RequestRights, type TitleStateOut } from "./titles/title-state";
 import { refusalMessage, requestedMessage, unreachableMessage } from "./titles/title-messages";
+import { myTitles } from "./titles/my-titles";
+import { cached } from "./cache";
+import { loadMergedRows } from "./routes-requests-read";
+import { collectTmdbRefs, hydrateRows } from "./requests-list";
+import { resolveTmdbMeta } from "./tmdb-resolver";
+import { tmdbKey } from "./tmdb-cache";
+import { arrVerdicts, type ArrVerdict } from "./arr-truth";
+
+/** Les titres attendus se relisent souvent (une TV les suit) : la liste et la file *arr ont leur cache. */
+const MINE_TTL_MS = 10_000;
+/** Fiches manquantes d'un titre ATTENDU, récupérées en direct : il y en a peu. */
+const MINE_META_BUDGET = 10;
 
 function readLang(raw: unknown): string {
   return typeof raw === "string" && /^[a-z]{2}$/i.test(raw) ? raw.toLowerCase() : "en";
@@ -120,5 +142,35 @@ export function registerTitleRoutes(
       };
     }
     return { ok: false, message: refusalMessage(result.status, result.body, lang) };
+  });
+
+  app.get("/titles/access", async (request) => {
+    const cfg = await getWorkerConfig();
+    if (!cfg) return { request: false };
+    const rights = await rightsOf(prisma, getUser(request).userId, cfg);
+    return { request: rights.movies || rights.tv };
+  });
+
+  // `lang` fait partie du contrat ; les titres sont ceux des fiches que Vigie garde déjà.
+  app.get("/titles/mine", async (request) => {
+    const user = getUser(request);
+    const cfg = await getWorkerConfig();
+    if (!cfg) return { items: [] };
+    return cached(`seer-cache:${user.userId}:mine`, MINE_TTL_MS, async () => {
+      const rows = await loadMergedRows(prisma, cfg, user, (err, msg) => app.log?.warn?.({ err }, msg));
+      const { meta, missing } = await resolveTmdbMeta(prisma, cfg, collectTmdbRefs(rows), { maxFetch: 0 });
+      const requests = hydrateRows(rows, meta, user);
+      const verdicts = await arrVerdicts(cfg, requests).catch(() => new Map<string, ArrVerdict>());
+      let items = myTitles(requests, verdicts);
+      // Seules les fiches des titres ATTENDUS sont cherchées en direct : quelques-unes au plus.
+      const waiting = new Set(items.map((i) => i.key));
+      const absent = missing.filter((ref) => waiting.has(tmdbKey(ref)));
+      if (absent.length > 0) {
+        const filled = await resolveTmdbMeta(prisma, cfg, absent, { maxFetch: MINE_META_BUDGET });
+        for (const [k, v] of filled.meta) meta.set(k, v);
+        items = myTitles(hydrateRows(rows, meta, user), verdicts);
+      }
+      return { items };
+    });
   });
 }

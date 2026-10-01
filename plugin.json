@@ -57,7 +57,9 @@
   },
   "titles": {
     "state": "/titles/state",
-    "request": "/titles/request"
+    "request": "/titles/request",
+    "access": "/titles/access",
+    "mine": "/titles/mine"
   },
   "setup": {
     "title": {
