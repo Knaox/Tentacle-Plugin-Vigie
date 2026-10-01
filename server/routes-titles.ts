@@ -8,10 +8,11 @@
  *          bibliothèque de Tentacle (recherche, recommandations,
  *          filmographies, sagas). Répond depuis la mémoire : la table des
  *          statuts et la file locale, plus les réglages du compte.
- *   POST /titles/request { mediaType, tmdbId, lang }
+ *   POST /titles/request { mediaType, tmdbId, lang, seasons? }
  *        — le geste lui-même. Un film se demande sur place, par la même porte
- *          que le hub (request-submit.ts) ; une série renvoie le lien du hub
- *          qui ouvre ses saisons libres. Un refus (quota, droits, déjà
+ *          que le hub (request-submit.ts) ; une série aussi quand le client a
+ *          choisi ses saisons (`seasons`, routes-titles-seasons.ts), sinon
+ *          elle renvoie le lien du hub qui ouvre ses saisons libres. Un refus (quota, droits, déjà
  *          demandé) répond 200 avec `ok: false` et une phrase à afficher :
  *          c'est un résultat, pas une panne.
  *   GET  /titles/access
@@ -31,13 +32,15 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import { getUser, type WorkerCfg } from "./seerr-unified";
-import { getUserSettings } from "./db";
 import { fetchMediaDetail } from "./anime";
 import { refreshStatusMap, noteStatus, MEDIA_STATUS } from "./search/status-map";
 import { refreshLocalPending } from "./search/pending";
 import { statusFor } from "./search/respond";
 import { submitRequest } from "./request-submit";
-import { parseTitleKeys, seasonsHref, titleStateFor, type RequestRights, type TitleStateOut } from "./titles/title-state";
+import { parseTitleKeys, seasonsHref, titleStateFor, type TitleStateOut } from "./titles/title-state";
+import { readLang, rightsOf } from "./titles/title-rights";
+import { parseRequestedSeasons } from "./titles/title-seasons";
+import { requestSeasons } from "./routes-titles-seasons";
 import { refusalMessage, requestedMessage, unreachableMessage } from "./titles/title-messages";
 import { myTitles } from "./titles/my-titles";
 import { cached } from "./cache";
@@ -51,19 +54,6 @@ import { arrVerdicts, type ArrVerdict } from "./arr-truth";
 const MINE_TTL_MS = 10_000;
 /** Fiches manquantes d'un titre ATTENDU, récupérées en direct : il y en a peu. */
 const MINE_META_BUDGET = 10;
-
-function readLang(raw: unknown): string {
-  return typeof raw === "string" && /^[a-z]{2}$/i.test(raw) ? raw.toLowerCase() : "en";
-}
-
-/** Ce que le compte peut demander ; sans réglages encore, tout (les défauts de Vigie). */
-async function rightsOf(prisma: PrismaClient, userId: string, cfg: WorkerCfg | null): Promise<RequestRights> {
-  const masked = cfg?.allowMaskedRequests === true;
-  const settings = await getUserSettings(prisma, userId).catch(() => null);
-  if (!settings) return { movies: true, tv: true, masked };
-  if (settings.blocked) return { movies: false, tv: false };
-  return { movies: settings.allowMovies, tv: settings.allowTv || settings.allowAnime, masked };
-}
 
 /** Ce que Jellyseerr joint à la fiche d'un film — les champs d'une demande. */
 interface MovieDetail {
@@ -99,15 +89,20 @@ export function registerTitleRoutes(
   });
 
   app.post("/titles/request", async (request, reply) => {
-    const body = (request.body ?? {}) as { mediaType?: unknown; tmdbId?: unknown; lang?: unknown };
+    const body = (request.body ?? {}) as { mediaType?: unknown; tmdbId?: unknown; lang?: unknown; seasons?: unknown };
     const mediaType = body.mediaType === "movie" || body.mediaType === "tv" ? body.mediaType : null;
     const tmdbId = Number(body.tmdbId);
     if (!mediaType || !Number.isSafeInteger(tmdbId) || tmdbId <= 0) {
       return reply.status(400).send({ ok: false, message: "mediaType and tmdbId are required" });
     }
     const lang = readLang(body.lang);
-    // Une série : ce sont ses saisons qu'on demande, et elles se choisissent dans le hub.
-    if (mediaType === "tv") return { href: seasonsHref(tmdbId) };
+    if (mediaType === "tv") {
+      // Une série : ce sont ses saisons qu'on demande. Choisies par le client
+      // (`titles.seasons`), elles partent ; sinon, elles se choisissent dans le hub.
+      const seasons = parseRequestedSeasons(body.seasons);
+      if (!seasons) return { href: seasonsHref(tmdbId) };
+      return requestSeasons(prisma, getWorkerConfig, getUser(request), tmdbId, seasons, lang);
+    }
 
     const cfg = await getWorkerConfig();
     if (!cfg) return { ok: false, message: unreachableMessage(lang) };

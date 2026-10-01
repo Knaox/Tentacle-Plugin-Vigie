@@ -15,6 +15,7 @@ import {
 import { resolveTmdbMeta, scheduleTmdbBackfill, pendingBackfillCount } from "./tmdb-resolver";
 import { tmdbKey } from "./tmdb-cache";
 import { arrVerdicts, restat, withArrStatus, type ArrVerdict } from "./arr-truth";
+import { localRequestedSeasons } from "./titles/local-seasons";
 
 /** Liste brute fraîche 1 min, servable 10 min pendant le rafraîchissement. */
 const ROWS_TTL_MS = 60_000;
@@ -128,35 +129,15 @@ export function registerRequestReadRoutes(
   });
 
   /* ── GET /requests/lookup — saisons demandées LOCALEMENT pour un tmdbId ──
-   * Source de vérité locale (la ligne existe dès le POST, avant le worker async)
-   * → l'UI verrouille une saison demandée IMMÉDIATEMENT et durablement (survit au
-   * refresh), sans attendre que Jellyseerr connaisse la demande. On UNIONNE les
-   * saisons de TOUTES les lignes actives (le POST éclate les saisons sur
-   * plusieurs lignes → un LIMIT 1 sous-reporterait). Statuts exclus alignés sur
-   * findDuplicate : l'UI verrouille exactement ce qu'une re-demande bloquerait. */
+   * La fiche verrouille une saison demandée IMMÉDIATEMENT et durablement
+   * (survit au refresh), sans attendre que Jellyseerr connaisse la demande
+   * (cf. titles/local-seasons.ts, partagé avec la feuille de Tentacle). */
   app.get("/requests/lookup", async (request) => {
     const user = getUser(request);
     const q = request.query as { mediaType?: string; tmdbId?: string };
     const tmdbId = Number(q.tmdbId);
     if (q.mediaType !== "tv" || !Number.isFinite(tmdbId) || tmdbId <= 0) return { seasons: [] };
-
-    const rows = await prisma.$queryRawUnsafe<Array<{ seasons: unknown }>>(
-      `SELECT seasons FROM seer_requests
-       WHERE jellyfin_user_id = ? AND tmdb_id = ? AND media_type = 'tv'
-         AND status NOT IN ('deleted', 'failed', 'available', 'deleting', 'delete_failed')`,
-      user.userId, tmdbId,
-    );
-    const seasons = new Set<number>();
-    for (const r of rows) {
-      if (!r.seasons) continue;
-      try {
-        const arr = typeof r.seasons === "string" ? JSON.parse(r.seasons) : r.seasons;
-        if (Array.isArray(arr)) {
-          for (const s of arr) { const n = Number(s); if (Number.isFinite(n)) seasons.add(n); }
-        }
-      } catch { /* ligne seasons illisible → ignorée */ }
-    }
-    return { seasons: [...seasons].sort((a, b) => a - b) };
+    return { seasons: await localRequestedSeasons(prisma, user.userId, tmdbId) };
   });
 
 }

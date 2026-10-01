@@ -4194,6 +4194,32 @@ function filterAndPaginate(items, query) {
   };
 }
 
+// server/titles/local-seasons.ts
+async function localRequestedSeasons(prisma, userId, tmdbId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT seasons FROM seer_requests
+     WHERE jellyfin_user_id = ? AND tmdb_id = ? AND media_type = 'tv'
+       AND status NOT IN ('deleted', 'failed', 'available', 'deleting', 'delete_failed')`,
+    userId,
+    tmdbId
+  );
+  const seasons = /* @__PURE__ */ new Set();
+  for (const r of rows) {
+    if (!r.seasons) continue;
+    try {
+      const arr = typeof r.seasons === "string" ? JSON.parse(r.seasons) : r.seasons;
+      if (Array.isArray(arr)) {
+        for (const s of arr) {
+          const n = Number(s);
+          if (Number.isFinite(n)) seasons.add(n);
+        }
+      }
+    } catch {
+    }
+  }
+  return [...seasons].sort((a, b) => a - b);
+}
+
 // server/routes-requests-read.ts
 var ROWS_TTL_MS = 6e4;
 var ROWS_STALE_MS = 6e5;
@@ -4264,28 +4290,7 @@ function registerRequestReadRoutes(app, prisma, getWorkerConfig2) {
     const q = request.query;
     const tmdbId = Number(q.tmdbId);
     if (q.mediaType !== "tv" || !Number.isFinite(tmdbId) || tmdbId <= 0) return { seasons: [] };
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT seasons FROM seer_requests
-       WHERE jellyfin_user_id = ? AND tmdb_id = ? AND media_type = 'tv'
-         AND status NOT IN ('deleted', 'failed', 'available', 'deleting', 'delete_failed')`,
-      user.userId,
-      tmdbId
-    );
-    const seasons = /* @__PURE__ */ new Set();
-    for (const r of rows) {
-      if (!r.seasons) continue;
-      try {
-        const arr = typeof r.seasons === "string" ? JSON.parse(r.seasons) : r.seasons;
-        if (Array.isArray(arr)) {
-          for (const s of arr) {
-            const n = Number(s);
-            if (Number.isFinite(n)) seasons.add(n);
-          }
-        }
-      } catch {
-      }
-    }
-    return { seasons: [...seasons].sort((a, b) => a - b) };
+    return { seasons: await localRequestedSeasons(prisma, user.userId, tmdbId) };
   });
 }
 
@@ -8723,6 +8728,101 @@ async function registerSearchRoutes(app, prisma, getWorkerConfig2) {
   });
 }
 
+// server/titles/title-rights.ts
+function readLang2(raw) {
+  return typeof raw === "string" && /^[a-z]{2}$/i.test(raw) ? raw.toLowerCase() : "en";
+}
+async function rightsOf(prisma, userId, cfg) {
+  const masked = cfg?.allowMaskedRequests === true;
+  const settings = await getUserSettings(prisma, userId).catch(() => null);
+  if (!settings) return { movies: true, tv: true, masked };
+  if (settings.blocked) return { movies: false, tv: false };
+  return { movies: settings.allowMovies, tv: settings.allowTv || settings.allowAnime, masked };
+}
+
+// src/utils/media-status.ts
+var MEDIA_STATUS_DELETED = 7;
+function isRequestedSeasonStatus(status) {
+  return status !== void 0 && status >= 2 && status !== MEDIA_STATUS_DELETED;
+}
+
+// src/utils/season-locks.ts
+function holds(request) {
+  return request.status !== 3 && request.status !== 4;
+}
+function seasonLocks(info, localSeasons) {
+  const map = /* @__PURE__ */ new Map();
+  const deleted = /* @__PURE__ */ new Set();
+  for (const s of info?.seasons ?? []) {
+    if (s.status === MEDIA_STATUS_DELETED) deleted.add(s.seasonNumber);
+    else if (isRequestedSeasonStatus(s.status)) map.set(s.seasonNumber, s.status);
+  }
+  if (info?.status !== MEDIA_STATUS_DELETED) {
+    for (const r of info?.requests ?? []) {
+      if (!holds(r)) continue;
+      for (const se of r.seasons ?? []) {
+        if (deleted.has(se.seasonNumber)) continue;
+        const existing = map.get(se.seasonNumber);
+        if (existing === void 0 || existing < 3) map.set(se.seasonNumber, 3);
+      }
+    }
+  }
+  for (const sn of localSeasons ?? []) {
+    if (deleted.has(sn)) continue;
+    const existing = map.get(sn);
+    if (existing === void 0 || existing < 3) map.set(sn, 3);
+  }
+  return map;
+}
+
+// src/utils/request-seasons.ts
+function requestableSeasons(seasons, specials) {
+  const regular = seasons.filter((s) => s.seasonNumber > 0);
+  if (!specials) return regular;
+  return [...regular, ...seasons.filter((s) => s.seasonNumber === 0 && (s.episodeCount ?? 0) > 0)];
+}
+
+// server/titles/title-seasons.ts
+var MAX_REQUESTED_SEASONS = 100;
+var LABELS5 = {
+  fr: { requested: "Demand\xE9e", partial: "En partie", available: "Disponible" },
+  en: { requested: "Requested", partial: "Partly here", available: "Available" }
+};
+function seasonBadge(lock, lang) {
+  const l = lang === "fr" ? LABELS5.fr : LABELS5.en;
+  if (lock === MEDIA_STATUS.AVAILABLE) return { label: l.available, tone: "success" };
+  if (lock === MEDIA_STATUS.PARTIALLY_AVAILABLE) return { label: l.partial, tone: "success" };
+  return lock === void 0 ? null : { label: l.requested, tone: "info" };
+}
+function titleSeasons(detail, localSeasons, rights, opts) {
+  const locks = seasonLocks(detail.mediaInfo, localSeasons);
+  const masked = detail.mediaInfo?.status === MEDIA_STATUS.BLOCKLISTED && rights.masked !== true;
+  const open = rights.tv && !masked;
+  return requestableSeasons(detail.seasons ?? [], opts.specials).map((season) => {
+    const lock = locks.get(season.seasonNumber);
+    return {
+      number: season.seasonNumber,
+      name: typeof season.name === "string" && season.name.trim() !== "" ? season.name.trim().slice(0, 80) : null,
+      episodeCount: typeof season.episodeCount === "number" ? season.episodeCount : null,
+      badge: seasonBadge(lock, opts.lang),
+      requestable: open && lock === void 0
+    };
+  });
+}
+function parseRequestedSeasons(raw) {
+  if (!Array.isArray(raw)) return null;
+  const out = /* @__PURE__ */ new Set();
+  for (const value of raw) {
+    if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value < 1e3) out.add(value);
+    if (out.size >= MAX_REQUESTED_SEASONS) break;
+  }
+  return out.size > 0 ? [...out].sort((a, b) => a - b) : null;
+}
+function freeSeasons(chosen, seasons) {
+  const free = new Set(seasons.filter((s) => s.requestable).map((s) => s.number));
+  return chosen.filter((n) => free.has(n));
+}
+
 // server/titles/title-messages.ts
 var FR = {
   requested: (title) => `\xAB ${title} \xBB est demand\xE9 \u2014 vous serez pr\xE9venu \xE0 son arriv\xE9e.`,
@@ -8761,6 +8861,57 @@ function refusalMessage(status, body, lang) {
   if (body.errorKey === "seer:errMaskedDenied") return w.masked;
   if (body.errorKey === "seer:errQuotaReached" && typeof body.limit === "number") return w.quota(body.limit);
   return w.failed;
+}
+
+// server/routes-titles-seasons.ts
+var TV_KEY = /^tv:([1-9]\d{0,9})$/;
+async function readSeasons(prisma, cfg, user, tmdbId, lang) {
+  const detail = await fetchMediaDetail(cfg.seerrUrl, cfg.seerrApiKey, "tv", tmdbId);
+  if (!detail?.name) return null;
+  const [local, rights, specials] = await Promise.all([
+    localRequestedSeasons(prisma, user.userId, tmdbId).catch(() => []),
+    rightsOf(prisma, user.userId, cfg),
+    specialSeasonsQuick(cfg.seerrUrl, cfg.seerrApiKey)
+  ]);
+  return { detail, seasons: titleSeasons(detail, local, rights, { specials, lang }) };
+}
+function registerTitleSeasonRoutes(app, prisma, getWorkerConfig2) {
+  app.get("/titles/seasons", async (request) => {
+    const query = request.query;
+    const match = typeof query.key === "string" ? TV_KEY.exec(query.key) : null;
+    const lang = readLang2(query.lang);
+    if (!match) return { seasons: [] };
+    const cfg = await getWorkerConfig2();
+    const read = cfg ? await readSeasons(prisma, cfg, getUser(request), Number(match[1]), lang) : null;
+    if (!read) return { ok: false, message: unreachableMessage(lang), seasons: [] };
+    return { seasons: read.seasons };
+  });
+}
+async function requestSeasons(prisma, getWorkerConfig2, user, tmdbId, chosen, lang) {
+  const cfg = await getWorkerConfig2();
+  if (!cfg) return { ok: false, message: unreachableMessage(lang) };
+  const read = await readSeasons(prisma, cfg, user, tmdbId, lang);
+  if (!read) return { ok: false, message: unreachableMessage(lang) };
+  const rights = await rightsOf(prisma, user.userId, cfg);
+  const known = read.detail.mediaInfo?.status;
+  const seasons = freeSeasons(chosen, read.seasons);
+  if (seasons.length === 0) {
+    return { ok: false, message: refusalMessage(409, {}, lang), state: titleStateFor("tv", tmdbId, known, rights, lang) };
+  }
+  const { detail } = read;
+  const result = await submitRequest(prisma, getWorkerConfig2, user, {
+    mediaType: "tv",
+    tmdbId,
+    title: detail.name,
+    posterPath: detail.posterPath ?? null,
+    backdropPath: detail.backdropPath ?? null,
+    overview: detail.overview ?? null,
+    year: detail.firstAirDate ? detail.firstAirDate.slice(0, 4) : null,
+    seasons
+  });
+  if (result.status !== 201) return { ok: false, message: refusalMessage(result.status, result.body, lang) };
+  const after = known === MEDIA_STATUS.PARTIALLY_AVAILABLE ? known : MEDIA_STATUS.PENDING;
+  return { ok: true, message: requestedMessage(detail.name, lang), state: titleStateFor("tv", tmdbId, after, rights, lang) };
 }
 
 // server/titles/my-titles.ts
@@ -8822,16 +8973,6 @@ function myTitles(requests, verdicts) {
 // server/routes-titles.ts
 var MINE_TTL_MS = 1e4;
 var MINE_META_BUDGET = 10;
-function readLang2(raw) {
-  return typeof raw === "string" && /^[a-z]{2}$/i.test(raw) ? raw.toLowerCase() : "en";
-}
-async function rightsOf(prisma, userId, cfg) {
-  const masked = cfg?.allowMaskedRequests === true;
-  const settings = await getUserSettings(prisma, userId).catch(() => null);
-  if (!settings) return { movies: true, tv: true, masked };
-  if (settings.blocked) return { movies: false, tv: false };
-  return { movies: settings.allowMovies, tv: settings.allowTv || settings.allowAnime, masked };
-}
 function registerTitleRoutes(app, prisma, getWorkerConfig2) {
   app.get("/titles/state", async (request) => {
     const query = request.query;
@@ -8857,7 +8998,11 @@ function registerTitleRoutes(app, prisma, getWorkerConfig2) {
       return reply.status(400).send({ ok: false, message: "mediaType and tmdbId are required" });
     }
     const lang = readLang2(body.lang);
-    if (mediaType === "tv") return { href: seasonsHref(tmdbId) };
+    if (mediaType === "tv") {
+      const seasons = parseRequestedSeasons(body.seasons);
+      if (!seasons) return { href: seasonsHref(tmdbId) };
+      return requestSeasons(prisma, getWorkerConfig2, getUser(request), tmdbId, seasons, lang);
+    }
     const cfg = await getWorkerConfig2();
     if (!cfg) return { ok: false, message: unreachableMessage(lang) };
     const user = getUser(request);
@@ -8995,6 +9140,7 @@ async function seerBackend(app, ctx) {
   registerMiscRoutes(app, prisma, gwc, ctx.requireAdmin);
   await registerSearchRoutes(app, prisma, gwc);
   registerTitleRoutes(app, prisma, gwc);
+  registerTitleSeasonRoutes(app, prisma, gwc);
   console.log("[SeerBackend] Routes registered");
 }
 export {
