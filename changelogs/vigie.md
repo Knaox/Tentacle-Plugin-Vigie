@@ -19,6 +19,18 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.21.0]
+### FR
+- **Prêt pour la nouvelle app Apple TV de Tentacle** (avec Tentacle Server 1.22.2 ou plus récent) : chacun y voit ses demandes en cours — en attente, en cours avec leur avancement en direct, mise en bibliothèque, bloquée — et peut demander d'un geste un titre absent (le film d'une saga, un résultat de recherche), en choisissant les saisons d'une série
+- **Les saisons manquantes se demandent depuis la recherche de Tentacle** : une série présente seulement en partie dans la bibliothèque propose ses autres saisons — sur le web dès Tentacle Server 1.22.2, puis sur le bureau, le mobile et l'Apple TV avec leurs prochaines versions
+- **Dans Vigie aussi** : sur une série incomplète, « Demander d'autres saisons » suit « Regarder », au survol comme dans la feuille de l'appui long ; les saisons déjà présentes sont verrouillées dans le choix
+- Un compte bloqué dans Vigie (Administration › Utilisateurs) ne voit aucune de ces fonctions dans Tentacle
+### EN
+- **Ready for Tentacle's new Apple TV app** (with Tentacle Server 1.22.2 or newer): everyone sees their pending requests there — pending, in progress with live progress, being added to the library, blocked — and can request a missing title in one gesture (a movie from a collection, a search result), picking a series' seasons
+- **Missing seasons can be requested from Tentacle's search**: a series that is only partly in the library offers its other seasons — on the web from Tentacle Server 1.22.2, then on desktop, mobile and Apple TV with their next versions
+- **In Vigie too**: on an incomplete series, "Request more seasons" follows "Watch", on hover as in the long-press sheet; the seasons you already have are locked in the picker
+- An account blocked in Vigie (Administration › Users) sees none of these features in Tentacle
+
 ## [1.20.0]
 ### FR
 - **Sur iPhone et iPad, Vigie défile enfin comme le reste de l'application** : la page s'arrêtait presque net au lâcher du doigt — un même geste y parcourait cinq fois moins de chemin qu'ailleurs. Elle garde désormais l'élan et le rebond natifs, dans toutes ses vues, recherche et catalogue compris
