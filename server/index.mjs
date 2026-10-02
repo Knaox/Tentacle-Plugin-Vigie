@@ -8925,18 +8925,27 @@ var WAITING2 = /* @__PURE__ */ new Set([
   "retry_pending"
 ]);
 var RANK2 = { pending: 1, blocked: 2, importing: 3, arriving: 4 };
+var still = (state2) => ({ state: state2, percent: null, etaSeconds: null });
+function etaOf(download) {
+  const eta = download.etaSeconds;
+  return download.status === "downloading" && typeof eta === "number" && Number.isFinite(eta) && eta > 0 ? Math.round(eta) : null;
+}
 function arriving(download) {
-  if (download.stalled) return { state: "blocked", percent: null };
-  if (download.validating) return { state: "importing", percent: null };
+  if (download.stalled) return still("blocked");
+  if (download.validating) return still("importing");
   const percent = download.percent;
-  return { state: "arriving", percent: typeof percent === "number" && Number.isFinite(percent) ? Math.round(percent * 10) / 10 : null };
+  return {
+    state: "arriving",
+    percent: typeof percent === "number" && Number.isFinite(percent) ? Math.round(percent * 10) / 10 : null,
+    etaSeconds: etaOf(download)
+  };
 }
 function verdictOf(request, arr) {
   const status = arr?.status ?? request.status;
   const download = arr ? arr.download : request.download ?? null;
-  if (status === "downloading") return download ? arriving(download) : { state: "arriving", percent: null };
+  if (status === "downloading") return download ? arriving(download) : still("arriving");
   if (status === "partially_available") return download ? arriving(download) : null;
-  return WAITING2.has(status) ? { state: "pending", percent: null } : null;
+  return WAITING2.has(status) ? still("pending") : null;
 }
 function yearOf2(raw) {
   const year = raw && /^\d{4}/.test(raw) ? Number(raw.slice(0, 4)) : NaN;

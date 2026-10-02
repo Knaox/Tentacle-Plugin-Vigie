@@ -9,7 +9,10 @@
  *
  *   pending   — demandé, rien ne bouge encore (en attente de validation, ou
  *               validé et cherché) : le « Demandé » de l'affiche du hub ;
- *   arriving  — en route, avec son avancement quand Sonarr ou Radarr le sait ;
+ *   arriving  — en route, avec son avancement quand Sonarr ou Radarr le sait,
+ *               et le temps qu'il lui reste quand il descend vraiment
+ *               (`etaSeconds`) : Tentacle fait avancer son camembert entre
+ *               deux lectures, comme le hub fait avancer sa barre ;
  *   importing — complet, Sonarr ou Radarr le range dans la bibliothèque ;
  *   blocked   — n'avance plus pour l'instant (jamais un échec).
  *
@@ -35,6 +38,8 @@ export interface MyTitleOut {
   seasons: number[] | null;
   state: MyTitleState;
   percent: number | null;
+  /** Champ ajouté après coup (contrat additif) : un client plus ancien l'ignore. */
+  etaSeconds: number | null;
 }
 
 /** Ce que la route lit d'une demande hydratée (`UnifiedRequest`). */
@@ -64,23 +69,38 @@ const RANK: Record<MyTitleState, number> = { pending: 1, blocked: 2, importing: 
 interface Verdict {
   state: MyTitleState;
   percent: number | null;
+  etaSeconds: number | null;
+}
+
+const still = (state: MyTitleState): Verdict => ({ state, percent: null, etaSeconds: null });
+
+/* Le temps restant ne se dit que de ce qui DESCEND (la règle de la barre du
+ * hub, `useInterpolatedProgress`) : en file, en pause ou retardé, une barre qui
+ * avancerait seule mentirait. */
+function etaOf(download: DownloadProgress): number | null {
+  const eta = download.etaSeconds;
+  return download.status === "downloading" && typeof eta === "number" && Number.isFinite(eta) && eta > 0 ? Math.round(eta) : null;
 }
 
 function arriving(download: DownloadProgress): Verdict {
-  if (download.stalled) return { state: "blocked", percent: null };
-  if (download.validating) return { state: "importing", percent: null };
+  if (download.stalled) return still("blocked");
+  if (download.validating) return still("importing");
   const percent = download.percent;
-  return { state: "arriving", percent: typeof percent === "number" && Number.isFinite(percent) ? Math.round(percent * 10) / 10 : null };
+  return {
+    state: "arriving",
+    percent: typeof percent === "number" && Number.isFinite(percent) ? Math.round(percent * 10) / 10 : null,
+    etaSeconds: etaOf(download),
+  };
 }
 
 /** L'état d'UNE demande, verdict de Sonarr ou Radarr compris ; `null` : plus une attente. */
 export function verdictOf(request: MineRequest, arr?: ArrVerdict): Verdict | null {
   const status = arr?.status ?? request.status;
   const download = arr ? arr.download : request.download ?? null;
-  if (status === "downloading") return download ? arriving(download) : { state: "arriving", percent: null };
+  if (status === "downloading") return download ? arriving(download) : still("arriving");
   // Là en partie : seulement si le reste arrive — sinon il n'y a rien à attendre de visible.
   if (status === "partially_available") return download ? arriving(download) : null;
-  return WAITING.has(status) ? { state: "pending", percent: null } : null;
+  return WAITING.has(status) ? still("pending") : null;
 }
 
 function yearOf(raw: string | null): number | null {

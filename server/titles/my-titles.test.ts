@@ -27,28 +27,36 @@ function request(over: Partial<MineRequest> = {}): MineRequest {
 
 test("une demande qui attend sans bouger est « pending », validée ou non", () => {
   for (const status of ["queued", "processing", "sent_to_seer", "approved", "unavailable", "retry_pending"] as const) {
-    assert.deepEqual(verdictOf(request({ status })), { state: "pending", percent: null }, status);
+    assert.deepEqual(verdictOf(request({ status })), { state: "pending", percent: null, etaSeconds: null }, status);
   }
 });
 
 test("en route : l'avancement, ou rien quand il ne se sait pas", () => {
-  assert.deepEqual(verdictOf(request({ status: "downloading", download: download() })), { state: "arriving", percent: 42.7 });
-  assert.deepEqual(verdictOf(request({ status: "downloading" })), { state: "arriving", percent: null });
-  assert.deepEqual(verdictOf(request({ status: "downloading", download: download({ percent: null }) })), { state: "arriving", percent: null });
+  assert.deepEqual(verdictOf(request({ status: "downloading", download: download() })), { state: "arriving", percent: 42.7, etaSeconds: 600 });
+  assert.deepEqual(verdictOf(request({ status: "downloading" })), { state: "arriving", percent: null, etaSeconds: null });
+  assert.deepEqual(verdictOf(request({ status: "downloading", download: download({ percent: null }) })), { state: "arriving", percent: null, etaSeconds: 600 });
+});
+
+test("le temps restant : seulement ce qui descend vraiment, en secondes entières", () => {
+  const eta = (over: Partial<DownloadProgress>) => verdictOf(request({ status: "downloading", download: download(over) }))?.etaSeconds;
+  assert.equal(eta({ etaSeconds: 754.6 }), 755);
+  // En file, en pause, retardé : la barre du hub ne bouge pas seule — le camembert non plus.
+  for (const status of ["queued", "paused", "delay", "warning"]) assert.equal(eta({ status }), null, status);
+  for (const etaSeconds of [null, 0, -3, Number.NaN, Number.POSITIVE_INFINITY]) assert.equal(eta({ etaSeconds }), null, String(etaSeconds));
 });
 
 test("complet, il se range ; coincé, il est bloqué — jamais en échec", () => {
-  assert.deepEqual(verdictOf(request({ status: "downloading", download: download({ validating: true, percent: 100 }) })), { state: "importing", percent: null });
-  assert.deepEqual(verdictOf(request({ status: "downloading", download: download({ stalled: true }) })), { state: "blocked", percent: null });
+  assert.deepEqual(verdictOf(request({ status: "downloading", download: download({ validating: true, percent: 100 }) })), { state: "importing", percent: null, etaSeconds: null });
+  assert.deepEqual(verdictOf(request({ status: "downloading", download: download({ stalled: true }) })), { state: "blocked", percent: null, etaSeconds: null });
 });
 
 test("Sonarr et Radarr parlent d'abord", () => {
   const arr: ArrVerdict = { status: "downloading", download: download({ percent: 80 }) };
-  assert.deepEqual(verdictOf(request({ status: "approved" }), arr), { state: "arriving", percent: 80 });
+  assert.deepEqual(verdictOf(request({ status: "approved" }), arr), { state: "arriving", percent: 80, etaSeconds: 600 });
   // Arrivé selon les fichiers : plus une attente, même si Jellyseerr ne l'a pas encore vu.
   assert.equal(verdictOf(request({ status: "downloading", download: download() }), { status: "available", download: null }), null);
   // Jellyseerr le croyait en route, rien dans la file ni sur le disque : il attend encore.
-  assert.deepEqual(verdictOf(request({ status: "downloading", download: download() }), { status: "unavailable", download: null }), { state: "pending", percent: null });
+  assert.deepEqual(verdictOf(request({ status: "downloading", download: download() }), { status: "unavailable", download: null }), { state: "pending", percent: null, etaSeconds: null });
 });
 
 test("ce qui n'est plus une attente n'y figure pas", () => {
@@ -71,9 +79,9 @@ test("un titre par clé : les saisons s'additionnent, ce qui bouge l'emporte", (
   assert.deepEqual(list, [
     {
       key: "tv:1399", title: "Game of Thrones", year: 2011, imageUrl: "https://image.tmdb.org/t/p/w185/m.jpg",
-      seasons: [2, 3], state: "arriving", percent: 10,
+      seasons: [2, 3], state: "arriving", percent: 10, etaSeconds: 600,
     },
-    { key: "movie:603", title: "Matrix", year: 1999, imageUrl: "https://image.tmdb.org/t/p/w185/m.jpg", seasons: null, state: "pending", percent: null },
+    { key: "movie:603", title: "Matrix", year: 1999, imageUrl: "https://image.tmdb.org/t/p/w185/m.jpg", seasons: null, state: "pending", percent: null, etaSeconds: null },
   ]);
 });
 
