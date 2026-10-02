@@ -60,7 +60,8 @@
     "request": "/titles/request",
     "access": "/titles/access",
     "mine": "/titles/mine",
-    "seasons": "/titles/seasons"
+    "seasons": "/titles/seasons",
+    "gaps": "/titles/gaps"
   },
   "setup": {
     "title": {

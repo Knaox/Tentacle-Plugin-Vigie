@@ -9061,6 +9061,59 @@ function registerTitleRoutes(app, prisma, getWorkerConfig2) {
   });
 }
 
+// server/titles/title-gaps.ts
+var MAX_GAP_KEYS = 60;
+var MAX_GAP_LOOKUPS = 24;
+function hasGapsToTell(status) {
+  return status === MEDIA_STATUS.PARTIALLY_AVAILABLE;
+}
+function seriesGaps(detail, localSeasons, rights, opts) {
+  const locks = seasonLocks(detail.mediaInfo, localSeasons);
+  return titleSeasons(detail, localSeasons, rights, opts).filter((season) => {
+    const lock = locks.get(season.number);
+    return lock !== MEDIA_STATUS.AVAILABLE && lock !== MEDIA_STATUS.PARTIALLY_AVAILABLE;
+  });
+}
+
+// server/routes-titles-gaps.ts
+var DETAIL_TTL_MS = 6e4;
+var LOOKUP_CONCURRENCY = 4;
+function tvDetail(cfg, tmdbId) {
+  return cached(`seer:gaps:tv:${tmdbId}`, DETAIL_TTL_MS, async () => {
+    const detail = await fetchMediaDetail(cfg.seerrUrl, cfg.seerrApiKey, "tv", tmdbId);
+    if (!detail?.name) throw new Error(`Jellyseerr GET /tv/${tmdbId} : rien`);
+    return detail;
+  });
+}
+function registerTitleGapRoutes(app, prisma, getWorkerConfig2) {
+  app.get("/titles/gaps", async (request) => {
+    const query = request.query;
+    const keys2 = parseTitleKeys(query.keys).filter((k) => k.mediaType === "tv").slice(0, MAX_GAP_KEYS);
+    const cfg = await getWorkerConfig2();
+    if (!cfg || keys2.length === 0) return { items: {} };
+    refreshStatusMap(cfg);
+    refreshLocalPending(prisma);
+    const partial = keys2.filter((k) => hasGapsToTell(statusFor({ key: k.key, mediaType: k.mediaType, tmdbId: k.tmdbId, remoteStatus: void 0 }))).slice(0, MAX_GAP_LOOKUPS);
+    if (partial.length === 0) return { items: {} };
+    const lang = readLang2(query.lang);
+    const user = getUser(request);
+    const [rights, specials] = await Promise.all([
+      rightsOf(prisma, user.userId, cfg),
+      specialSeasonsQuick(cfg.seerrUrl, cfg.seerrApiKey)
+    ]);
+    const items = {};
+    await mapLimit(partial, LOOKUP_CONCURRENCY, async (k) => {
+      const [detail, local] = await Promise.all([
+        tvDetail(cfg, k.tmdbId),
+        localRequestedSeasons(prisma, user.userId, k.tmdbId).catch(() => [])
+      ]);
+      const seasons = seriesGaps(detail, local, rights, { specials, lang });
+      if (seasons.length > 0) items[k.key] = { seasons };
+    });
+    return { items };
+  });
+}
+
 // server/index.ts
 var __pluginDir = dirname(dirname(fileURLToPath(import.meta.url)));
 function getPluginConfig(ctx) {
@@ -9141,6 +9194,7 @@ async function seerBackend(app, ctx) {
   await registerSearchRoutes(app, prisma, gwc);
   registerTitleRoutes(app, prisma, gwc);
   registerTitleSeasonRoutes(app, prisma, gwc);
+  registerTitleGapRoutes(app, prisma, gwc);
   console.log("[SeerBackend] Routes registered");
 }
 export {
