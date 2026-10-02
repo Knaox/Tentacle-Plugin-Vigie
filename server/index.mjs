@@ -4330,6 +4330,13 @@ function readRequestOrigin(body) {
   const platform = typeof raw?.platform === "string" && PLATFORM.test(raw.platform) ? raw.platform : null;
   return { origin, platform };
 }
+function readOriginFilter(raw) {
+  if (raw === void 0) return void 0;
+  return typeof raw === "string" && ORIGIN.test(raw) ? raw : "";
+}
+function ofOrigin(requests, filter) {
+  return filter === void 0 ? requests : requests.filter((r) => r.origin === filter);
+}
 function originOf(request) {
   return request.origin ? { origin: request.origin, platform: request.platform } : null;
 }
@@ -9095,12 +9102,14 @@ function registerTitleRoutes(app, prisma, getWorkerConfig2) {
   });
   app.get("/titles/mine", async (request) => {
     const user = getUser(request);
+    const origin = readOriginFilter(request.query.origin);
     const cfg = await getWorkerConfig2();
     if (!cfg) return { items: [] };
-    return cached(`seer-cache:${user.userId}:mine`, MINE_TTL_MS, async () => {
+    const key = `seer-cache:${user.userId}:mine${origin === void 0 ? "" : `:origin=${origin}`}`;
+    return cached(key, MINE_TTL_MS, async () => {
       const rows = await loadMergedRows(prisma, cfg, user, (err, msg) => app.log?.warn?.({ err }, msg));
       const { meta, missing } = await resolveTmdbMeta(prisma, cfg, collectTmdbRefs(rows), { maxFetch: 0 });
-      const requests = hydrateRows(rows, meta, user);
+      const requests = ofOrigin(hydrateRows(rows, meta, user), origin);
       const verdicts = await arrVerdicts(cfg, requests).catch(() => /* @__PURE__ */ new Map());
       let items = myTitles(requests, verdicts);
       const waiting = new Set(items.map((i) => i.key));
@@ -9108,7 +9117,7 @@ function registerTitleRoutes(app, prisma, getWorkerConfig2) {
       if (absent.length > 0) {
         const filled = await resolveTmdbMeta(prisma, cfg, absent, { maxFetch: MINE_META_BUDGET });
         for (const [k, v] of filled.meta) meta.set(k, v);
-        items = myTitles(hydrateRows(rows, meta, user), verdicts);
+        items = myTitles(ofOrigin(hydrateRows(rows, meta, user), origin), verdicts);
       }
       return { items };
     });

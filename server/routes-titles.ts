@@ -21,12 +21,15 @@
  *        — le compte peut-il demander quoi que ce soit : `{ request }`, faux
  *          pour un compte bloqué ou sans aucun type permis. Tentacle s'en sert
  *          pour n'offrir AUCUNE de nos fonctions à un tel compte.
- *   GET  /titles/mine?lang=fr
+ *   GET  /titles/mine?lang=fr&origin=tv
  *        — les titres que le compte attend, un par titre, les plus récents
  *          d'abord, dans un des quatre états de Tentacle (titles/my-titles.ts).
  *          Mêmes verdicts que le hub (Sonarr et Radarr d'abord), sur la même
  *          liste en cache ; sa propre clé, sous celle du compte : une demande
  *          faite l'invalide avec le reste (`invalidateRequestCaches`).
+ *          `origin` (facultatif) : seules les demandes parties de là (« tv » :
+ *          « Mes demandes » d'un téléviseur), saisons comprises ; sans lui,
+ *          toutes, comme avant (titles/request-origin.ts).
  *
  * Déclarées dans `plugin.json` → `titles`.
  */
@@ -42,7 +45,7 @@ import { submitRequest } from "./request-submit";
 import { parseTitleKeys, seasonsHref, titleStateFor, type TitleStateOut } from "./titles/title-state";
 import { readLang, rightsOf } from "./titles/title-rights";
 import { parseRequestedSeasons } from "./titles/title-seasons";
-import { readRequestOrigin } from "./titles/request-origin";
+import { ofOrigin, readOriginFilter, readRequestOrigin } from "./titles/request-origin";
 import { requestSeasons } from "./routes-titles-seasons";
 import { refusalMessage, requestedMessage, unreachableMessage } from "./titles/title-messages";
 import { myTitles } from "./titles/my-titles";
@@ -153,12 +156,16 @@ export function registerTitleRoutes(
   // `lang` fait partie du contrat ; les titres sont ceux des fiches que Vigie garde déjà.
   app.get("/titles/mine", async (request) => {
     const user = getUser(request);
+    const origin = readOriginFilter((request.query as { origin?: unknown }).origin);
     const cfg = await getWorkerConfig();
     if (!cfg) return { items: [] };
-    return cached(`seer-cache:${user.userId}:mine`, MINE_TTL_MS, async () => {
+    // Une clé par filtre, toutes sous celle du compte : une demande faite les invalide ensemble.
+    const key = `seer-cache:${user.userId}:mine${origin === undefined ? "" : `:origin=${origin}`}`;
+    return cached(key, MINE_TTL_MS, async () => {
       const rows = await loadMergedRows(prisma, cfg, user, (err, msg) => app.log?.warn?.({ err }, msg));
       const { meta, missing } = await resolveTmdbMeta(prisma, cfg, collectTmdbRefs(rows), { maxFetch: 0 });
-      const requests = hydrateRows(rows, meta, user);
+      // Les demandes AVANT les titres : un titre demandé de deux endroits ne garde que les saisons de la sienne.
+      const requests = ofOrigin(hydrateRows(rows, meta, user), origin);
       const verdicts = await arrVerdicts(cfg, requests).catch(() => new Map<string, ArrVerdict>());
       let items = myTitles(requests, verdicts);
       // Seules les fiches des titres ATTENDUS sont cherchées en direct : quelques-unes au plus.
@@ -167,7 +174,7 @@ export function registerTitleRoutes(
       if (absent.length > 0) {
         const filled = await resolveTmdbMeta(prisma, cfg, absent, { maxFetch: MINE_META_BUDGET });
         for (const [k, v] of filled.meta) meta.set(k, v);
-        items = myTitles(hydrateRows(rows, meta, user), verdicts);
+        items = myTitles(ofOrigin(hydrateRows(rows, meta, user), origin), verdicts);
       }
       return { items };
     });

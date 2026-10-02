@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ofOrigin, originOf, readOriginFilter, readRequestOrigin } from "./request-origin";
+import { myTitles, type MineRequest } from "./my-titles";
 
 /*
  * D'où part une demande : deux champs facultatifs de `POST /titles/request`,
@@ -51,4 +52,17 @@ test("les demandes d'une origine ; sans filtre, toutes", () => {
 test("une relance garde l'origine de la demande qu'elle remplace", () => {
   assert.deepEqual(originOf({ origin: "tv", platform: "appletv" }), { origin: "tv", platform: "appletv" });
   assert.equal(originOf({ origin: null, platform: null }), null);
+});
+
+test("« Mes demandes » d'une TV : ses titres, et d'un titre demandé de deux endroits, ses saisons à elle", () => {
+  const got = { title: "Game of Thrones", year: "2011", posterPath: "/g.jpg", status: "approved", download: null } as const;
+  const requests: Array<MineRequest & { origin: string | null }> = [
+    { ...got, id: "tv-1", mediaType: "tv", tmdbId: 1399, seasons: [2], origin: "tv" },
+    { ...got, id: "web-1", mediaType: "tv", tmdbId: 1399, seasons: [1], origin: null },
+    { ...got, id: "web-2", mediaType: "movie", tmdbId: 603, title: "Matrix", year: "1999", seasons: null, origin: null },
+  ];
+  const seasonsOf = (origin: string | undefined) => myTitles(ofOrigin(requests, origin), new Map()).map((t) => [t.key, t.seasons]);
+  assert.deepEqual(seasonsOf("tv"), [["tv:1399", [2]]]);
+  // Sans filtre, la liste d'avant : tout le compte, les saisons additionnées.
+  assert.deepEqual(seasonsOf(undefined), [["tv:1399", [1, 2]], ["movie:603", null]]);
 });
