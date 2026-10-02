@@ -11,7 +11,9 @@
  *   2. en bas, les étoiles (sa note), puis la capsule ;
  *   3. EN TÊTE de la capsule, l'action primaire : « Demander », « Choisir les
  *      saisons » au dégradé de marque — seule couleur du survol —, ou
- *      « Regarder », en verre discret, pour un titre déjà là ; puis « Ma
+ *      « Regarder », en verre discret, pour un titre déjà là — suivi, pour
+ *      une série qui n'y est qu'en partie, de « Demander d'autres saisons »
+ *      au dégradé (`more`, comme « Lire » puis « Demander » chez Tentacle) ; puis « Ma
  *      liste » et « J'aime », tout de suite ou à son arrivée — le signet et
  *      le cœur des cartes de Tentacle, aux mêmes tracés. Rien au centre de
  *      l'affiche.
@@ -89,7 +91,7 @@ export function PosterHover({ gestures, name, visible, band }: {
   /** Un bandeau d'état au pied de l'affiche : le calque s'arrête au-dessus, il reste lisible. */
   band: boolean;
 }) {
-  const { primary, watchlist, favorite, rating } = gestures;
+  const { primary, more, watchlist, favorite, rating } = gestures;
   // Entrée/Espace sur un bouton du calque ne remontent pas à la carte.
   const stopKeys = (e: KeyboardEvent) => e.stopPropagation();
   // Les gestes ne prennent le pointeur que calque visible — jamais pendant le fondu de sortie.
@@ -120,6 +122,7 @@ export function PosterHover({ gestures, name, visible, band }: {
               className="flex min-w-0 max-w-full items-center gap-0.5 rounded-full border border-[rgba(255,255,255,0.15)] bg-[rgba(255,255,255,0.12)] p-0.5 shadow-[0_4px_14px_rgba(0,0,0,0.35)]"
             >
               {primary && <PrimaryButton primary={primary} name={name} />}
+              {more && <PrimaryButton primary={more} name={name} />}
               <button
                 type="button"
                 onClick={(e) => { stop(e); watchlist.toggle(); }}

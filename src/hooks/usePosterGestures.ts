@@ -10,7 +10,10 @@
  *
  *   - en tête du plateau, UNE action primaire : « Demander » (un film, d'un
  *     geste), « Choisir les saisons » (une série pas entièrement là) — ou,
- *     pour un titre déjà là, « Regarder » dans Tentacle ;
+ *     pour un titre déjà là, « Regarder » dans Tentacle ; une série de la
+ *     bibliothèque qui n'y est qu'en partie offre ENSUITE « Demander d'autres
+ *     saisons » au dégradé (`more`) — le « Demander » qui suit « Lire » sur
+ *     les cartes des séries incomplètes de la recherche de Tentacle ;
  *   - la note, en étoiles (le moteur de notes de Tentacle) ;
  *   - « Ma liste », puis « J'aime » (le cœur) : tout de suite pour un titre
  *     de la bibliothèque, à son arrivée pour un titre absent — le goût des
@@ -46,6 +49,8 @@ export interface PosterToggle {
 
 export interface PosterGestures {
   primary: PosterPrimary | null;
+  /** Après « Regarder » : les saisons qui manquent à une série de la bibliothèque. */
+  more: PosterPrimary | null;
   watchlist: PosterToggle;
   /** Le cœur ; `null` quand Tentacle ne sait pas aimer un titre par son tmdb. */
   favorite: PosterToggle | null;
@@ -78,6 +83,13 @@ export function usePosterGestures(
   const requestable = !!onQuickRequest && marks?.library !== true
     && (!isMaskedItem(item) || maskedAllowed)
     && (item.mediaType === "movie" ? status === null : item.mediaType === "tv" && status?.state !== "available");
+
+  // Une série de la bibliothèque, là en partie : ses autres saisons se demandent aussi.
+  const incomplete = !!onQuickRequest && marks?.library === true && item.mediaType === "tv"
+    && status !== null && status.state !== "available" && (!isMaskedItem(item) || maskedAllowed);
+  const more: PosterPrimary | null = incomplete && onQuickRequest
+    ? { kind: "seasons", label: t("seer:requestMoreSeasons"), run: () => onQuickRequest(item) }
+    : null;
 
   let primary: PosterPrimary | null = null;
   if (requestable && onQuickRequest) {
@@ -122,6 +134,7 @@ export function usePosterGestures(
   const ratingFailed = () => toast.show("error", t("seer:gestureRatingFailed"));
   return {
     primary,
+    more,
     watchlist: { inLibrary, active, label, toggle },
     favorite: likesAvailable ? { inLibrary, active: liked, label: favoriteLabel, toggle: toggleFavorite } : null,
     rating: {

@@ -34,7 +34,7 @@ export function PosterActionsSheet({ item, onClose, onOpenDetail, onQuickRequest
   const { t } = useTranslation("seer");
   const status = useTitleStatus(item);
   const marks = useTitleMarks(item);
-  const { primary, watchlist, favorite, rating } = usePosterGestures(item, status, marks, onQuickRequest);
+  const { primary, more, watchlist, favorite, rating } = usePosterGestures(item, status, marks, onQuickRequest);
   const title = mediaTitle(item) || t("seer:untitled");
   const year = mediaYear(item);
   const poster = posterUrl(item.posterPath, "w185");
@@ -68,6 +68,17 @@ export function PosterActionsSheet({ item, onClose, onOpenDetail, onQuickRequest
         >
           {primary.kind === "watch" ? <PlayIcon className="h-4 w-4" /> : <PlusIcon className="h-5 w-5" />}
           {primary.label}
+        </button>
+      )}
+      {/* Une série de la bibliothèque là en partie : ses autres saisons, en retrait de « Regarder ». */}
+      {more && (
+        <button
+          type="button"
+          onClick={() => { onClose(); more.run(); }}
+          className="mt-2 flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[var(--brand-soft)] text-[15px] font-bold text-[var(--brand-light)] ring-1 ring-[rgba(var(--brand-rgb),0.45)] transition-transform duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)]"
+        >
+          <PlusIcon className="h-5 w-5" />
+          {more.label}
         </button>
       )}
 
