@@ -19,6 +19,14 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.22.0]
+### FR
+- **Sur la TV, « Mes demandes » ne montre plus que ce qui a été demandé depuis une TV** : chaque demande garde désormais d'où elle part. Sur le web, le mobile et dans Vigie, la liste reste complète
+- L'état d'un titre (en attente, en cours, disponible) reste le même partout, quel que soit l'endroit d'où il a été demandé
+### EN
+- **On TV, "My requests" now only shows what was requested from a TV**: each request now remembers where it came from. On web, mobile and in Vigie, the list stays complete
+- A title's state (pending, in progress, available) stays the same everywhere, wherever it was requested from
+
 ## [1.21.0]
 ### FR
 - **Prêt pour la nouvelle app Apple TV de Tentacle** (avec Tentacle Server 1.22.2 ou plus récent) : chacun y voit ses demandes en cours — en attente, en cours avec leur avancement en direct, mise en bibliothèque, bloquée — et peut demander d'un geste un titre absent (le film d'une saga, un résultat de recherche), en choisissant les saisons d'une série
