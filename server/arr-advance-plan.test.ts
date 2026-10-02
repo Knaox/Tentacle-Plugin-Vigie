@@ -133,6 +133,7 @@ test("les annonces gardent le format que le serveur Tentacle sait lire", async (
     status: "partially_available" as const, seerrRequestId: 1, seerrMediaId: 1, seerrMediaStatus: 4,
     retryCount: 0, maxRetries: 10, lastError: null, priority: 0, createdAt: "", updatedAt: "",
     sentAt: null, completedAt: null, pendingCleanupId: null, profileId: null, isAnime: false,
+    origin: null, platform: null,
   };
   const [season] = arrivalNotifications(req, {
     status: null, completed: false, notifyDownloading: false, notifyMovie: false, notifySeasons: [2], notified: [1, 2],

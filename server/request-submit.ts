@@ -9,6 +9,10 @@
  * permis (animé compris), quota du jour, fusion des saisons d'une série déjà
  * demandée, doublon — puis met la demande dans la file du worker. Deux
  * portes auraient fini par ne plus appliquer les mêmes règles.
+ *
+ * `origin` : d'où part la demande, déjà lue par la route qui la reçoit
+ * (titles/request-origin.ts) — jamais tirée du corps ici : le hub transmet
+ * le sien tel quel.
  */
 
 import type { PrismaClient } from "@prisma/client";
@@ -26,6 +30,7 @@ import type { JellyfinUser, WorkerCfg } from "./seerr-unified";
 import { markLocallyPending } from "./search/pending";
 import { effectiveDailyLimit } from "./plugin-config";
 import { getBlocklistedTags, isMaskedTitle, parseTagSet } from "./blocklist";
+import type { RequestOrigin } from "./titles/request-origin";
 
 /** Ce que la route renvoie : un code HTTP et son corps, tels quels. */
 export interface SubmitResult {
@@ -38,6 +43,7 @@ export async function submitRequest(
   getWorkerConfig: () => Promise<WorkerCfg | null>,
   user: JellyfinUser,
   body: CreateRequestBody,
+  origin: RequestOrigin | null = null,
 ): Promise<SubmitResult> {
   if (!body.mediaType || !body.tmdbId || !body.title) {
     return { status: 400, body: { message: "mediaType, tmdbId, and title are required" } };
@@ -115,6 +121,7 @@ export async function submitRequest(
         seasons: newSeasons,
         profileId: body.profileId ?? existing.profileId,
         isAnime,
+        origin,
       });
 
       const updated = await getRequestById(prisma, existing.id);
@@ -138,6 +145,7 @@ export async function submitRequest(
     overview: body.overview, year: body.year, seasons: body.seasons,
     profileId: body.profileId,
     isAnime,
+    origin,
   });
 
   invalidateRequestCaches(user.userId);

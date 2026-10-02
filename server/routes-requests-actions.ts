@@ -10,6 +10,7 @@ import {
 } from "./db";
 import { uuid } from "./db-helpers";
 import type { RequestStatus } from "./types";
+import { originOf } from "./titles/request-origin";
 import { invalidateRequestCaches } from "./cache";
 import { kickWorkerNow } from "./worker";
 import {
@@ -66,7 +67,7 @@ export function registerRequestActionRoutes(
         mediaType: req.mediaType, tmdbId: req.tmdbId, title: req.title,
         posterPath: req.posterPath, backdropPath: req.backdropPath,
         overview: req.overview, year: req.year, seasons: retrySeasons, priority: 1,
-        profileId: newProfileId, isAnime: req.isAnime,
+        profileId: newProfileId, isAnime: req.isAnime, origin: originOf(req),
       });
       invalidateRequestCaches(user.userId);
       kickWorkerNow();

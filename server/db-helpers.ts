@@ -37,6 +37,8 @@ export function rowToRequest(r: Record<string, unknown>): SeerRequest {
     pendingCleanupId: (r.pending_cleanup_id as string) || null,
     profileId: (r.profile_id as string) || null,
     isAnime: Boolean(r.is_anime),
+    origin: (r.origin as string) || null,
+    platform: (r.platform as string) || null,
   };
 }
 

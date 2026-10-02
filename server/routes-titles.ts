@@ -8,13 +8,15 @@
  *          bibliothèque de Tentacle (recherche, recommandations,
  *          filmographies, sagas). Répond depuis la mémoire : la table des
  *          statuts et la file locale, plus les réglages du compte.
- *   POST /titles/request { mediaType, tmdbId, lang, seasons? }
+ *   POST /titles/request { mediaType, tmdbId, lang, seasons?, origin?, platform? }
  *        — le geste lui-même. Un film se demande sur place, par la même porte
  *          que le hub (request-submit.ts) ; une série aussi quand le client a
  *          choisi ses saisons (`seasons`, routes-titles-seasons.ts), sinon
  *          elle renvoie le lien du hub qui ouvre ses saisons libres. Un refus (quota, droits, déjà
  *          demandé) répond 200 avec `ok: false` et une phrase à afficher :
- *          c'est un résultat, pas une panne.
+ *          c'est un résultat, pas une panne. `origin` et `platform` (« tv »,
+ *          « appletv ») : d'où part la demande, gardé avec elle
+ *          (titles/request-origin.ts) ; un client qui ne les dit pas n'en a pas.
  *   GET  /titles/access
  *        — le compte peut-il demander quoi que ce soit : `{ request }`, faux
  *          pour un compte bloqué ou sans aucun type permis. Tentacle s'en sert
@@ -40,6 +42,7 @@ import { submitRequest } from "./request-submit";
 import { parseTitleKeys, seasonsHref, titleStateFor, type TitleStateOut } from "./titles/title-state";
 import { readLang, rightsOf } from "./titles/title-rights";
 import { parseRequestedSeasons } from "./titles/title-seasons";
+import { readRequestOrigin } from "./titles/request-origin";
 import { requestSeasons } from "./routes-titles-seasons";
 import { refusalMessage, requestedMessage, unreachableMessage } from "./titles/title-messages";
 import { myTitles } from "./titles/my-titles";
@@ -96,12 +99,13 @@ export function registerTitleRoutes(
       return reply.status(400).send({ ok: false, message: "mediaType and tmdbId are required" });
     }
     const lang = readLang(body.lang);
+    const origin = readRequestOrigin(body);
     if (mediaType === "tv") {
       // Une série : ce sont ses saisons qu'on demande. Choisies par le client
       // (`titles.seasons`), elles partent ; sinon, elles se choisissent dans le hub.
       const seasons = parseRequestedSeasons(body.seasons);
       if (!seasons) return { href: seasonsHref(tmdbId) };
-      return requestSeasons(prisma, getWorkerConfig, getUser(request), tmdbId, seasons, lang);
+      return requestSeasons(prisma, getWorkerConfig, getUser(request), tmdbId, seasons, lang, origin);
     }
 
     const cfg = await getWorkerConfig();
@@ -128,7 +132,7 @@ export function registerTitleRoutes(
       backdropPath: detail.backdropPath ?? null,
       overview: detail.overview ?? null,
       year: detail.releaseDate ? detail.releaseDate.slice(0, 4) : null,
-    });
+    }, origin);
     if (result.status === 201) {
       return {
         ok: true,

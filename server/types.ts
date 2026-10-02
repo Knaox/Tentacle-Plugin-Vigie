@@ -47,6 +47,10 @@ export interface SeerRequest {
   pendingCleanupId: string | null;
   profileId: string | null;
   isAnime: boolean;
+  /** D'où elle part (« tv ») ; `null` : rien de dit — le hub, un client d'avant (titles/request-origin.ts). */
+  origin: string | null;
+  /** La plateforme qui l'a faite (« appletv »…), gardée pour plus tard. */
+  platform: string | null;
 }
 
 export interface SeerUserSettings {
@@ -123,6 +127,8 @@ export interface UnifiedRequest {
   completedAt: string | null;
   profileId: string | null;
   isAnime: boolean;
+  /** L'origine de sa demande locale (`SeerRequest.origin`) ; `null` sans elle. */
+  origin: string | null;
   /** Agrégat de tous les téléchargements actifs du média. null si aucun. */
   download?: DownloadProgress | null;
   /** Détail par épisode (séries), plafonné. Absent quand il n'y en a qu'un. */

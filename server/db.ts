@@ -6,6 +6,8 @@ import type { PrismaClient } from "@prisma/client";
 import type { SeerRequest, RequestStatus } from "./types";
 import { uuid, rowToRequest } from "./db-helpers";
 import { ensureTmdbCacheTable } from "./tmdb-cache";
+import { ORIGIN_COLUMNS, recordRequestOrigin } from "./db-origin";
+import type { RequestOrigin } from "./titles/request-origin";
 
 type Prisma = PrismaClient;
 
@@ -114,6 +116,8 @@ export async function ensureTables(prisma: Prisma): Promise<void> {
   await addColumn("seer_requests", "profile_id", "VARCHAR(36) DEFAULT NULL");
   await addColumn("seer_requests", "is_anime", "TINYINT(1) NOT NULL DEFAULT 0");
   await addColumn("seer_requests", "notified_seasons", "JSON DEFAULT NULL");
+  // D'où part une demande (un téléviseur…) : vide pour tout ce qui ne le dit pas (db-origin.ts).
+  for (const [col, def] of ORIGIN_COLUMNS) await addColumn("seer_requests", col, def);
 
   // Table seer_user_settings : permissions et quotas par utilisateur Jellyfin
   await prisma.$executeRawUnsafe(`
@@ -155,6 +159,8 @@ export async function createRequest(
     backdropPath?: string | null; overview?: string | null;
     year?: string | null; seasons?: number[] | null; priority?: number;
     profileId?: string | null; isAnime?: boolean;
+    /** D'où part la demande ; gardée au mieux, à part (db-origin.ts). */
+    origin?: RequestOrigin | null;
   },
 ): Promise<SeerRequest> {
   const id = uuid();
@@ -168,6 +174,7 @@ export async function createRequest(
     data.year || null, data.seasons ? JSON.stringify(data.seasons) : null, data.priority || 0,
     data.profileId || null, data.isAnime ? 1 : 0,
   );
+  if (data.origin) await recordRequestOrigin(prisma, id, data.origin);
   const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
     `SELECT * FROM seer_requests WHERE id = ?`, id,
   );

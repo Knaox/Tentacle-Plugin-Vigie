@@ -36,7 +36,9 @@ function rowToRequest(r) {
     completedAt: r.completed_at ? toIso(r.completed_at) : null,
     pendingCleanupId: r.pending_cleanup_id || null,
     profileId: r.profile_id || null,
-    isAnime: Boolean(r.is_anime)
+    isAnime: Boolean(r.is_anime),
+    origin: r.origin || null,
+    platform: r.platform || null
   };
 }
 function rowToUserSettings(r) {
@@ -329,6 +331,26 @@ async function pruneTmdbCache(prisma, olderThanDays) {
     Math.max(1, Math.floor(olderThanDays))
   );
   return Number(n) || 0;
+}
+
+// server/db-origin.ts
+var ORIGIN_COLUMNS = [
+  ["origin", "VARCHAR(16) DEFAULT NULL"],
+  ["platform", "VARCHAR(24) DEFAULT NULL"]
+];
+var warned = false;
+async function recordRequestOrigin(prisma, id, origin) {
+  try {
+    await prisma.$executeRawUnsafe(
+      `UPDATE seer_requests SET origin = ?, platform = ? WHERE id = ?`,
+      origin.origin,
+      origin.platform,
+      id
+    );
+  } catch (err) {
+    if (!warned) console.warn("[SeerDB] Origine de la demande non gard\xE9e :", err);
+    warned = true;
+  }
 }
 
 // server/db-queries.ts
@@ -741,6 +763,7 @@ async function ensureTables(prisma) {
   await addColumn("seer_requests", "profile_id", "VARCHAR(36) DEFAULT NULL");
   await addColumn("seer_requests", "is_anime", "TINYINT(1) NOT NULL DEFAULT 0");
   await addColumn("seer_requests", "notified_seasons", "JSON DEFAULT NULL");
+  for (const [col, def] of ORIGIN_COLUMNS) await addColumn("seer_requests", col, def);
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS seer_user_settings (
       jellyfin_user_id     VARCHAR(255) NOT NULL PRIMARY KEY,
@@ -788,6 +811,7 @@ async function createRequest(prisma, data) {
     data.profileId || null,
     data.isAnime ? 1 : 0
   );
+  if (data.origin) await recordRequestOrigin(prisma, id, data.origin);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM seer_requests WHERE id = ?`,
     id
@@ -3940,7 +3964,8 @@ function seerrRequestToUnified(sr, detail, localById, fallbackUser, seasonStates
     sentAt: local?.sentAt ?? null,
     completedAt: local?.completedAt ?? null,
     profileId: local?.profileId ?? null,
-    isAnime: local?.isAnime ?? false
+    isAnime: local?.isAnime ?? false,
+    origin: local?.origin ?? null
   };
 }
 function localToUnified(r) {
@@ -3970,7 +3995,8 @@ function localToUnified(r) {
     sentAt: r.sentAt,
     completedAt: r.completedAt,
     profileId: r.profileId,
-    isAnime: r.isAnime
+    isAnime: r.isAnime,
+    origin: r.origin
   };
 }
 async function fetchSeerrTmdbDetail(config, mediaType, tmdbId) {
@@ -4294,6 +4320,20 @@ function registerRequestReadRoutes(app, prisma, getWorkerConfig2) {
   });
 }
 
+// server/titles/request-origin.ts
+var ORIGIN = /^[a-z][a-z0-9-]{0,15}$/;
+var PLATFORM = /^[a-z][a-z0-9-]{0,23}$/;
+function readRequestOrigin(body) {
+  const raw = body && typeof body === "object" ? body : null;
+  const origin = typeof raw?.origin === "string" && ORIGIN.test(raw.origin) ? raw.origin : null;
+  if (!origin) return null;
+  const platform = typeof raw?.platform === "string" && PLATFORM.test(raw.platform) ? raw.platform : null;
+  return { origin, platform };
+}
+function originOf(request) {
+  return request.origin ? { origin: request.origin, platform: request.platform } : null;
+}
+
 // server/routes-requests-actions.ts
 function registerRequestActionRoutes(app, prisma, getWorkerConfig2) {
   app.post("/requests/:id/retry", async (request, reply) => {
@@ -4343,7 +4383,8 @@ function registerRequestActionRoutes(app, prisma, getWorkerConfig2) {
         seasons: retrySeasons2,
         priority: 1,
         profileId: newProfileId,
-        isAnime: req.isAnime
+        isAnime: req.isAnime,
+        origin: originOf(req)
       });
       invalidateRequestCaches(user.userId);
       kickWorkerNow();
@@ -4612,7 +4653,7 @@ function markLocallyPending(mediaType, tmdbId) {
 }
 
 // server/request-submit.ts
-async function submitRequest(prisma, getWorkerConfig2, user, body) {
+async function submitRequest(prisma, getWorkerConfig2, user, body, origin = null) {
   if (!body.mediaType || !body.tmdbId || !body.title) {
     return { status: 400, body: { message: "mediaType, tmdbId, and title are required" } };
   }
@@ -4672,7 +4713,8 @@ async function submitRequest(prisma, getWorkerConfig2, user, body) {
         year: body.year,
         seasons: newSeasons,
         profileId: body.profileId ?? existing.profileId,
-        isAnime
+        isAnime,
+        origin
       });
       const updated = await getRequestById(prisma, existing.id);
       invalidateRequestCaches(user.userId);
@@ -4697,7 +4739,8 @@ async function submitRequest(prisma, getWorkerConfig2, user, body) {
     year: body.year,
     seasons: body.seasons,
     profileId: body.profileId,
-    isAnime
+    isAnime,
+    origin
   });
   invalidateRequestCaches(user.userId);
   markLocallyPending(body.mediaType, body.tmdbId);
@@ -4902,7 +4945,8 @@ function registerBulkRoutes(app, prisma, getWorkerConfig2) {
           year: req.year,
           seasons: req.seasons,
           priority: 1,
-          profileId: newProfileId !== void 0 ? newProfileId : req.profileId
+          profileId: newProfileId !== void 0 ? newProfileId : req.profileId,
+          origin: originOf(req)
         });
         retried++;
       } catch {
@@ -8887,7 +8931,7 @@ function registerTitleSeasonRoutes(app, prisma, getWorkerConfig2) {
     return { seasons: read.seasons };
   });
 }
-async function requestSeasons(prisma, getWorkerConfig2, user, tmdbId, chosen, lang) {
+async function requestSeasons(prisma, getWorkerConfig2, user, tmdbId, chosen, lang, origin = null) {
   const cfg = await getWorkerConfig2();
   if (!cfg) return { ok: false, message: unreachableMessage(lang) };
   const read = await readSeasons(prisma, cfg, user, tmdbId, lang);
@@ -8908,7 +8952,7 @@ async function requestSeasons(prisma, getWorkerConfig2, user, tmdbId, chosen, la
     overview: detail.overview ?? null,
     year: detail.firstAirDate ? detail.firstAirDate.slice(0, 4) : null,
     seasons
-  });
+  }, origin);
   if (result.status !== 201) return { ok: false, message: refusalMessage(result.status, result.body, lang) };
   const after = known === MEDIA_STATUS.PARTIALLY_AVAILABLE ? known : MEDIA_STATUS.PENDING;
   return { ok: true, message: requestedMessage(detail.name, lang), state: titleStateFor("tv", tmdbId, after, rights, lang) };
@@ -9007,10 +9051,11 @@ function registerTitleRoutes(app, prisma, getWorkerConfig2) {
       return reply.status(400).send({ ok: false, message: "mediaType and tmdbId are required" });
     }
     const lang = readLang2(body.lang);
+    const origin = readRequestOrigin(body);
     if (mediaType === "tv") {
       const seasons = parseRequestedSeasons(body.seasons);
       if (!seasons) return { href: seasonsHref(tmdbId) };
-      return requestSeasons(prisma, getWorkerConfig2, getUser(request), tmdbId, seasons, lang);
+      return requestSeasons(prisma, getWorkerConfig2, getUser(request), tmdbId, seasons, lang, origin);
     }
     const cfg = await getWorkerConfig2();
     if (!cfg) return { ok: false, message: unreachableMessage(lang) };
@@ -9032,7 +9077,7 @@ function registerTitleRoutes(app, prisma, getWorkerConfig2) {
       backdropPath: detail.backdropPath ?? null,
       overview: detail.overview ?? null,
       year: detail.releaseDate ? detail.releaseDate.slice(0, 4) : null
-    });
+    }, origin);
     if (result.status === 201) {
       return {
         ok: true,

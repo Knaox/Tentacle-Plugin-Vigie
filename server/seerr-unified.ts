@@ -105,6 +105,7 @@ export function seerrRequestToUnified(
     completedAt: local?.completedAt ?? null,
     profileId: local?.profileId ?? null,
     isAnime: local?.isAnime ?? false,
+    origin: local?.origin ?? null,
   };
 }
 
@@ -136,6 +137,7 @@ export function localToUnified(r: SeerRequest): UnifiedRequest {
     completedAt: r.completedAt,
     profileId: r.profileId,
     isAnime: r.isAnime,
+    origin: r.origin,
   };
 }
 

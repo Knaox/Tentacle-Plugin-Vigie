@@ -7,11 +7,12 @@
  *        — les saisons d'une série, chacune son état et si elle se demande
  *          encore (titles/title-seasons.ts) : la feuille d'un client qui ne
  *          montre pas nos pages (le téléviseur).
- *   POST /titles/request { mediaType: "tv", tmdbId, lang, seasons: [1, 2] }
+ *   POST /titles/request { mediaType: "tv", tmdbId, lang, seasons: [1, 2], origin? }
  *        — la demande de ces saisons (`requestSeasons`, appelée par
  *          routes-titles.ts) : même porte que le hub (request-submit.ts),
- *          fusion et doublons compris. Sans `seasons`, une série renvoie
- *          toujours le lien du hub : web et mobile ne changent pas.
+ *          fusion et doublons compris, avec l'origine qu'a lue la route. Sans
+ *          `seasons`, une série renvoie toujours le lien du hub : web et
+ *          mobile ne changent pas.
  *
  * Déclarée dans `plugin.json` → `titles.seasons` ; un Tentacle d'avant
  * l'ignore.
@@ -30,6 +31,7 @@ import { readLang, rightsOf } from "./titles/title-rights";
 import { freeSeasons, titleSeasons, type SeasonOut } from "./titles/title-seasons";
 import { titleStateFor } from "./titles/title-state";
 import { refusalMessage, requestedMessage, unreachableMessage } from "./titles/title-messages";
+import type { RequestOrigin } from "./titles/request-origin";
 
 const TV_KEY = /^tv:([1-9]\d{0,9})$/;
 
@@ -85,6 +87,7 @@ export async function requestSeasons(
   tmdbId: number,
   chosen: readonly number[],
   lang: string,
+  origin: RequestOrigin | null = null,
 ): Promise<Record<string, unknown>> {
   const cfg = await getWorkerConfig();
   if (!cfg) return { ok: false, message: unreachableMessage(lang) };
@@ -107,7 +110,7 @@ export async function requestSeasons(
     overview: detail.overview ?? null,
     year: detail.firstAirDate ? detail.firstAirDate.slice(0, 4) : null,
     seasons,
-  });
+  }, origin);
   if (result.status !== 201) return { ok: false, message: refusalMessage(result.status, result.body, lang) };
   // Une série en partie là le reste ; sinon elle est désormais demandée.
   const after = known === MEDIA_STATUS.PARTIALLY_AVAILABLE ? known : MEDIA_STATUS.PENDING;

@@ -9,6 +9,7 @@ import {
   enqueueCleanup, updateRequestStatus,
 } from "./db";
 import { kickWorkerNow } from "./worker";
+import { originOf } from "./titles/request-origin";
 
 interface JellyfinUser { userId: string; username: string; isAdmin: boolean; }
 
@@ -102,6 +103,7 @@ export function registerBulkRoutes(
           posterPath: req.posterPath, backdropPath: req.backdropPath,
           overview: req.overview, year: req.year, seasons: req.seasons, priority: 1,
           profileId: newProfileId !== undefined ? newProfileId : req.profileId,
+          origin: originOf(req),
         });
 
         retried++;
