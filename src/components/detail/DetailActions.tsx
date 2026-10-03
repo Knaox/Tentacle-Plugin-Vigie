@@ -17,7 +17,7 @@ import type { RichTrailer } from "../../utils/trailers";
 import { openExternal, shouldOpenYouTubeExternally } from "../../utils/external";
 import { useProfiles } from "../../hooks/useProfiles";
 import { useOpenInLibrary } from "../../hooks/useOpenInLibrary";
-import { CTA_PRIMARY, CTA_SIZE_LG } from "../../styles/cta";
+import { CTA_HERO, CTA_HERO_STYLE, CTA_SIZE_LG } from "../../styles/cta";
 import { profilesFor } from "../ProfileSelector";
 import { ChevronDown, EyeOffIcon, FilmIcon, PlayIcon, PlusIcon } from "../ui/icons";
 import { isInLibraryStatus } from "../../utils/media-status";
@@ -80,7 +80,7 @@ export const DetailActions = memo(function DetailActions(props: Props) {
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2.5">
         {inLibrary && (
-          <button type="button" onClick={() => void watch()} disabled={navigating} aria-busy={navigating} className={`${CTA_PRIMARY} ${CTA_SIZE_LG} gap-2`}>
+          <button type="button" onClick={() => void watch()} disabled={navigating} aria-busy={navigating} className={`${CTA_HERO} ${CTA_SIZE_LG} gap-2`} style={CTA_HERO_STYLE}>
             {/* La recherche de l'élément peut prendre quelques secondes : elle se voit. */}
             {navigating
               ? <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
@@ -90,7 +90,7 @@ export const DetailActions = memo(function DetailActions(props: Props) {
         )}
         {movieRequest && <MovieRequestButton request={movieRequest} />}
         {seasonsLabel && onJumpToSeasons && (
-          <button type="button" onClick={onJumpToSeasons} className={`${inLibrary ? HERO_SECONDARY : CTA_PRIMARY} ${CTA_SIZE_LG} gap-2`}>
+          <button type="button" onClick={onJumpToSeasons} className={`${inLibrary ? HERO_SECONDARY : CTA_HERO} ${CTA_SIZE_LG} gap-2`} style={inLibrary ? undefined : CTA_HERO_STYLE}>
             <PlusIcon className="h-4 w-4" />
             {seasonsLabel}
           </button>
@@ -128,7 +128,8 @@ function MovieRequestButton({ request }: { request: MovieRequest }) {
         type="button"
         onClick={request.onRequest}
         disabled={request.requesting || request.success}
-        className={`${CTA_PRIMARY} ${CTA_SIZE_LG} gap-2`}
+        className={`${CTA_HERO} ${CTA_SIZE_LG} gap-2`}
+        style={CTA_HERO_STYLE}
       >
         <PlusIcon className="h-4 w-4" />
         {label}

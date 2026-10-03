@@ -21,6 +21,30 @@
 export const CTA_PRIMARY =
   "inline-flex items-center justify-center rounded-full bg-tentacle-cta-primary text-sm font-bold text-tentacle-cta-primary-fg transition-transform duration-150 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0";
 
+/**
+ * Bouton principal d'un HÉROS — vitrine « À la une », en-tête de fiche,
+ * meilleur résultat : le dégradé de marque des bannières du cœur et de
+ * l'Apple TV (« Regarder », « Demander »), plus la pilule blanche. Mêmes
+ * gestes que `CTA_PRIMARY` (transformation à l'appui, jamais une ombre
+ * animée). Le fond et la couleur passent par `CTA_HERO_STYLE` : des
+ * variables de l'hôte, qu'une classe arbitraire ne lirait pas partout.
+ */
+export const CTA_HERO =
+  "inline-flex items-center justify-center rounded-full text-sm font-bold transition-transform duration-150 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(255,255,255,0.9)] focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0";
+
+/**
+ * `--cta-brand-gradient` vient de l'hôte (web : tokens.css ; mobile : la
+ * liste de la WebView) : violet profond → rose profond, libellé blanc ≥ 4,5:1
+ * d'un bout à l'autre. Un hôte d'avant ce jeton retombe sur le même dégradé,
+ * son rose profond (`#DB2777`, brand.accentDark) écrit en repli — la seule
+ * couleur en dur, faute de variable chez lui.
+ */
+export const CTA_HERO_STYLE: React.CSSProperties = {
+  backgroundImage: "var(--cta-brand-gradient, linear-gradient(120deg, var(--brand-dark) 0%, var(--brand-accent-dark, #DB2777) 100%))",
+  color: "var(--cta-brand-fg, #FFFFFF)",
+  border: "1px solid rgba(255, 255, 255, 0.18)",
+};
+
 /** Halo violet à appliquer via `style={CTA_PRIMARY_HALO}` sur le bouton primaire. */
 export const CTA_PRIMARY_HALO: React.CSSProperties = {
   boxShadow: "0 8px 22px rgba(var(--brand-rgb), 0.45)",

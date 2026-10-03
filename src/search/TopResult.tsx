@@ -21,7 +21,7 @@ import { isMaskedItem } from "./masked";
 import { useMaskedRequests } from "../hooks/useIsAdmin";
 import { libraryIdOf } from "../utils/navigate-media";
 import { useOpenInLibrary } from "../hooks/useOpenInLibrary";
-import { CTA_PRIMARY, CTA_SECONDARY, CTA_SIZE_MD } from "../styles/cta";
+import { CTA_HERO, CTA_HERO_STYLE, CTA_SECONDARY, CTA_SIZE_MD } from "../styles/cta";
 import { useHub } from "../hub/HubContext";
 import { useTitleGaps, useTitleStatus } from "../hub/TitleStates";
 import { useTitleMarks } from "../hub/UserMarks";
@@ -91,7 +91,7 @@ export const TopMediaResult = memo(function TopMediaResult({ item }: { item: See
           {item.overview && <p className="mt-2 hidden text-sm leading-relaxed text-tentacle-text-tertiary sm:line-clamp-2">{item.overview}</p>}
           <div className="pointer-events-auto mt-3 flex flex-wrap gap-2">
             {state === "available" || state === "partial" ? (
-              <button type="button" onClick={() => void openInLibrary(item.id, item.mediaType, libraryIdOf(item.mediaInfo))} className={`${CTA_PRIMARY} ${CTA_SIZE_MD} gap-2`}>
+              <button type="button" onClick={() => void openInLibrary(item.id, item.mediaType, libraryIdOf(item.mediaInfo))} className={`${CTA_HERO} ${CTA_SIZE_MD} gap-2`} style={CTA_HERO_STYLE}>
                 <PlayIcon className="h-4 w-4" />{t("seer:watch")}
               </button>
             ) : state === null && closed ? (
@@ -99,11 +99,11 @@ export const TopMediaResult = memo(function TopMediaResult({ item }: { item: See
                 <EyeOffIcon className="h-4 w-4" />{t("seer:maskedResult")}
               </span>
             ) : state === null && item.mediaType === "movie" ? (
-              <button type="button" onClick={() => hub.quickRequest(item)} className={`${CTA_PRIMARY} ${CTA_SIZE_MD} gap-2`}>
+              <button type="button" onClick={() => hub.quickRequest(item)} className={`${CTA_HERO} ${CTA_SIZE_MD} gap-2`} style={CTA_HERO_STYLE}>
                 <PlusIcon className="h-4 w-4" />{t("seer:request")}
               </button>
             ) : state === null ? (
-              <button type="button" onClick={open} className={`${CTA_PRIMARY} ${CTA_SIZE_MD} gap-2`}>
+              <button type="button" onClick={open} className={`${CTA_HERO} ${CTA_SIZE_MD} gap-2`} style={CTA_HERO_STYLE}>
                 <PlusIcon className="h-4 w-4" />{t("seer:chooseSeasons")}
               </button>
             ) : (

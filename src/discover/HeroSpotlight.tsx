@@ -22,7 +22,7 @@ import { backdropUrl, mediaTitle, mediaYear, posterUrl } from "../utils/media-he
 import { mediaStateOf } from "../utils/media-status";
 import { libraryIdOf } from "../utils/navigate-media";
 import { useOpenInLibrary } from "../hooks/useOpenInLibrary";
-import { CTA_PRIMARY, CTA_SECONDARY, CTA_SIZE_LG } from "../styles/cta";
+import { CTA_HERO, CTA_HERO_STYLE, CTA_SECONDARY, CTA_SIZE_LG } from "../styles/cta";
 import { useHub } from "../hub/HubContext";
 import { ChevronLeft, ChevronRight, PlayIcon, PlusIcon, StarIcon } from "../components/ui/icons";
 
@@ -94,11 +94,11 @@ export const HeroSpotlight = memo(function HeroSpotlight({ items }: { items: See
           {current.overview && <p className="mt-2 hidden max-w-xl text-sm leading-relaxed text-tentacle-on-media-secondary md:line-clamp-2">{current.overview}</p>}
           <div className="mt-4 flex flex-wrap gap-2">
             {state === "available" || state === "partial" ? (
-              <button type="button" onClick={() => void openInLibrary(current.id, current.mediaType, libraryIdOf(current.mediaInfo))} className={`${CTA_PRIMARY} ${CTA_SIZE_LG} gap-2`}>
+              <button type="button" onClick={() => void openInLibrary(current.id, current.mediaType, libraryIdOf(current.mediaInfo))} className={`${CTA_HERO} ${CTA_SIZE_LG} gap-2`} style={CTA_HERO_STYLE}>
                 <PlayIcon className="h-4 w-4" />{t("seer:watch")}
               </button>
             ) : state === null ? (
-              <button type="button" onClick={() => (current.mediaType === "movie" ? hub.quickRequest(current) : hub.openMedia(current))} className={`${CTA_PRIMARY} ${CTA_SIZE_LG} gap-2`}>
+              <button type="button" onClick={() => (current.mediaType === "movie" ? hub.quickRequest(current) : hub.openMedia(current))} className={`${CTA_HERO} ${CTA_SIZE_LG} gap-2`} style={CTA_HERO_STYLE}>
                 <PlusIcon className="h-4 w-4" />{current.mediaType === "movie" ? t("seer:request") : t("seer:chooseSeasons")}
               </button>
             ) : (
