@@ -19,6 +19,12 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.23.0]
+### FR
+- **Les boutons principaux des vitrines aux couleurs de Tentacle** : « Regarder » et « Demander » prennent le dégradé violet → rose, comme les bannières de l'application, avec un texte qui reste lisible
+### EN
+- **Showcase main buttons in Tentacle colors**: "Watch" and "Request" take the purple → pink gradient, like the app's banners, with text that stays readable
+
 ## [1.22.0]
 ### FR
 - **Sur la TV, « Mes demandes » ne montre plus que ce qui a été demandé depuis une TV** : chaque demande garde désormais d'où elle part. Sur le web, le mobile et dans Vigie, la liste reste complète
