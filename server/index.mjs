@@ -4659,6 +4659,18 @@ function markLocallyPending(mediaType, tmdbId) {
   keys.add(`${mediaType}:${tmdbId}`);
 }
 
+// server/titles/request-listener.ts
+var listener = null;
+function onTitleRequested(fn) {
+  listener = fn;
+}
+function announceTitleRequested(userId, title) {
+  const fn = listener;
+  if (!fn) return;
+  void Promise.resolve().then(() => fn(userId, title)).catch(() => {
+  });
+}
+
 // server/request-submit.ts
 async function submitRequest(prisma, getWorkerConfig2, user, body, origin = null) {
   if (!body.mediaType || !body.tmdbId || !body.title) {
@@ -4727,6 +4739,7 @@ async function submitRequest(prisma, getWorkerConfig2, user, body, origin = null
       invalidateRequestCaches(user.userId);
       markLocallyPending(body.mediaType, body.tmdbId);
       kickWorkerNow();
+      announceTitleRequested(user.userId, { mediaType: body.mediaType, tmdbId: body.tmdbId });
       return { status: 201, body: updated };
     }
   }
@@ -4752,6 +4765,7 @@ async function submitRequest(prisma, getWorkerConfig2, user, body, origin = null
   invalidateRequestCaches(user.userId);
   markLocallyPending(body.mediaType, body.tmdbId);
   kickWorkerNow();
+  announceTitleRequested(user.userId, { mediaType: body.mediaType, tmdbId: body.tmdbId });
   return { status: 201, body: req };
 }
 
@@ -8177,7 +8191,8 @@ var LABELS = {
     masked: "Masqu\xE9",
     request: "Demander",
     seasons: "Choisir les saisons",
-    moreSeasons: "Demander d'autres saisons"
+    moreSeasons: "Demander d'autres saisons",
+    page: "Voir dans le catalogue"
   },
   en: {
     requested: "Requested",
@@ -8186,7 +8201,8 @@ var LABELS = {
     masked: "Hidden",
     request: "Request",
     seasons: "Choose seasons",
-    moreSeasons: "Request more seasons"
+    moreSeasons: "Request more seasons",
+    page: "View in catalog"
   }
 };
 function labelsFor(lang) {
@@ -8209,6 +8225,13 @@ function parseTitleKeys(raw) {
 }
 function seasonsHref(tmdbId) {
   return `/discover?request=tv:${tmdbId}`;
+}
+function mediaHref(mediaType, tmdbId) {
+  return `/discover?media=${mediaType}:${tmdbId}`;
+}
+function titlePage(mediaType, tmdbId, rights, lang) {
+  if (!rights.movies && !rights.tv) return void 0;
+  return { label: labelsFor(lang).page, href: mediaHref(mediaType, tmdbId) };
 }
 function titleBadge(status, lang) {
   const l = labelsFor(lang);
@@ -9046,7 +9069,9 @@ function registerTitleRoutes(app, prisma, getWorkerConfig2) {
     const items = {};
     for (const k of keys2) {
       const status = statusFor({ key: k.key, mediaType: k.mediaType, tmdbId: k.tmdbId, remoteStatus: void 0 });
-      items[k.key] = titleStateFor(k.mediaType, k.tmdbId, status, rights, lang);
+      const state2 = titleStateFor(k.mediaType, k.tmdbId, status, rights, lang);
+      const page = titlePage(k.mediaType, k.tmdbId, rights, lang);
+      items[k.key] = page ? { ...state2, page } : state2;
     }
     return { items };
   });
@@ -9204,6 +9229,7 @@ async function seerBackend(app, ctx) {
   await ensureTables(prisma);
   console.log("[SeerBackend] Database tables ready");
   applyNavLabel(__pluginDir, ctx.pluginId, navLabelsOf(getPluginConfig(ctx)));
+  onTitleRequested(ctx.recommendations?.titleRequested ?? null);
   startWorker(prisma, () => getWorkerConfig(ctx));
   void getWorkerConfig(ctx).then((w) => w ? specialSeasonsEnabled(w.seerrUrl, w.seerrApiKey) : false).catch(() => false);
   app.addHook("onClose", async () => {

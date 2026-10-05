@@ -19,6 +19,14 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.24.0]
+### FR
+- **Un titre absent de la bibliothèque s'ouvre directement dans le catalogue** depuis « Affiner » dans Tentacle : sa fiche Vigie, sans le chercher à la main
+- **Un titre que vous demandez quitte vos recommandations Tentacle**, pour vous seul, sans peser sur votre profil de goût — que la demande parte de Tentacle ou de Vigie
+### EN
+- **A title missing from the library opens straight in the catalog** from "Refine" in Tentacle: its Vigie page, no manual search
+- **A title you request leaves your Tentacle recommendations**, for you only, without affecting your taste profile — whether the request comes from Tentacle or from Vigie
+
 ## [1.23.0]
 ### FR
 - **Les boutons principaux des vitrines aux couleurs de Tentacle** : « Regarder » et « Demander » prennent le dégradé violet → rose, comme les bannières de l'application, avec un texte qui reste lisible

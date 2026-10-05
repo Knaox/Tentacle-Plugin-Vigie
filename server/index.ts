@@ -27,6 +27,7 @@ import { registerSearchRoutes } from "./routes-search";
 import { registerTitleRoutes } from "./routes-titles";
 import { registerTitleSeasonRoutes } from "./routes-titles-seasons";
 import { registerTitleGapRoutes } from "./routes-titles-gaps";
+import { onTitleRequested } from "./titles/request-listener";
 
 const __pluginDir = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -35,6 +36,10 @@ interface PluginBackendContext {
   getPrisma: () => import("@prisma/client").PrismaClient;
   requireAuth: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   requireAdmin: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+  /** Venu après dans Tentacle : absent d'un cœur d'avant (cf. titles/request-listener.ts). */
+  recommendations?: {
+    titleRequested?: (userId: string, title: { mediaType: "movie" | "tv"; tmdbId: number }) => Promise<void>;
+  };
 }
 
 function getPluginConfig(ctx: PluginBackendContext): Record<string, unknown> {
@@ -69,6 +74,9 @@ export default async function seerBackend(
   // Une mise à jour vient peut-être de remplacer le manifeste : le nom choisi
   // pour l'onglet y est réécrit à chaque démarrage (cf. nav-label.ts).
   applyNavLabel(__pluginDir, ctx.pluginId, navLabelsOf(getPluginConfig(ctx)));
+
+  // Un titre demandé sort des recommandations du compte, côté Tentacle.
+  onTitleRequested(ctx.recommendations?.titleRequested ?? null);
 
   startWorker(prisma, () => getWorkerConfig(ctx));
   // Les réglages de Jellyseerr lus d'avance : `GET /config` ne les attend pas.

@@ -31,6 +31,7 @@ import { markLocallyPending } from "./search/pending";
 import { effectiveDailyLimit } from "./plugin-config";
 import { getBlocklistedTags, isMaskedTitle, parseTagSet } from "./blocklist";
 import type { RequestOrigin } from "./titles/request-origin";
+import { announceTitleRequested } from "./titles/request-listener";
 
 /** Ce que la route renvoie : un code HTTP et son corps, tels quels. */
 export interface SubmitResult {
@@ -128,6 +129,7 @@ export async function submitRequest(
       invalidateRequestCaches(user.userId);
       markLocallyPending(body.mediaType, body.tmdbId);
       kickWorkerNow();
+      announceTitleRequested(user.userId, { mediaType: body.mediaType, tmdbId: body.tmdbId });
       return { status: 201, body: updated as unknown as Record<string, unknown> };
     }
   }
@@ -152,5 +154,7 @@ export async function submitRequest(
   // La recherche dit « Demandé » tout de suite, sans attendre le worker.
   markLocallyPending(body.mediaType, body.tmdbId);
   kickWorkerNow();
+  // Tentacle retire le titre des recommandations de CE compte (titles/request-listener.ts).
+  announceTitleRequested(user.userId, { mediaType: body.mediaType, tmdbId: body.tmdbId });
   return { status: 201, body: req as unknown as Record<string, unknown> };
 }
