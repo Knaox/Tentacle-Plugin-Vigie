@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_TITLE_KEYS, parseTitleKeys, seasonsHref, titleBadge, titleStateFor } from "./title-state";
+import { MAX_TITLE_KEYS, mediaHref, parseTitleKeys, seasonsHref, titleBadge, titlePage, titleStateFor } from "./title-state";
 import { refusalMessage, requestedMessage } from "./title-messages";
 
 /*
@@ -95,4 +95,12 @@ test("les phrases rendues à Tentacle après un geste", () => {
   assert.equal(refusalMessage(429, { errorKey: "seer:errQuotaReached", limit: 3 }, "en"), "Limit reached: 3 requests per day.");
   assert.equal(refusalMessage(403, { errorKey: "seer:errUserBlocked" }, "fr"), "Votre compte ne peut pas faire de demandes.");
   assert.equal(refusalMessage(500, {}, "fr"), "La demande n'a pas abouti.");
+});
+
+test("la fiche du titre s'ouvre dans le hub, pour tout compte qui y a accès", () => {
+  assert.equal(mediaHref("movie", 603), "/discover?media=movie:603");
+  assert.deepEqual(titlePage("movie", 603, ALL, "fr"), { label: "Voir dans le catalogue", href: "/discover?media=movie:603" });
+  assert.deepEqual(titlePage("tv", 1399, { movies: false, tv: true }, "en"), { label: "View in catalog", href: "/discover?media=tv:1399" });
+  // Un compte bloqué n'a droit à rien de Vigie : pas même la fiche.
+  assert.equal(titlePage("movie", 603, { movies: false, tv: false }, "fr"), undefined);
 });

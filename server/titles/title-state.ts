@@ -32,6 +32,8 @@ export interface TitleKey {
 export interface TitleStateOut {
   badge: { label: string; tone: "neutral" | "info" | "success" | "warning" } | null;
   request: { mode: "direct" | "open"; label: string; href?: string } | null;
+  /** La fiche du titre dans le hub (facultatif au contrat, venu après) : Tentacle l'ouvre d'« Affiner ». */
+  page?: { label: string; href: string };
 }
 
 /** Ce que le compte a le droit de demander (réglages Vigie). */
@@ -51,10 +53,12 @@ const LABELS = {
   fr: {
     requested: "Demandé", partial: "En partie", available: "Disponible", masked: "Masqué",
     request: "Demander", seasons: "Choisir les saisons", moreSeasons: "Demander d'autres saisons",
+    page: "Voir dans le catalogue",
   },
   en: {
     requested: "Requested", partial: "Partly here", available: "Available", masked: "Hidden",
     request: "Request", seasons: "Choose seasons", moreSeasons: "Request more seasons",
+    page: "View in catalog",
   },
 };
 
@@ -82,6 +86,25 @@ export function parseTitleKeys(raw: unknown): TitleKey[] {
 /** Le lien du hub qui ouvre les saisons libres d'une série, prêtes à cocher. */
 export function seasonsHref(tmdbId: number): string {
   return `/discover?request=tv:${tmdbId}`;
+}
+
+/** Le lien du hub qui ouvre la fiche d'un titre (`?media=`, cf. src/hub/deepLink.ts). */
+export function mediaHref(mediaType: TitleMediaType, tmdbId: number): string {
+  return `/discover?media=${mediaType}:${tmdbId}`;
+}
+
+/**
+ * La fiche du titre, pour un compte qui a accès au hub : un compte bloqué
+ * (aucun type permis) n'en reçoit pas — rien de Vigie ne lui est offert.
+ */
+export function titlePage(
+  mediaType: TitleMediaType,
+  tmdbId: number,
+  rights: RequestRights,
+  lang: string,
+): TitleStateOut["page"] {
+  if (!rights.movies && !rights.tv) return undefined;
+  return { label: labelsFor(lang).page, href: mediaHref(mediaType, tmdbId) };
 }
 
 /**

@@ -6,7 +6,7 @@
  *   GET  /titles/state?keys=movie:603,tv:1399&lang=fr
  *        — la pastille et le geste de chaque titre, pour les cartes hors
  *          bibliothèque de Tentacle (recherche, recommandations,
- *          filmographies, sagas). Répond depuis la mémoire : la table des
+ *          filmographies, sagas), et sa fiche dans le hub (`page`). Répond depuis la mémoire : la table des
  *          statuts et la file locale, plus les réglages du compte.
  *   POST /titles/request { mediaType, tmdbId, lang, seasons?, origin?, platform? }
  *        — le geste lui-même. Un film se demande sur place, par la même porte
@@ -42,7 +42,7 @@ import { refreshStatusMap, noteStatus, MEDIA_STATUS } from "./search/status-map"
 import { refreshLocalPending } from "./search/pending";
 import { statusFor } from "./search/respond";
 import { submitRequest } from "./request-submit";
-import { parseTitleKeys, seasonsHref, titleStateFor, type TitleStateOut } from "./titles/title-state";
+import { parseTitleKeys, seasonsHref, titlePage, titleStateFor, type TitleStateOut } from "./titles/title-state";
 import { readLang, rightsOf } from "./titles/title-rights";
 import { parseRequestedSeasons } from "./titles/title-seasons";
 import { ofOrigin, readOriginFilter, readRequestOrigin } from "./titles/request-origin";
@@ -89,7 +89,9 @@ export function registerTitleRoutes(
     const items: Record<string, TitleStateOut> = {};
     for (const k of keys) {
       const status = statusFor({ key: k.key, mediaType: k.mediaType, tmdbId: k.tmdbId, remoteStatus: undefined });
-      items[k.key] = titleStateFor(k.mediaType, k.tmdbId, status, rights, lang);
+      const state = titleStateFor(k.mediaType, k.tmdbId, status, rights, lang);
+      const page = titlePage(k.mediaType, k.tmdbId, rights, lang);
+      items[k.key] = page ? { ...state, page } : state;
     }
     return { items };
   });
