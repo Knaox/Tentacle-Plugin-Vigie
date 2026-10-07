@@ -1,0 +1,101 @@
+Vigie (Tentacle TV plugin) — Additional Permission and Additional Terms
+under section 7 of the GNU Affero General Public License, version 3
+
+Copyright (C) 2025-2026 Damien Rouge ("Knaox")
+
+Vigie, the requests plugin for Tentacle TV, is free software: you can
+redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version (see the file LICENSE), supplemented by the additional
+permission and the additional term below, as allowed by section 7 of that
+License.
+
+Versions of Vigie released before 7 October 2026 (the last being v1.24.0,
+and every commit preceding the commit that introduced this file) were
+published under the MIT License. Those copies remain available under the MIT
+License; this change applies to later versions only.
+
+
+1. ADDITIONAL PERMISSION — DISTRIBUTION THROUGH APPLICATION STORES
+
+As the copyright holder of Vigie, Damien Rouge grants you the
+following additional permission:
+
+You may convey a covered work in object code form through an application
+distribution service operated by a third party — including, without
+limitation, Apple's App Store and Mac App Store, Google Play, the Microsoft
+Store and the LG Content Store (an "Application Store") — even though the
+terms of service, usage rules, end-user license agreement, digital rights
+management, code-signing or other technical or contractual measures that the
+Application Store imposes on its users (the "Store Terms") would otherwise be
+"further restrictions" within the meaning of section 10 of the GNU Affero
+General Public License, and even though the Installation Information
+requirement of section 6 may not be met for the user product concerned,
+provided that all of the following conditions are met:
+
+  a) The Corresponding Source of the covered work, exactly as conveyed
+     through the Application Store, is available to anyone, at no charge,
+     under the terms of the GNU Affero General Public License together with
+     this permission, from a publicly accessible network server, for as long
+     as the object code is offered through the Application Store.
+
+  b) The covered work itself, or its listing in the Application Store,
+     states that it is licensed under the GNU Affero General Public License
+     and indicates where its Corresponding Source can be obtained.
+
+  c) You do not impose, yourself, any restriction on the exercise of the
+     rights granted by the GNU Affero General Public License beyond those
+     contained in the Store Terms.
+
+This permission applies only to the parts of the covered work whose
+copyright is held by Damien Rouge, or by contributors who have licensed
+their contributions under the same terms. It does not alter the license of
+any third-party component distributed with Vigie (for example the
+libraries listed in its package.json), each of which remains
+governed by its own license.
+
+When you convey a copy of a covered work, you may at your option remove this
+additional permission from that copy, or from any part of it, as provided by
+section 7 of the GNU Affero General Public License. If you modify Tentacle
+TV, you may extend this permission to your version, but you are not
+obligated to do so.
+
+
+2. ADDITIONAL PERMISSION — NON-FREE PLATFORM LIBRARIES
+
+As the copyright holder of Vigie, Damien Rouge grants you the
+following additional permission:
+
+If you modify Vigie, or any covered work, by linking or combining it
+with a library or framework that is supplied by the operator of a device
+platform or of an Application Store, that is not itself free software, and
+that the covered work uses only to access a service of that platform — such
+as Google Play services and Firebase Cloud Messaging (push notifications),
+Apple's frameworks, or LG's webOS libraries — the corresponding copyright
+holders of Vigie grant you permission to convey the resulting work.
+The Corresponding Source of the resulting work need not include the source
+code of such a library, but must include the source code of every part of
+the covered work that is free software.
+
+This permission applies only to the parts of the covered work whose
+copyright is held by Damien Rouge, or by contributors who have licensed
+their contributions under the same terms. It cannot, and does not, grant any
+permission on behalf of the authors of third-party components (for example
+libraries licensed under the GNU GPL), whose own terms continue to apply to
+any combination that includes them. You may remove this additional
+permission from your copy, or from any part of it, as provided by section 7.
+
+
+3. ADDITIONAL TERM — TRADEMARKS (section 7, paragraph e)
+
+The GNU Affero General Public License does not grant any right to use the
+name "Tentacle TV", the name "Tentacle" as the name of a media application,
+or the Tentacle TV logos, mascot and icons, as trademarks, trade names or
+service marks. Their use is governed by the Tentacle TV Trademark Policy
+(TRADEMARK.md in https://github.com/Knaox/Tentacle-TV). The same applies to
+the name "Vigie" as the name of a Tentacle TV plugin. A modified version that
+is conveyed or offered to users over a network must be renamed and must not
+use those logos, except as that policy allows. Nothing in this term restricts
+the use of the name to state, truthfully, that a work is based on or derived
+from Vigie or Tentacle TV.

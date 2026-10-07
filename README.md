@@ -100,4 +100,9 @@ Jellyseerr avec la clé d'API, qui **ne quitte jamais le serveur**.
 
 ## Licence
 
-MIT
+**GNU AGPL v3.0 ou ultérieure** (`LICENSE`), avec les permissions additionnelles de
+`LICENSE-EXCEPTIONS` (boutiques d'applications, bibliothèques de plateforme, marque) —
+les mêmes que Tentacle TV, dont Vigie est une extension chargée dans le serveur.
+Les versions publiées avant le 7 octobre 2026 (jusqu'à la v1.24.0) restent sous
+licence MIT. Le nom et le logo de Tentacle TV relèvent de sa politique de marque
+(`TRADEMARK.md` du dépôt Tentacle-TV).
