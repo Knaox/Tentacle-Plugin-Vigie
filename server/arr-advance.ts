@@ -77,7 +77,7 @@ export async function advanceFromArr(db: VigieDb, cfg: WorkerCfg): Promise<void>
   const rows = await db.query(
     `SELECT * FROM seer_requests
      WHERE status IN (${CANDIDATES.map(() => "?").join(", ")}) AND tmdb_id > 0
-     ORDER BY updated_at DESC LIMIT 500`,
+     ORDER BY updated_at DESC, id ASC LIMIT 500`,
     ...CANDIDATES,
   );
   const requests = rows.map(rowToRequest);

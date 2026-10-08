@@ -83,7 +83,7 @@ async function loadStats(db: VigieDb): Promise<Map<string, { today: number; tota
 /** Le dernier nom connu d'un demandeur disparu sans ligne à son nom. */
 async function lastKnownName(db: VigieDb, jellyfinUserId: string): Promise<string> {
   const rows = await db.query<{ username: string }>(
-    `SELECT username FROM seer_requests WHERE jellyfin_user_id = ? ORDER BY created_at DESC LIMIT 1`,
+    `SELECT username FROM seer_requests WHERE jellyfin_user_id = ? ORDER BY created_at DESC, id ASC LIMIT 1`,
     jellyfinUserId,
   ).catch(() => []);
   return rows[0]?.username || jellyfinUserId;

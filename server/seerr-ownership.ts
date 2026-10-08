@@ -19,7 +19,7 @@ export async function pickBestUsernameFor(
   const rows = await db.query<{ username: string }>(
     `SELECT username FROM seer_requests
      WHERE jellyfin_user_id = ? AND username IS NOT NULL AND username <> ''
-     ORDER BY created_at DESC LIMIT 50`,
+     ORDER BY created_at DESC, id ASC LIMIT 50`,
     jellyfinUserId,
   );
   for (const r of rows) {

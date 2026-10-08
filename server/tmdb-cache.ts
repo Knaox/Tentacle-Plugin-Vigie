@@ -263,7 +263,7 @@ export async function listStaleTmdbRefs(
 ): Promise<TmdbRef[]> {
   const rows = await db.query<{ media_type: string; tmdb_id: number }>(
     `SELECT media_type, tmdb_id FROM seer_tmdb_cache
-     WHERE expires_at <= ${db.sql.now()} ORDER BY expires_at ASC, tmdb_id ASC LIMIT ${Math.max(1, Math.floor(limit))}`,
+     WHERE expires_at <= ${db.sql.now()} ORDER BY expires_at ASC, media_type ASC, tmdb_id ASC LIMIT ${Math.max(1, Math.floor(limit))}`,
   );
   return rows.map((r) => ({
     mediaType: r.media_type === "tv" ? "tv" : "movie",

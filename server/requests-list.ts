@@ -63,7 +63,7 @@ export async function buildMergedRows(
     `SELECT * FROM seer_requests
      WHERE jellyfin_user_id = ?
        AND status IN (${LOCAL_PENDING_STATUSES.map(() => "?").join(",")})
-     ORDER BY created_at DESC`,
+     ORDER BY created_at DESC, id ASC`,
     user.userId,
     ...LOCAL_PENDING_STATUSES,
   );

@@ -41,7 +41,7 @@ export async function buildEveryoneRows(
   const localPendingRows = await db.query(
     `SELECT * FROM seer_requests
      WHERE status IN (${LOCAL_PENDING_STATUSES.map(() => "?").join(",")})
-     ORDER BY created_at DESC`,
+     ORDER BY created_at DESC, id ASC`,
     ...LOCAL_PENDING_STATUSES,
   );
   const localPending = localPendingRows.map(rowToRequest);

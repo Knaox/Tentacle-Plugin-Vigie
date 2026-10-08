@@ -178,7 +178,7 @@ export function registerRequestActionRoutes(
       // Trouver le jellyfinUserId via le mapping seer_user_settings
       if (seerrReq.requestedBy?.id) {
         const rows = await db.query<{ jellyfin_user_id: string; username: string }>(
-          `SELECT jellyfin_user_id, username FROM seer_user_settings WHERE jellyseerr_user_id = ? LIMIT 1`,
+          `SELECT jellyfin_user_id, username FROM seer_user_settings WHERE jellyseerr_user_id = ? ORDER BY jellyfin_user_id ASC LIMIT 1`,
           seerrReq.requestedBy.id,
         );
         ownerJellyfinUserId = rows[0]?.jellyfin_user_id ?? null;
@@ -221,7 +221,7 @@ export function registerRequestActionRoutes(
       // Demande née côté Jellyseerr : la ligne locale liée (si présente) suit
       // l'état posé — indispensable pour débrancher une épingle périmée.
       const existing = await db.query<{ id: string }>(
-        `SELECT id FROM seer_requests WHERE seerr_request_id = ? LIMIT 1`,
+        `SELECT id FROM seer_requests WHERE seerr_request_id = ? ORDER BY id ASC LIMIT 1`,
         seerrReq.id,
       );
       if (existing.length > 0) {
