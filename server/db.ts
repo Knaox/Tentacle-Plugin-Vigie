@@ -289,7 +289,7 @@ export async function getNextQueued(prisma: Prisma): Promise<SeerRequest | null>
     `SELECT * FROM seer_requests
      WHERE status IN ('queued', 'retry_pending')
        AND (pending_cleanup_id IS NULL)
-     ORDER BY priority DESC, created_at ASC
+     ORDER BY priority DESC, created_at ASC, id ASC
      LIMIT 1`,
   );
   return rows.length > 0 ? rowToRequest(rows[0]) : null;

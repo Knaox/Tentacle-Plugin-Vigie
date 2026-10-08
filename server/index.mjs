@@ -519,7 +519,7 @@ async function getPendingCleanups(prisma, limit = 25) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM seer_cleanup_queue
      WHERE status = 'pending' AND next_retry_at <= NOW()
-     ORDER BY created_at ASC LIMIT ${Math.max(1, Math.min(100, limit))}`
+     ORDER BY created_at ASC, id ASC LIMIT ${Math.max(1, Math.min(100, limit))}`
   );
   return rows.map((r) => ({
     id: r.id,
@@ -918,7 +918,7 @@ async function getNextQueued(prisma) {
     `SELECT * FROM seer_requests
      WHERE status IN ('queued', 'retry_pending')
        AND (pending_cleanup_id IS NULL)
-     ORDER BY priority DESC, created_at ASC
+     ORDER BY priority DESC, created_at ASC, id ASC
      LIMIT 1`
   );
   return rows.length > 0 ? rowToRequest(rows[0]) : null;
