@@ -2,13 +2,19 @@
  * Ce que la publication écrit dans l'entrée du registre — logique pure, testée
  * (registry-entry.test.mjs).
  *
- * Les serveurs Tentacle jusqu'à 1.24 ne lisent PAS `minTentacleVersion` : ils
- * prennent la version désignée par `latestVersion`, et `versions[0]` si elle
- * n'y est pas. Une version qui exige 1.25 ne doit donc jamais être désignée :
- * `latestVersion` reste sur la plus récente version que ces serveurs
- * « aveugles » peuvent prendre, et elle est toujours présente dans `versions`,
- * EN TÊTE (repli des 1.24). Les serveurs à partir de 1.25 ignorent
- * `latestVersion` et choisissent eux-mêmes la plus récente qui leur convient.
+ * Les serveurs Tentacle jusqu'à 1.24 ne lisent PAS `minTentacleVersion`, et se
+ * partagent en deux familles :
+ * - A (1.4.0 → 1.19.2) télécharge TOUJOURS `versions[0]` ; `latestVersion`
+ *   n'est que son étiquette (et une étiquette qui diffère vaut « mise à jour ») ;
+ * - B (1.19.3 → 1.24.0) prend l'entrée de `latestVersion`, sinon `versions[0]`.
+ * Les deux retombent sur `downloadUrl` / `checksum` / `version` de PREMIER
+ * niveau quand l'entrée choisie n'a pas d'archive — sans contrôle d'intégrité.
+ *
+ * D'où les invariants (vérifiés aussi sur le registre entier,
+ * verify-registry.mjs) : `latestVersion` = la plus récente version que ces
+ * serveurs « aveugles » peuvent prendre ; c'est `versions[0]` ; elle porte
+ * archive ET empreinte ; l'entrée n'a rien au premier niveau. Les serveurs à
+ * partir de 1.25 ignorent `latestVersion` et choisissent eux-mêmes.
  */
 
 /** Le premier serveur qui vérifie `minTentacleVersion`. */
@@ -63,7 +69,49 @@ export function applyVersion(plugin, entry) {
   if (!legacy) {
     throw new Error(`Aucune version que les serveurs d'avant ${FIRST_CHECKING_SERVER} puissent prendre : latestVersion ne désignerait rien`);
   }
+  if (!legacy.downloadUrl || !legacy.checksum) {
+    throw new Error(`La version ${legacy.version} servie aux serveurs d'avant ${FIRST_CHECKING_SERVER} n'a pas d'archive ou d'empreinte`);
+  }
   plugin.versions = [legacy, ...versions.filter((v) => v !== legacy)];
   plugin.latestVersion = legacy.version;
+  // Le premier niveau serait le repli des anciens serveurs, sans empreinte : jamais.
+  for (const field of TOP_LEVEL_FALLBACKS) delete plugin[field];
+  assertRegistryEntry(plugin);
   return plugin;
+}
+
+/** Ce que les anciens serveurs liraient au premier niveau faute d'archive dans l'entrée. */
+export const TOP_LEVEL_FALLBACKS = ["downloadUrl", "checksum", "version"];
+
+/** Ce que télécharge un serveur de la famille A, et l'étiquette qu'il affiche. */
+export function familyAPick(plugin) {
+  return { archive: plugin.versions?.[0], label: plugin.latestVersion };
+}
+
+/** Ce que télécharge un serveur de la famille B. */
+export function familyBPick(plugin) {
+  const versions = plugin.versions ?? [];
+  return versions.find((v) => v.version === plugin.latestVersion) ?? versions[0];
+}
+
+/**
+ * Les invariants d'une entrée publiée, tels que les deux familles les lisent.
+ * Lève une erreur qui dit lequel manque.
+ */
+export function assertRegistryEntry(plugin) {
+  const id = plugin.id ?? plugin.pluginId ?? plugin.name ?? "?";
+  const fail = (why) => { throw new Error(`Registre, « ${id} » : ${why}`); };
+  const versions = Array.isArray(plugin.versions) ? plugin.versions : [];
+  if (versions.length === 0) fail("aucune version publiée");
+  for (const field of TOP_LEVEL_FALLBACKS) {
+    if (plugin[field] !== undefined) fail(`champ « ${field} » au premier niveau (repli sans empreinte des anciens serveurs)`);
+  }
+  const a = familyAPick(plugin);
+  const b = familyBPick(plugin);
+  if (!a.archive || a.archive !== b) fail("versions[0] n'est pas l'entrée de latestVersion : les deux familles divergent");
+  if (a.label !== a.archive.version) fail("l'étiquette (latestVersion) ne correspond pas à l'archive (versions[0])");
+  if (!blindServersCanTake(a.archive)) fail(`la version ${a.archive.version} servie aux anciens serveurs exige ${a.archive.minTentacleVersion}`);
+  if (!a.archive.downloadUrl || !a.archive.checksum) fail(`la version ${a.archive.version} n'a pas d'archive ou d'empreinte`);
+  const newerLegacy = versions.find((v) => blindServersCanTake(v) && compareVersions(v.version, a.archive.version) > 0);
+  if (newerLegacy) fail(`latestVersion (${a.archive.version}) n'est pas la plus récente compatible (${newerLegacy.version})`);
 }

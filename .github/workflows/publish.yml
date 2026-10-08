@@ -124,6 +124,9 @@ jobs:
             --min "${{ steps.meta.outputs.min }}" \
             --date "${{ steps.meta.outputs.date }}" \
             --changelog-file notes.md
+          # Le registre ENTIER tel qu'il va partir, lu comme le liraient les anciens
+          # serveurs : un écart, et rien n'est poussé.
+          node scripts/verify-registry.mjs registry/registry.json
           cd registry
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
