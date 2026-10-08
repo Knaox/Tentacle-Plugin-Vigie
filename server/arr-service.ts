@@ -102,46 +102,6 @@ export async function getMediaExternalId(
   }
 }
 
-/** Supprime une série de Sonarr (sans supprimer les fichiers) */
-export async function deleteSonarrSeries(
-  server: ArrServerConfig,
-  seriesId: number,
-  deleteFiles = false,
-): Promise<boolean> {
-  try {
-    const url = `${buildArrUrl(server)}/api/v3/series/${seriesId}?deleteFiles=${deleteFiles}`;
-    const res = await fetch(url, {
-      method: "DELETE",
-      headers: { "X-Api-Key": server.apiKey },
-      signal: AbortSignal.timeout(10_000),
-    });
-    return res.ok || res.status === 404;
-  } catch (err) {
-    console.warn(`[ArrService] Failed to delete Sonarr series #${seriesId}:`, err);
-    return false;
-  }
-}
-
-/** Supprime un film de Radarr (sans supprimer les fichiers) */
-export async function deleteRadarrMovie(
-  server: ArrServerConfig,
-  movieId: number,
-  deleteFiles = false,
-): Promise<boolean> {
-  try {
-    const url = `${buildArrUrl(server)}/api/v3/movie/${movieId}?deleteFiles=${deleteFiles}`;
-    const res = await fetch(url, {
-      method: "DELETE",
-      headers: { "X-Api-Key": server.apiKey },
-      signal: AbortSignal.timeout(10_000),
-    });
-    return res.ok || res.status === 404;
-  } catch (err) {
-    console.warn(`[ArrService] Failed to delete Radarr movie #${movieId}:`, err);
-    return false;
-  }
-}
-
 /* ──────────────────────────────────────────────────────────────────
  * Suppression « douce » : on ne retire JAMAIS la série/le film de *arr.
  * On désactive la surveillance (unmonitor) — toujours — et on supprime les
@@ -359,25 +319,5 @@ export async function triggerSeerrJob(
     });
   } catch (err) {
     console.warn(`[ArrService] triggerSeerrJob ${jobId} failed:`, err);
-  }
-}
-
-/** Supprime le média dans Seerr (reset pour permettre re-demande) */
-export async function deleteSeerrMedia(
-  seerrUrl: string,
-  apiKey: string,
-  mediaId: number,
-): Promise<boolean> {
-  try {
-    const res = await fetch(`${seerrUrl}/api/v1/media/${mediaId}`, {
-      method: "DELETE",
-      headers: { "X-Api-Key": apiKey },
-      signal: AbortSignal.timeout(10_000),
-    });
-    // 404 = déjà supprimé → considérer comme succès
-    return res.ok || res.status === 404;
-  } catch (err) {
-    console.warn(`[ArrService] Failed to delete Seerr media #${mediaId}:`, err);
-    return false;
   }
 }
