@@ -13,8 +13,10 @@
  *     --min 1.1.0 --date 2026-07-14 \
  *     --changelog "Notes…" [--id seer]
  *
- * Idempotent : réécrit l'entrée si la version existe déjà. Met à jour
- * latestVersion. Préserve le reste du fichier (2 espaces + newline final).
+ * Idempotent : réécrit l'entrée si la version existe déjà. `latestVersion` ne
+ * désigne JAMAIS une version qui exige un serveur 1.25 ou plus récent : les
+ * serveurs d'avant ne lisent pas cette exigence (lib/registry-entry.mjs).
+ * Préserve le reste du fichier (2 espaces + newline final).
  *
  * La FICHE (nom, description, auteur) est recopiée depuis plugin.json à chaque
  * publication : ces champs avaient été saisis à la main lors de la première mise
@@ -25,6 +27,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { applyVersion } from "./lib/registry-entry.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -87,12 +90,7 @@ try {
   console.error(`Fiche non synchronisée (${manifestPath}) : ${err.message}`);
 }
 
-plugin.versions = Array.isArray(plugin.versions) ? plugin.versions : [];
-const existing = plugin.versions.findIndex((v) => v.version === version);
-if (existing >= 0) plugin.versions[existing] = entry;
-else plugin.versions.unshift(entry); // plus récent en tête
-
-plugin.latestVersion = version;
+applyVersion(plugin, entry);
 
 writeFileSync(registryPath, JSON.stringify(registry, null, 2) + "\n");
-console.error(`Registry mis à jour : ${id} → ${version}`);
+console.error(`Registry mis à jour : ${id} ${version} publiée, latestVersion → ${plugin.latestVersion}`);
