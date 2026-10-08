@@ -27,10 +27,6 @@ export function isMac(): boolean {
   return typeof navigator !== "undefined" && /mac/i.test(navigator.userAgent);
 }
 
-export function isDesktopApp(): boolean {
-  return hostEnv().desktop === true;
-}
-
 /**
  * `⌘K` sur Mac, `Ctrl+K` ailleurs. L'étiquette affichait « Ctrl+K » pour tout
  * le monde alors que le raccourci qui fonctionne sur Mac est ⌘K.

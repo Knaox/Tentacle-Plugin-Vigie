@@ -57,13 +57,3 @@ function styleFor(slug: string): StatusStyle {
 export const STATUS_STYLE: Record<SeerStatusKey, StatusStyle> = Object.fromEntries(
   (Object.keys(SLUG) as SeerStatusKey[]).map((key) => [key, styleFor(SLUG[key])]),
 ) as Record<SeerStatusKey, StatusStyle>;
-
-/**
- * Fond d'accent dégradé des cartes stats — composé depuis le token `bg`
- * (déjà pré-alphé) du statut, donc thémé automatiquement.
- */
-export function statAccent(key: SeerStatusKey | "total"): React.CSSProperties {
-  const color =
-    key === "total" ? "var(--brand-soft)" : `var(--seer-st-${SLUG[key as SeerStatusKey]}-bg)`;
-  return { background: `linear-gradient(135deg, ${color}, transparent 65%)` };
-}

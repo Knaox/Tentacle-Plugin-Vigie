@@ -30,14 +30,6 @@ export function isAnime(item: SeerrSearchResult): boolean {
   return item.genreIds?.includes(16) ?? false;
 }
 
-/** Returns the i18n key for the media type. Use with t(key). */
-export function mediaTypeKey(item: SeerrSearchResult): string {
-  if (isAnime(item)) return "seer:typeAnime";
-  if (item.mediaType === "movie") return "seer:typeMovie";
-  if (item.mediaType === "tv") return "seer:typeSeries";
-  return item.mediaType;
-}
-
 /** Format runtime in hours and minutes: "1h 38min" */
 export function formatRuntime(minutes?: number): string {
   if (!minutes) return "";
@@ -46,14 +38,6 @@ export function formatRuntime(minutes?: number): string {
   if (h === 0) return `${m}min`;
   if (m === 0) return `${h}h`;
   return `${h}h ${m}min`;
-}
-
-/** Get rating color class based on score */
-export function ratingColor(rating?: number): string {
-  if (!rating) return "text-white/40";
-  if (rating >= 7) return "text-emerald-400";
-  if (rating >= 5) return "text-amber-400";
-  return "text-red-400";
 }
 
 /** Get the current i18next language code (2-letter) */

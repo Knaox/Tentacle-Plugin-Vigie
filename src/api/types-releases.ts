@@ -217,8 +217,6 @@ export interface CalendarProvider {
   logoPath: string | null;
 }
 
-/** « provider » a disparu : les plateformes sont devenues un filtre, pas un mode. */
-export type CalendarMode = "personal" | "all";
 /** « anime » se lit sur la fiche : côté serveur, un animé reste une série. */
 export type CalendarMediaFilter = "movie" | "tv" | "both" | "anime";
 /** « date » = l'ordre historique, alphabétique à l'intérieur d'une journée. */

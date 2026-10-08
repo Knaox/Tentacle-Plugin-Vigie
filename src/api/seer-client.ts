@@ -9,8 +9,6 @@ import type {
   MediaType,
   LocalRequest,
   LocalRequestsResponse,
-  QueueStatus,
-  StatsResponse,
   AdminUserRow,
   UpdateAdminUserBody,
 } from "./types";
@@ -183,30 +181,6 @@ export async function bulkRetryRequests(ids: string[], profileId?: string | null
     method: "POST",
     body: JSON.stringify(body),
   });
-}
-
-/* ── Queue ────────────────────────────────────────────────────────── */
-
-export async function getQueueStatus(): Promise<QueueStatus> {
-  return backendFetch("/queue/status");
-}
-
-/* ── Stats ────────────────────────────────────────────────────────── */
-
-export async function getStats(): Promise<StatsResponse> {
-  return backendFetch("/stats");
-}
-
-/* ── Stats overview (Jellyseerr source de vérité) ────────────────── */
-
-export interface RequestsStatsOverview {
-  total: number;
-  byStatus: Record<string, number>;
-  byType: { movie: number; tv: number };
-}
-
-export async function getRequestsStats(): Promise<RequestsStatsOverview> {
-  return backendFetch("/requests/stats");
 }
 
 /* ── Config check ────────────────────────────────────────────────── */

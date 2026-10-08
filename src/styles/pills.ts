@@ -65,11 +65,3 @@ export const ICON_BUTTON =
   "transition-colors duration-150 hover:bg-tentacle-fill-medium hover:text-tentacle-text-primary " +
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brand-rgb),0.6)] " +
   "disabled:cursor-not-allowed disabled:opacity-40";
-
-/**
- * Carte / tuile. Le survol ne touche QUE la couleur de fond : animer une ombre
- * repeindrait la carte à chaque image (règle GPU du projet).
- */
-export const CARD_SURFACE =
-  "rounded-xl bg-tentacle-fill-subtle ring-1 ring-tentacle-border-subtle " +
-  "transition-colors duration-150 hover:bg-tentacle-fill-medium";

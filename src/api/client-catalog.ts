@@ -20,15 +20,6 @@ function getWatchRegion(): string {
 
 /* ── Search (Seerr proxy) ────────────────────────────────────────── */
 
-export async function searchMedia(
-  query: string,
-  page = 1,
-  showBlocked = false,
-): Promise<SeerrPagedResponse> {
-  const sb = showBlocked ? "&_showBlocked=1" : "";
-  return proxyFetch(`/api/v1/search?query=${encodeURIComponent(query)}&page=${page}${sb}`);
-}
-
 /* ── Discover (Seerr proxy) ──────────────────────────────────────── */
 
 /**

@@ -14,20 +14,3 @@ export interface SeerProfile {
   tags?: number[];
   isDefault?: boolean;
 }
-
-export interface SeerConfig {
-  url: string;
-  apiKey: string;
-  enabled: boolean;
-  autoApprove: boolean;
-  allowMaskedRequests?: boolean;
-  userLimit: number;
-  profiles?: SeerProfile[];
-}
-
-export interface SeerStatus {
-  configured: boolean;
-  connected: boolean;
-  url?: string;
-  error?: string;
-}

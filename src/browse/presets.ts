@@ -15,8 +15,6 @@ import type { BrowseType } from "../api/types";
 
 type Translate = (key: string, opts?: Record<string, unknown>) => string;
 
-export const ANIME_KEYWORD = 210024;
-
 export function trendingPreset(t: Translate): BrowsePreset {
   return { id: "trending", kind: "trending", title: t("seer:railTrending"), mediaType: "movies", source: "trending" };
 }

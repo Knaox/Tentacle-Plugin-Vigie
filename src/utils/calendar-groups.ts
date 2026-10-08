@@ -58,10 +58,6 @@ export function monthHeading(date: string): string {
   return new Intl.DateTimeFormat(getCurrentLanguage(), { month: "long", year: "numeric" }).format(parsed);
 }
 
-export function monthKey(date: string): string {
-  return date.slice(0, 7);
-}
-
 /** Premier jour du mois contenant `date`. */
 export function startOfMonth(date: string): string {
   return `${date.slice(0, 7)}-01`;

@@ -53,10 +53,3 @@ export function collapseSeriesInDay(items: readonly CalendarItem[]): CollapsedIt
     rangeLabel: group.length > 1 ? episodeRange(group) : null,
   }));
 }
-
-/** Applique le repli jour par jour sur une liste déjà groupée. */
-export function collapseByDay(byDate: Map<string, CalendarItem[]>): Map<string, CollapsedItem[]> {
-  const out = new Map<string, CollapsedItem[]>();
-  for (const [date, items] of byDate) out.set(date, collapseSeriesInDay(items));
-  return out;
-}

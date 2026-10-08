@@ -31,19 +31,3 @@ export function useSearchHotkey(
     return () => document.removeEventListener("keydown", onKey);
   }, [inputRef, onClear]);
 }
-
-/**
- * Une page de plugin s'ouvre en haut.
- *
- * Tentacle TV mémorise la position de défilement de chaque page et la restaure
- * au retour — utile pour une bibliothèque qu'on parcourt, déroutant ici, où la
- * bannière et la barre de recherche sont tout en haut.
- */
-export function useScrollTopOnMount(): void {
-  useEffect(() => {
-    window.scrollTo(0, 0);
-    // Le contenu du plugin vit dans un cadre : selon la plateforme, le
-    // défilement porte sur la fenêtre ou sur l'élément racine.
-    if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
-  }, []);
-}

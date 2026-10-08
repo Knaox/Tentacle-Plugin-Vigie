@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { getMyRequests, deleteRequest, forgetRequest, retryRequest, retryDeleteRequest, getQueueStatus, bulkDeleteRequests, bulkRetryRequests, markRequestStatus } from "../api/seer-client";
+import { getMyRequests, deleteRequest, forgetRequest, retryRequest, retryDeleteRequest, bulkDeleteRequests, bulkRetryRequests, markRequestStatus } from "../api/seer-client";
 import { useToast } from "./useToast";
 import type { LocalRequest, LocalRequestsResponse, RequestStatus } from "../api/types";
 
@@ -203,14 +203,5 @@ export function useMarkRequestStatus() {
       invalidateRequests(qc);
       qc.invalidateQueries({ queryKey: ["seer-stats-overview"] });
     },
-  });
-}
-
-export function useQueueStatus() {
-  return useQuery({
-    queryKey: ["seer-queue-status"],
-    queryFn: () => getQueueStatus(),
-    staleTime: 10_000,
-    refetchInterval: 30_000,
   });
 }

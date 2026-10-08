@@ -17,11 +17,3 @@ export const PLATFORMS: StreamingPlatform[] = [
   { id: 381, name: "Canal+" },
   { id: 236, name: "Arte" },
 ];
-
-export function getPlatformName(providerId: number): string | undefined {
-  return PLATFORMS.find((p) => p.id === providerId)?.name;
-}
-
-export function getPlatformById(providerId: number): StreamingPlatform | undefined {
-  return PLATFORMS.find((p) => p.id === providerId);
-}
