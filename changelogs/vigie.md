@@ -19,6 +19,12 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.24.2]
+### FR
+- **Vos demandes ne peuvent plus disparaître au démarrage** : une base de données momentanément occupée ou lente ne provoque plus la suppression de la liste des demandes ; un souci se signale dans le journal du serveur, sans rien effacer
+### EN
+- **Your requests can no longer vanish at startup**: a briefly busy or slow database no longer wipes the request list; a problem is reported in the server log, with nothing erased
+
 ## [1.24.0]
 ### FR
 - **Un titre absent de la bibliothèque s'ouvre directement dans le catalogue** depuis « Affiner » dans Tentacle : sa fiche Vigie, sans le chercher à la main
