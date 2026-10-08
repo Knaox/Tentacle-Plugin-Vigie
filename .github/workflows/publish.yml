@@ -38,9 +38,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      # 22 : les tests ouvrent une vraie SQLite par `node:sqlite` (Node ≥ 22.13).
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Auto-bump version (3 fichiers)
         id: bump
@@ -55,6 +56,10 @@ jobs:
       - name: Typecheck (gate qualité)
         if: steps.bump.outputs.skip != 'true'
         run: npm run typecheck
+
+      - name: Tests (gate qualité — rien ne se publie s'ils échouent)
+        if: steps.bump.outputs.skip != 'true'
+        run: npm test
 
       - name: Build + package
         if: steps.bump.outputs.skip != 'true'
