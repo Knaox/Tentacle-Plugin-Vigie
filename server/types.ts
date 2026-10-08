@@ -169,10 +169,3 @@ export interface SeerProfile {
   tags?: number[];
   isDefault?: boolean;
 }
-
-export interface ProxyPayload {
-  url: string;
-  method: "GET" | "POST" | "PUT" | "DELETE";
-  headers?: Record<string, string>;
-  body?: unknown;
-}

@@ -141,26 +141,6 @@ export function localToUnified(r: SeerRequest): UnifiedRequest {
   };
 }
 
-export async function fetchSeerrRequestsForUser(
-  config: WorkerCfg,
-  seerUserId: number,
-  take: number,
-  skip: number,
-): Promise<{ rows: SeerrRequestRow[]; total: number }> {
-  // Endpoint général GET /api/v1/request filtré par requestedBy — plus stable que /user/:id/requests
-  const url = `${config.seerrUrl}/api/v1/request?take=${take}&skip=${skip}&filter=all&sort=added&requestedBy=${seerUserId}`;
-  const res = await fetch(url, {
-    headers: { "X-Api-Key": config.seerrApiKey },
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Jellyseerr GET /request?requestedBy=${seerUserId} failed: ${res.status} ${body.slice(0, 200)}`);
-  }
-  const data = (await res.json()) as { pageInfo?: { results?: number }; results?: SeerrRequestRow[] };
-  return { rows: data.results ?? [], total: data.pageInfo?.results ?? data.results?.length ?? 0 };
-}
-
 export async function fetchSeerrTmdbDetail(
   config: WorkerCfg,
   mediaType: "movie" | "tv",
@@ -210,4 +190,3 @@ export function parseRequestId(id: string): { kind: "local"; id: string } | { ki
   }
   return { kind: "local", id };
 }
-

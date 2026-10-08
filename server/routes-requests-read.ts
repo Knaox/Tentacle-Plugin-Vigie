@@ -5,7 +5,6 @@
 import type { FastifyInstance } from "fastify";
 import type { VigieDb } from "./storage/vigie-db";
 import { getAllRequests, getUserRequests } from "./db";
-import type { UnifiedRequest } from "./types";
 import { cached, peek } from "./cache";
 import { getUser, type WorkerCfg, localToUnified } from "./seerr-unified";
 import {
@@ -145,4 +144,3 @@ export function registerRequestReadRoutes(
 /** Réexporté pour la route de progression, qui réutilise la liste déjà chargée. */
 export type { MergedRows };
 export { metaToDetail };
-export type ListItem = UnifiedRequest;

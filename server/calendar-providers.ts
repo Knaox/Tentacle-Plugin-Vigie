@@ -102,30 +102,3 @@ export async function buildProviderEpisodes(
 
   return { items, partial: missing.length > 0 };
 }
-
-/**
- * Complète les entrées avec les plateformes réellement connues de chaque fiche.
- *
- * Lecture SQL seule (`maxFetch: 0`) : ce qui est déjà en mémoire est utilisé,
- * le reste attend le prochain passage plutôt que de retarder l'agenda. Une
- * entrée sans fiche connue garde une liste vide — mieux vaut pas de logo qu'un
- * logo faux.
- */
-export async function attachProviderIds(
-  db: VigieDb,
-  cfg: WorkerCfg,
-  items: CalendarItem[],
-  region: string,
-): Promise<void> {
-  const refs = items
-    .filter((i) => i.providerIds.length === 0)
-    .map((i) => ({ mediaType: i.mediaType, tmdbId: i.tmdbId }));
-  if (refs.length === 0) return;
-
-  const { meta } = await resolveTmdbMeta(db, cfg, refs, { maxFetch: 0, region });
-  for (const item of items) {
-    if (item.providerIds.length > 0) continue;
-    const m = meta.get(tmdbKey({ mediaType: item.mediaType, tmdbId: item.tmdbId }));
-    if (m?.providerIds?.length) item.providerIds = m.providerIds;
-  }
-}

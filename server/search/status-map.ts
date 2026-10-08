@@ -128,13 +128,3 @@ export function refreshStatusMap(cfg: WorkerCfg): void {
     })
     .finally(() => { running = null; });
 }
-
-/** Pour les tests : repartir d'une table vide. */
-export function resetStatusMapForTests(): void {
-  statuses.clear();
-  lastFull = 0;
-  lastIncremental = 0;
-  newestSeen = "";
-  running = null;
-  retryAfter = 0;
-}
