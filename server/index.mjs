@@ -5186,7 +5186,6 @@ async function lastKnownName(db, jellyfinUserId) {
   return rows[0]?.username || jellyfinUserId;
 }
 function defaultSettings(id, name) {
-  const now = (/* @__PURE__ */ new Date()).toISOString();
   return {
     jellyfinUserId: id,
     username: name,
@@ -5197,8 +5196,8 @@ function defaultSettings(id, name) {
     allowAnime: true,
     jellyseerrUserId: null,
     jellyseerrLastSync: null,
-    createdAt: now,
-    updatedAt: now
+    createdAt: null,
+    updatedAt: null
   };
 }
 var seerrRef = (s) => s ? { id: s.id, name: s.name, requestCount: s.requestCount } : null;

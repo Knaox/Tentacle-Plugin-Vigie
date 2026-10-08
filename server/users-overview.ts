@@ -27,7 +27,17 @@ interface SeerrRef {
   requestCount: number | null;
 }
 
-export interface AdminUserDto extends SeerUserSettings {
+/**
+ * Les réglages d'un compte, ou ceux qu'il aurait par défaut. Un compte sans
+ * ligne à lui n'a pas de dates : `null`, jamais « maintenant » (qui changeait
+ * à chaque lecture de la liste).
+ */
+type UserSettingsView = Omit<SeerUserSettings, "createdAt" | "updatedAt"> & {
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export interface AdminUserDto extends UserSettingsView {
   requestsToday: number;
   requestsTotal: number;
   activeRequests: number;
@@ -89,12 +99,11 @@ async function lastKnownName(db: VigieDb, jellyfinUserId: string): Promise<strin
   return rows[0]?.username || jellyfinUserId;
 }
 
-function defaultSettings(id: string, name: string): SeerUserSettings {
-  const now = new Date().toISOString();
+function defaultSettings(id: string, name: string): UserSettingsView {
   return {
     jellyfinUserId: id, username: name, blocked: false, dailyLimit: null,
     allowMovies: true, allowTv: true, allowAnime: true,
-    jellyseerrUserId: null, jellyseerrLastSync: null, createdAt: now, updatedAt: now,
+    jellyseerrUserId: null, jellyseerrLastSync: null, createdAt: null, updatedAt: null,
   };
 }
 
@@ -109,7 +118,7 @@ export async function buildUsersOverview(
   ]);
   const seerrById = new Map((snap.seerr ?? []).map((s) => [s.id, s]));
 
-  const toDto = (s: SeerUserSettings, account: JellyfinAccount | null): AdminUserDto => {
+  const toDto = (s: UserSettingsView, account: JellyfinAccount | null): AdminUserDto => {
     const key = normalizeJellyfinId(s.jellyfinUserId);
     const st = stats.get(key) ?? { today: 0, total: 0 };
     return {

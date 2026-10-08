@@ -25,8 +25,9 @@ export interface AdminUserRow {
   allowAnime: boolean;
   jellyseerrUserId: number | null;
   jellyseerrLastSync: string | null;
-  createdAt: string;
-  updatedAt: string;
+  /** `null` : le compte n'a pas encore de réglages à lui (valeurs par défaut). */
+  createdAt: string | null;
+  updatedAt: string | null;
   requestsToday: number;
   requestsTotal: number;
   activeRequests: number;
