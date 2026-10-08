@@ -22,14 +22,20 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 ## [1.25.0]
 ### FR
 - **Vigie suit Tentacle sur sa nouvelle base de données** : cette version exige Tentacle 1.25 ou plus récent ; vos demandes, réglages et comptes passent tels quels, rien ne change à l'usage
-- **Vos demandes ne peuvent plus disparaître au démarrage** : une base momentanément occupée ne provoque plus la suppression de la liste ; un souci se signale dans le journal du serveur, sans rien effacer
 - **Le plafond de demandes par jour suit l'heure du serveur**, quelle que soit celle de la base de données
 - Les serveurs Tentacle plus anciens ne se voient plus jamais proposer une version de Vigie qu'ils ne peuvent pas faire tourner
 ### EN
 - **Vigie follows Tentacle onto its new database**: this version requires Tentacle 1.25 or later; your requests, settings and accounts carry over as they are, nothing changes in use
-- **Your requests can no longer vanish at startup**: a briefly busy database no longer wipes the list; a problem is reported in the server log, with nothing erased
 - **The daily request limit follows the server's clock**, whatever the database's time zone
 - Older Tentacle servers are never offered a Vigie version they cannot run
+
+## [1.24.2]
+### FR
+- **Vos demandes ne peuvent plus disparaître au démarrage** : une base de données momentanément occupée ou lente ne provoque plus la suppression de la liste des demandes ; un souci se signale dans le journal du serveur, sans rien effacer
+- **Les listes de demandes paginées ne répètent ni ne sautent plus une demande**, et les classements des statistiques restent stables d'un affichage à l'autre
+### EN
+- **Your requests can no longer vanish at startup**: a briefly busy or slow database no longer wipes the request list; a problem is reported in the server log, with nothing erased
+- **Paginated request lists no longer repeat or skip a request**, and statistics rankings stay stable from one view to the next
 
 ## [1.24.0]
 ### FR
