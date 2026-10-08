@@ -35,6 +35,22 @@ export function blindServersCanTake(entry) {
 }
 
 /**
+ * Une version qui déclare tourner sur SQLite (`storage.sqlite` du manifeste)
+ * ne tourne QUE sur un serveur 1.25 ou plus récent : son plancher doit le
+ * dire. Sans lui, elle deviendrait `latestVersion` et les serveurs 1.24 —
+ * sur MariaDB, sans interface de stockage — l'installeraient.
+ */
+export function assertStorageFloor(manifest, minTentacleVersion) {
+  const sqlite = manifest?.storage?.sqlite === true;
+  if (sqlite && compareVersions(minTentacleVersion ?? "0", FIRST_CHECKING_SERVER) < 0) {
+    throw new Error(
+      `plugin.json déclare storage.sqlite mais minTentacleVersion vaut « ${minTentacleVersion ?? "(absent)"} » : `
+      + `il faut ${FIRST_CHECKING_SERVER} au moins`,
+    );
+  }
+}
+
+/**
  * Pose `entry` (nouvelle ou republiée) dans `plugin.versions` et recalcule
  * `latestVersion`. Rend le plugin modifié ; lève une erreur plutôt que
  * d'écrire un registre où `latestVersion` ne désignerait rien.

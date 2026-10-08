@@ -27,7 +27,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { applyVersion } from "./lib/registry-entry.mjs";
+import { applyVersion, assertStorageFloor } from "./lib/registry-entry.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -76,9 +76,24 @@ const entry = {
   releaseDate,
 };
 
+// Le manifeste publié : une version SQLite sans plancher 1.25 n'entre jamais
+// dans le registre (elle atteindrait les serveurs 1.24). Illisible : on s'arrête.
+let manifest;
+try {
+  manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+} catch (err) {
+  console.error(`Manifeste illisible (${manifestPath}) : ${err.message}`);
+  process.exit(1);
+}
+try {
+  assertStorageFloor(manifest, minTentacleVersion);
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
+
 // Fiche du marketplace : plugin.json fait foi (l'id reste celui du registry).
 try {
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   for (const field of ["name", "description", "author"]) {
     if (manifest[field] && plugin[field] !== manifest[field]) {
       console.error(`Fiche : ${field} « ${plugin[field]} » → « ${manifest[field]} »`);
