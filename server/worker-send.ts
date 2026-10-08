@@ -6,7 +6,7 @@
  * reste là-bas, l'envoi d'une demande (profil, anime, compte Jellyseerr,
  * contenu déjà présent, blocage levé) vit ici. */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { getNextQueued, updateRequestStatus, getRequestById, upsertContentClaim } from "./db";
 import { fetchMediaDetail, isAnimeFromKeywords, fetchAnimeOverrides } from "./anime";
 import { notifyAvailableSeasons, notifyMovieAvailable } from "./seer-availability-notify";
@@ -20,17 +20,17 @@ import { MEDIA_STATUS_BLOCKLISTED, liftBlocklist } from "./blocklist";
 
 /** Traite la prochaine demande en file. Retourne son id, ou null si rien à faire. */
 export async function processNextRequest(
-  prisma: PrismaClient,
+  db: VigieDb,
   config: WorkerConfig,
   skipIds: ReadonlySet<string>,
 ): Promise<string | null> {
-  const request = await getNextQueued(prisma);
+  const request = await getNextQueued(db);
   if (!request || skipIds.has(request.id)) return null;
 
-  const fresh = await getRequestById(prisma, request.id);
+  const fresh = await getRequestById(db, request.id);
   if (!fresh || (fresh.status !== "queued" && fresh.status !== "retry_pending")) return request.id;
 
-  await updateRequestStatus(prisma, request.id, "processing");
+  await updateRequestStatus(db, request.id, "processing");
 
   try {
     const seerrBody: Record<string, unknown> = {
@@ -111,7 +111,7 @@ export async function processNextRequest(
     // Résolution du user Jellyseerr (lookup ou import) — la demande doit
     // apparaître au nom de l'utilisateur Jellyfin qui l'a déclenchée.
     const seerUserId = await resolveJellyseerrUserId(
-      config, prisma, request.jellyfinUserId, request.username,
+      config, db, request.jellyfinUserId, request.username,
     );
     seerrBody.userId = seerUserId;
 
@@ -137,7 +137,7 @@ export async function processNextRequest(
           mediaStatus === 5 ? "available"
             : mediaStatus === 4 ? "partially_available"
               : "sent_to_seer";
-        await updateRequestStatus(prisma, request.id, localStatus, {
+        await updateRequestStatus(db, request.id, localStatus, {
           seerrMediaId: detail?.mediaInfo?.id,
           seerrMediaStatus: mediaStatus,
           sentAt: new Date(),
@@ -146,9 +146,9 @@ export async function processNextRequest(
         // Notifier la dispo MÊME si déjà présent (rien à télécharger) — sinon
         // une demande de contenu déjà en bibliothèque ne notifie jamais.
         if (request.mediaType === "tv") {
-          await notifyAvailableSeasons(prisma, request, detail?.mediaInfo?.seasons);
+          await notifyAvailableSeasons(db, request, detail?.mediaInfo?.seasons);
         } else if (mediaStatus === 5) {
-          await notifyMovieAvailable(prisma, request);
+          await notifyMovieAvailable(db, request);
         }
         console.log(`[SeerWorker] "${request.title}" : saisons déjà présentes côté Jellyseerr — marqué ${localStatus}`);
         return request.id;
@@ -163,7 +163,7 @@ export async function processNextRequest(
     // d'administration était enregistré mais jamais appliqué.
     if (config.autoApprove && data.status === 1) await approveSeerrRequest(config, data.id, request.title);
 
-    await updateRequestStatus(prisma, request.id, "sent_to_seer", {
+    await updateRequestStatus(db, request.id, "sent_to_seer", {
       seerrRequestId: data.id,
       seerrMediaId: data.media?.id,
       seerrMediaStatus: data.media?.status,
@@ -174,7 +174,7 @@ export async function processNextRequest(
     // Anti-doublon : revendiquer ce contenu dès l'envoi (couvre un téléchargement
     // très rapide avant la 1re passe de sync). Rafraîchi ensuite par syncStatuses.
     await upsertContentClaim(
-      prisma, request.tmdbId, request.jellyfinUserId,
+      db, request.tmdbId, request.jellyfinUserId,
       request.mediaType, request.title, 1800,
     ).catch(() => {});
 
@@ -186,10 +186,10 @@ export async function processNextRequest(
     const newRetryCount = request.retryCount + 1;
 
     if (newRetryCount >= request.maxRetries) {
-      await updateRequestStatus(prisma, request.id, "failed", {
+      await updateRequestStatus(db, request.id, "failed", {
         lastError: errMsg, retryCount: newRetryCount,
       });
-      await prisma.notification.create({
+      await db.core.notification.create({
         data: {
           jellyfinUserId: request.jellyfinUserId, type: "request_status",
           title: request.title,
@@ -199,7 +199,7 @@ export async function processNextRequest(
       });
       console.warn(`[SeerWorker] Request for "${request.title}" FAILED after ${newRetryCount} retries: ${errMsg}`);
     } else {
-      await updateRequestStatus(prisma, request.id, "retry_pending", {
+      await updateRequestStatus(db, request.id, "retry_pending", {
         lastError: errMsg, retryCount: newRetryCount,
       });
       // Pas de notif sur les tentatives intermédiaires (anti-spam) — seul

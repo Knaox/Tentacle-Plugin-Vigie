@@ -17,7 +17,7 @@
  * l'interface le dit en toutes lettres.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { SeerRequest } from "./types";
 import type { MergedRows } from "./requests-list";
 import type { SeerrRequestRow, WorkerCfg } from "./seerr-unified";
@@ -33,12 +33,12 @@ const LOCAL_PENDING_STATUSES = [
 const NO_STATS = { total: 0, byStatus: {}, byType: { movie: 0, tv: 0 } };
 
 export async function buildEveryoneRows(
-  prisma: PrismaClient,
+  db: VigieDb,
   cfg: WorkerCfg,
   log?: (err: unknown, msg: string) => void,
 ): Promise<MergedRows> {
   /* Demandes locales encore en attente — toutes, sans `jellyfin_user_id`. */
-  const localPendingRows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+  const localPendingRows = await db.query(
     `SELECT * FROM seer_requests
      WHERE status IN (${LOCAL_PENDING_STATUSES.map(() => "?").join(",")})
      ORDER BY created_at DESC`,
@@ -47,7 +47,7 @@ export async function buildEveryoneRows(
   const localPending = localPendingRows.map(rowToRequest);
 
   const localBySeerrId = new Map<number, SeerRequest>();
-  const allLocalRows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+  const allLocalRows = await db.query(
     `SELECT * FROM seer_requests WHERE seerr_request_id IS NOT NULL`,
   );
   for (const row of allLocalRows) {

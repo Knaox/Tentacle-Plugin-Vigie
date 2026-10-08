@@ -3,7 +3,7 @@
 /* ------------------------------------------------------------------ */
 
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import {
   getRequestById, createRequest, deleteRequestById,
   enqueueCleanup, updateRequestStatus,
@@ -19,7 +19,7 @@ function getUser(request: FastifyRequest): JellyfinUser {
 
 export function registerBulkRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<{ seerrUrl: string; seerrApiKey: string } | null>,
 ): void {
 
@@ -35,13 +35,13 @@ export function registerBulkRoutes(
 
     for (const id of body.ids.slice(0, 50)) {
       try {
-        const req = await getRequestById(prisma, id);
+        const req = await getRequestById(db, id);
         if (!req) { errors++; continue; }
         if (req.jellyfinUserId !== user.userId && !user.isAdmin) { errors++; continue; }
         if (req.status === "deleting" || req.status === "processing") { errors++; continue; }
 
-        await updateRequestStatus(prisma, id, "deleting");
-        await enqueueCleanup(prisma, {
+        await updateRequestStatus(db, id, "deleting");
+        await enqueueCleanup(db, {
           action: "delete", mediaType: req.mediaType, tmdbId: req.tmdbId, title: req.title,
           seerrRequestId: req.seerrRequestId, seerrMediaId: req.seerrMediaId,
           // Cohérent avec la suppression unitaire : on arrête le suivi sans
@@ -74,7 +74,7 @@ export function registerBulkRoutes(
 
     for (const id of body.ids.slice(0, 50)) {
       try {
-        const req = await getRequestById(prisma, id);
+        const req = await getRequestById(db, id);
         if (!req) { errors++; continue; }
         if (req.jellyfinUserId !== user.userId && !user.isAdmin) { errors++; continue; }
         if (["deleting", "processing", "available"].includes(req.status)) { errors++; continue; }
@@ -95,9 +95,9 @@ export function registerBulkRoutes(
           }
         }
 
-        await deleteRequestById(prisma, id);
+        await deleteRequestById(db, id);
 
-        const newReq = await createRequest(prisma, {
+        const newReq = await createRequest(db, {
           jellyfinUserId: req.jellyfinUserId, username: req.username,
           mediaType: req.mediaType, tmdbId: req.tmdbId, title: req.title,
           posterPath: req.posterPath, backdropPath: req.backdropPath,

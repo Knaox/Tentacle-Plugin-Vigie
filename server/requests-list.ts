@@ -13,7 +13,7 @@
  *     pagination complète que faisait `/requests/stats`.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { RequestStatus, RequestsStats, SeerRequest, UnifiedRequest } from "./types";
 import type { TmdbMeta } from "./tmdb-cache";
 import { tmdbKey, type TmdbRef } from "./tmdb-cache";
@@ -54,12 +54,12 @@ export interface MergedRows {
 }
 
 export async function buildMergedRows(
-  prisma: PrismaClient,
+  db: VigieDb,
   cfg: WorkerCfg,
   user: JellyfinUser,
   log?: (err: unknown, msg: string) => void,
 ): Promise<MergedRows> {
-  const localPendingRows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+  const localPendingRows = await db.query(
     `SELECT * FROM seer_requests
      WHERE jellyfin_user_id = ?
        AND status IN (${LOCAL_PENDING_STATUSES.map(() => "?").join(",")})
@@ -70,7 +70,7 @@ export async function buildMergedRows(
   const localPending = localPendingRows.map(rowToRequest);
 
   const localBySeerrId = new Map<number, SeerRequest>();
-  const allLocalRows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+  const allLocalRows = await db.query(
     `SELECT * FROM seer_requests WHERE jellyfin_user_id = ? AND seerr_request_id IS NOT NULL`,
     user.userId,
   );
@@ -84,7 +84,7 @@ export async function buildMergedRows(
   // En parallèle : une liste partagée par tout le serveur, en cache une minute.
   const seasonStatesP = partialSeriesSeasons(cfg);
   try {
-    const seerUserId = await resolveJellyseerrUserId(cfg, prisma, user.userId, user.username);
+    const seerUserId = await resolveJellyseerrUserId(cfg, db, user.userId, user.username);
     const all = await fetchAllSeerrRequests(cfg, seerUserId);
     seerrRows = all.rows;
   } catch (err) {
@@ -101,7 +101,7 @@ export async function buildMergedRows(
    * rafraîchissement juste après l'action réaffiche l'ancien état. */
   const deletingIds = new Set<number>();
   try {
-    const pending = await prisma.$queryRawUnsafe<Array<{ seerr_request_id: number }>>(
+    const pending = await db.query<{ seerr_request_id: number }>(
       `SELECT seerr_request_id FROM seer_cleanup_queue
        WHERE status = 'pending' AND action = 'delete' AND seerr_request_id IS NOT NULL`,
     );

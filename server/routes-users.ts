@@ -8,7 +8,7 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { getOrCreateUserSettings, getUserSettings, updateUserSettings } from "./db";
 import { buildUsersOverview } from "./users-overview";
 
@@ -38,7 +38,7 @@ export function normalizeDailyLimit(raw: unknown): number | null | undefined {
 
 export function registerUsersRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
   requireAdmin: (req: FastifyRequest, reply: FastifyReply) => Promise<void>,
   getDefaultDailyLimit: () => number | null,
@@ -47,7 +47,7 @@ export function registerUsersRoutes(
   app.get("/admin/users", { preHandler: requireAdmin }, async () => {
     const cfg = await getWorkerConfig();
     return buildUsersOverview(
-      prisma,
+      db,
       cfg ? { seerrUrl: cfg.seerrUrl, seerrApiKey: cfg.seerrApiKey } : null,
       { dailyLimit: getDefaultDailyLimit() },
     );
@@ -59,19 +59,19 @@ export function registerUsersRoutes(
 
     // La ligne n'existe pas encore (compte jamais synchronisé) : on la crée, au
     // nom transmis par la page plutôt qu'à l'identifiant brut.
-    const current = await getUserSettings(prisma, jellyfinUserId);
+    const current = await getUserSettings(db, jellyfinUserId);
     if (!current) {
       const name = (typeof body.username === "string" && body.username.trim()) || jellyfinUserId;
-      await getOrCreateUserSettings(prisma, jellyfinUserId, name);
+      await getOrCreateUserSettings(db, jellyfinUserId, name);
     }
 
-    await updateUserSettings(prisma, jellyfinUserId, {
+    await updateUserSettings(db, jellyfinUserId, {
       blocked: body.blocked,
       dailyLimit: normalizeDailyLimit(body.dailyLimit),
       allowMovies: body.allowMovies,
       allowTv: body.allowTv,
       allowAnime: body.allowAnime,
     });
-    return getUserSettings(prisma, jellyfinUserId);
+    return getUserSettings(db, jellyfinUserId);
   });
 }

@@ -19,7 +19,7 @@
  * calendrier.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { CalendarItem } from "./calendar-types";
 import { cached } from "./cache";
 
@@ -29,12 +29,12 @@ import { cached } from "./cache";
  * requête partirait donc à CHAQUE tranche servie. La purge suit les demandes
  * via invalidateRequestCaches — la pastille reste immédiate.
  */
-async function requestedIds(prisma: PrismaClient): Promise<Set<string>> {
+async function requestedIds(db: VigieDb): Promise<Set<string>> {
   return cached(
     "seer:requested:index",
     60_000,
     async () => {
-      const rows = await prisma.$queryRawUnsafe<Array<{ media_type: string; tmdb_id: number }>>(
+      const rows = await db.query<{ media_type: string; tmdb_id: number }>(
         `SELECT DISTINCT media_type, tmdb_id FROM seer_requests WHERE tmdb_id > 0`,
       );
       return new Set(rows.map((r) => `${r.media_type}:${Number(r.tmdb_id)}`));
@@ -44,13 +44,13 @@ async function requestedIds(prisma: PrismaClient): Promise<Set<string>> {
 }
 
 export async function markRequested(
-  prisma: PrismaClient,
+  db: VigieDb,
   items: CalendarItem[],
 ): Promise<void> {
   if (items.length === 0) return;
 
   try {
-    const demandes = await requestedIds(prisma);
+    const demandes = await requestedIds(db);
     if (demandes.size === 0) return;
 
     for (const item of items) {

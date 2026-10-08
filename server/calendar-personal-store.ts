@@ -20,7 +20,7 @@
  *     voie directe intégrale, comme avant le store.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { WorkerCfg } from "./seerr-unified";
 import type { MergedRows } from "./requests-list";
 import { todayString } from "./tmdb-fetch";
@@ -40,17 +40,17 @@ import {
 const PERSONAL_MAX_PER_SERIES = 3;
 
 export async function buildPersonalFromStore(
-  prisma: PrismaClient,
+  db: VigieDb,
   cfg: WorkerCfg,
   rows: MergedRows,
   opts: PersonalCalendarOpts,
   warn?: (err: unknown, msg: string) => void,
 ): Promise<CalendarResponse> {
   const region = opts.region ?? DEFAULT_REGION;
-  const store = await getCalendarStore(prisma, cfg, region, warn);
+  const store = await getCalendarStore(db, cfg, region, warn);
 
   if (opts.from < store.from || opts.to > store.to) {
-    const res = await buildPersonalCalendar(prisma, cfg, rows, opts);
+    const res = await buildPersonalCalendar(db, cfg, rows, opts);
     return attachAirTimes(cfg, res);
   }
 
@@ -76,7 +76,7 @@ export async function buildPersonalFromStore(
   let residualItems: CalendarItem[] = [];
   let residualPartial = false;
   if (residual.size > 0) {
-    const res = await buildPersonalCalendar(prisma, cfg, rowsSubset(rows, residual), opts);
+    const res = await buildPersonalCalendar(db, cfg, rowsSubset(rows, residual), opts);
     const timed = await attachAirTimes(cfg, res);
     residualItems = timed.items;
     residualPartial = timed.partial;

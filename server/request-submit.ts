@@ -15,7 +15,7 @@
  * le sien tel quel.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import {
   createRequest, getRequestById,
   findDuplicate,
@@ -40,7 +40,7 @@ export interface SubmitResult {
 }
 
 export async function submitRequest(
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
   user: JellyfinUser,
   body: CreateRequestBody,
@@ -51,7 +51,7 @@ export async function submitRequest(
   }
 
   // 1) Charge ou crée les settings du user
-  const settings = await getOrCreateUserSettings(prisma, user.userId, user.username);
+  const settings = await getOrCreateUserSettings(db, user.userId, user.username);
 
   // 2) Blocage
   if (settings.blocked) {
@@ -92,7 +92,7 @@ export async function submitRequest(
   //    était enregistré par la page d'administration mais jamais appliqué).
   const limit = effectiveDailyLimit(settings.dailyLimit, config?.defaultDailyLimit ?? null);
   if (limit !== null) {
-    const todayCount = await countRequestsToday(prisma, user.userId);
+    const todayCount = await countRequestsToday(db, user.userId);
     if (todayCount >= limit) {
       return {
         status: 429,
@@ -103,7 +103,7 @@ export async function submitRequest(
 
   // 6) TV : fusion saisons (existant)
   if (body.mediaType === "tv" && body.seasons?.length) {
-    const existing = await findExistingTvRequest(prisma, user.userId, body.tmdbId);
+    const existing = await findExistingTvRequest(db, user.userId, body.tmdbId);
     if (existing) {
       const existingSeasons = new Set(existing.seasons ?? []);
       const newSeasons = body.seasons.filter((s) => !existingSeasons.has(s));
@@ -112,9 +112,9 @@ export async function submitRequest(
       }
 
       const merged = [...(existing.seasons ?? []), ...newSeasons].sort((a, b) => a - b);
-      await addSeasonsToRequest(prisma, existing.id, merged);
+      await addSeasonsToRequest(db, existing.id, merged);
 
-      await createRequest(prisma, {
+      await createRequest(db, {
         jellyfinUserId: user.userId, username: user.username,
         mediaType: body.mediaType, tmdbId: body.tmdbId, title: body.title,
         posterPath: body.posterPath, backdropPath: body.backdropPath,
@@ -125,7 +125,7 @@ export async function submitRequest(
         origin,
       });
 
-      const updated = await getRequestById(prisma, existing.id);
+      const updated = await getRequestById(db, existing.id);
       invalidateRequestCaches(user.userId);
       markLocallyPending(body.mediaType, body.tmdbId);
       kickWorkerNow();
@@ -135,12 +135,12 @@ export async function submitRequest(
   }
 
   // 7) Doublon film / 1ère TV
-  const dup = await findDuplicate(prisma, user.userId, body.tmdbId, body.mediaType, body.seasons);
+  const dup = await findDuplicate(db, user.userId, body.tmdbId, body.mediaType, body.seasons);
   if (dup) {
     return { status: 409, body: { message: "A request for this media is already active", existing: dup } };
   }
 
-  const req = await createRequest(prisma, {
+  const req = await createRequest(db, {
     jellyfinUserId: user.userId, username: user.username,
     mediaType: body.mediaType, tmdbId: body.tmdbId, title: body.title,
     posterPath: body.posterPath, backdropPath: body.backdropPath,

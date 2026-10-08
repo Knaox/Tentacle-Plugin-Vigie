@@ -6,7 +6,8 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
-import { ensureTables } from "./db";
+import { openVigieDb } from "./storage/startup";
+import type { PluginStorage } from "./storage/contract";
 import { readPluginConfig, writePluginConfig, defaultDailyLimit, navLabelsOf } from "./plugin-config";
 import { applyNavLabel } from "./nav-label";
 import { specialSeasonsEnabled, specialSeasonsQuick } from "./seerr-settings";
@@ -33,7 +34,10 @@ const __pluginDir = dirname(dirname(fileURLToPath(import.meta.url)));
 
 interface PluginBackendContext {
   pluginId: string;
-  getPrisma: () => import("@prisma/client").PrismaClient;
+  /** Le client Prisma du cœur : ses modèles seulement (notifications). */
+  getPrisma: () => unknown;
+  /** La base SQLite de Tentacle ≥ 1.25.0 ; absente d'un serveur d'avant : Vigie ne démarre pas. */
+  storage?: PluginStorage;
   requireAuth: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   requireAdmin: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   /** Venu après dans Tentacle : absent d'un cœur d'avant (cf. titles/request-listener.ts). */
@@ -66,10 +70,8 @@ export default async function seerBackend(
   app: FastifyInstance,
   ctx: PluginBackendContext,
 ): Promise<void> {
-  const prisma = ctx.getPrisma();
-
-  await ensureTables(prisma);
-  console.log("[SeerBackend] Database tables ready");
+  const db = await openVigieDb(ctx);
+  if (!db) return;
 
   // Une mise à jour vient peut-être de remplacer le manifeste : le nom choisi
   // pour l'onglet y est réécrit à chaque démarrage (cf. nav-label.ts).
@@ -78,7 +80,7 @@ export default async function seerBackend(
   // Un titre demandé sort des recommandations du compte, côté Tentacle.
   onTitleRequested(ctx.recommendations?.titleRequested ?? null);
 
-  startWorker(prisma, () => getWorkerConfig(ctx));
+  startWorker(db, () => getWorkerConfig(ctx));
   // Les réglages de Jellyseerr lus d'avance : `GET /config` ne les attend pas.
   void getWorkerConfig(ctx)
     .then((w) => (w ? specialSeasonsEnabled(w.seerrUrl, w.seerrApiKey) : false))
@@ -123,28 +125,28 @@ export default async function seerBackend(
   /* ── Request & bulk routes (from split modules) ────────────────── */
 
   const gwc = () => getWorkerConfig(ctx);
-  registerRequestRoutes(app, prisma, gwc);
-  registerBulkRoutes(app, prisma, gwc);
+  registerRequestRoutes(app, db, gwc);
+  registerBulkRoutes(app, db, gwc);
   registerProfileRoutes(app, () => getPluginConfig(ctx), () => {
     const c = getPluginConfig(ctx);
     const url = c.url as string; const apiKey = c.apiKey as string;
     if (!url || !apiKey) return null;
     return { seerrUrl: url.replace(/\/$/, ""), seerrApiKey: apiKey };
   });
-  registerUsersRoutes(app, prisma, gwc, ctx.requireAdmin, () => defaultDailyLimit(getPluginConfig(ctx)));
-  registerUserSyncRoutes(app, prisma, gwc, ctx.requireAdmin);
-  registerOwnershipRoutes(app, prisma, gwc, ctx.requireAdmin);
+  registerUsersRoutes(app, db, gwc, ctx.requireAdmin, () => defaultDailyLimit(getPluginConfig(ctx)));
+  registerUserSyncRoutes(app, db, gwc, ctx.requireAdmin);
+  registerOwnershipRoutes(app, db, gwc, ctx.requireAdmin);
   registerConnectionRoutes(app, ctx.requireAdmin);
-  registerAvailabilityRoutes(app, prisma, gwc);
-  registerProgressRoutes(app, prisma, gwc, ctx.requireAdmin);
-  registerCalendarRoutes(app, prisma, gwc);
+  registerAvailabilityRoutes(app, db, gwc);
+  registerProgressRoutes(app, db, gwc, ctx.requireAdmin);
+  registerCalendarRoutes(app, db, gwc);
 
-  registerMiscRoutes(app, prisma, gwc, ctx.requireAdmin);
-  await registerSearchRoutes(app, prisma, gwc);
+  registerMiscRoutes(app, db, gwc, ctx.requireAdmin);
+  await registerSearchRoutes(app, db, gwc);
   // Le contrat `titles` de Tentacle : l'état et la demande d'un titre, pour ses cartes.
-  registerTitleRoutes(app, prisma, gwc);
-  registerTitleSeasonRoutes(app, prisma, gwc);
-  registerTitleGapRoutes(app, prisma, gwc);
+  registerTitleRoutes(app, db, gwc);
+  registerTitleSeasonRoutes(app, db, gwc);
+  registerTitleGapRoutes(app, db, gwc);
 
   console.log("[SeerBackend] Routes registered");
 }

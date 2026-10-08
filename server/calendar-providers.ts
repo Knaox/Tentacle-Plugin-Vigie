@@ -15,7 +15,7 @@
  * quatre plateformes cochées.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { WorkerCfg } from "./seerr-unified";
 import type { TmdbRef } from "./tmdb-cache";
 import { tmdbKey } from "./tmdb-cache";
@@ -49,7 +49,7 @@ const MEDIA_STATUS_BLOCKLISTED = 6;
  * ce qui manque est complété en tâche de fond pour la prochaine consultation.
  */
 export async function buildProviderEpisodes(
-  prisma: PrismaClient,
+  db: VigieDb,
   cfg: WorkerCfg,
   rows: SeriesRow[],
   opts: ProviderScope,
@@ -63,11 +63,11 @@ export async function buildProviderEpisodes(
   }
   if (refs.length === 0) return { items: [], partial: false };
 
-  const { meta, missing } = await resolveTmdbMeta(prisma, cfg, refs, {
+  const { meta, missing } = await resolveTmdbMeta(db, cfg, refs, {
     maxFetch: EPISODE_FETCH_BUDGET,
     region: opts.region,
   });
-  if (missing.length > 0) scheduleTmdbBackfill(prisma, cfg, missing, opts.region);
+  if (missing.length > 0) scheduleTmdbBackfill(db, cfg, missing, opts.region);
 
   const items: CalendarItem[] = [];
   for (const ref of refs) {
@@ -112,7 +112,7 @@ export async function buildProviderEpisodes(
  * logo faux.
  */
 export async function attachProviderIds(
-  prisma: PrismaClient,
+  db: VigieDb,
   cfg: WorkerCfg,
   items: CalendarItem[],
   region: string,
@@ -122,7 +122,7 @@ export async function attachProviderIds(
     .map((i) => ({ mediaType: i.mediaType, tmdbId: i.tmdbId }));
   if (refs.length === 0) return;
 
-  const { meta } = await resolveTmdbMeta(prisma, cfg, refs, { maxFetch: 0, region });
+  const { meta } = await resolveTmdbMeta(db, cfg, refs, { maxFetch: 0, region });
   for (const item of items) {
     if (item.providerIds.length > 0) continue;
     const m = meta.get(tmdbKey({ mediaType: item.mediaType, tmdbId: item.tmdbId }));

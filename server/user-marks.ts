@@ -24,7 +24,7 @@
  * de kilo-octets au lieu du mégaoctet que rend Jellyfin.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { cached } from "./cache";
 import { jellyfinAuthHeaders } from "./jellyfin-auth";
 import { jellyfinCredentials } from "./jellyfin-users";
@@ -111,8 +111,8 @@ export function buildMarks(
 /* Une minute : un « vu » posé ailleurs se voit au plus tard à l'ouverture suivante. */
 const TTL_MS = 60_000;
 
-async function fetchLibrary(prisma: PrismaClient, userId: string): Promise<LibraryItem[]> {
-  const creds = await jellyfinCredentials(prisma);
+async function fetchLibrary(db: VigieDb, userId: string): Promise<LibraryItem[]> {
+  const creds = await jellyfinCredentials(db);
   if (!creds) return [];
   // Champs minimaux : ni images, ni synopsis — seulement l'identité TMDB et l'état.
   const params = new URLSearchParams({
@@ -133,24 +133,24 @@ async function fetchLibrary(prisma: PrismaClient, userId: string): Promise<Libra
 }
 
 /** Une table absente (serveur Tentacle d'avant les notes) rend une liste vide. */
-async function readRows<T>(prisma: PrismaClient, sql: string, userId: string): Promise<T[]> {
+async function readRows<T>(db: VigieDb, sql: string, userId: string): Promise<T[]> {
   try {
-    return await prisma.$queryRawUnsafe<T[]>(sql, userId);
+    return await db.query<T>(sql, userId);
   } catch {
     return [];
   }
 }
 
-export async function userMarks(prisma: PrismaClient, userId: string): Promise<UserMarksResponse> {
+export async function userMarks(db: VigieDb, userId: string): Promise<UserMarksResponse> {
   return cached(`vigie:marks:${userId}`, TTL_MS, async () => {
     const [library, likes, ratings] = await Promise.all([
-      fetchLibrary(prisma, userId).catch(() => [] as LibraryItem[]),
+      fetchLibrary(db, userId).catch(() => [] as LibraryItem[]),
       readRows<{ mediaType: string; tmdbId: number }>(
-        prisma, "SELECT mediaType, tmdbId FROM user_likes WHERE jellyfinUserId = ?", userId,
+        db, "SELECT mediaType, tmdbId FROM user_likes WHERE jellyfinUserId = ?", userId,
       ),
       // La note d'un TITRE, pas d'un épisode ; une note en cours de retrait n'en est plus une.
       readRows<{ mediaType: string; tmdbId: number; score: number }>(
-        prisma,
+        db,
         "SELECT mediaType, tmdbId, score FROM user_ratings WHERE jellyfinUserId = ? AND deletedAt IS NULL AND seasonNumber = 0 AND episodeNumber = 0",
         userId,
       ),

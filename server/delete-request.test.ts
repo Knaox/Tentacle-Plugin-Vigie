@@ -3,11 +3,15 @@ import assert from "node:assert/strict";
 import { registerRequestRoutes } from "./routes-requests";
 import { processCleanupQueue } from "./worker-cleanup";
 import { fakeApp, json, stubFetch, type FetchCall } from "./test-support/fake-http";
-import { legacyPrisma, type LegacyPrisma } from "./test-support/legacy-prisma";
+import { testDb } from "./test-support/sqlite-storage";
+import { MIGRATIONS } from "./storage/migrations";
+import type { VigieDb } from "./storage/vigie-db";
+import type { TestDatabase } from "./test-support/sqlite";
 
 /*
- * Le comportement de la SUPPRESSION d'une demande, figé avant le portage du
- * stockage (consigne : rien ne change, seul le stockage change).
+ * Le comportement de la SUPPRESSION d'une demande, figé AVANT le portage du
+ * stockage et rejoué APRÈS, à l'identique (consigne : seul le stockage change).
+ * La base est celle des migrations de Vigie, sur une vraie SQLite.
  *
  * - Seerr est la source : la demande y est supprimée (DELETE /request/:id),
  *   pour qu'on puisse la redemander tout de suite ; la ligne locale suit.
@@ -22,7 +26,8 @@ const SEERR = "http://seerr.test";
 const config = { seerrUrl: SEERR, seerrApiKey: "k" };
 const owner = { userId: "u1", username: "alice", isAdmin: false };
 
-let prisma: LegacyPrisma;
+let db: VigieDb;
+let raw: TestDatabase;
 let net: ReturnType<typeof stubFetch>;
 let seerrDeleteStatus: number | "down";
 
@@ -46,30 +51,32 @@ function rules() {
 }
 
 async function seedMovieRequest(): Promise<void> {
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO seer_requests (id, jellyfin_user_id, username, media_type, tmdb_id, title, status, seerr_request_id, seerr_media_id)
-     VALUES ('r1', 'u1', 'alice', 'movie', 603, 'Un film', 'processing', 42, 9)`,
+  await db.execute(
+    `INSERT INTO seer_requests (id, jellyfin_user_id, username, media_type, tmdb_id, title, status, seerr_request_id, seerr_media_id, created_at, updated_at)
+     VALUES ('r1', 'u1', 'alice', 'movie', 603, 'Un film', 'processing', 42, 9, ?, ?)`, Date.now(), Date.now(),
   );
 }
 
 async function deleteViaRoute(body: object) {
   const { app, call } = fakeApp();
-  registerRequestRoutes(app as never, prisma as never, async () => config);
+  registerRequestRoutes(app as never, db, async () => config);
   return call("DELETE", "/requests/:id", { params: { id: "r1" }, body, user: owner });
 }
 
-const rowsOf = (sql: string) => prisma.$queryRawUnsafe<Record<string, unknown>[]>(sql);
+const rowsOf = (sql: string) => db.query(sql);
 const seen = (method: string, fragment: string) => net.calls.some((c) => c.method === method && c.url.includes(fragment));
 
 beforeEach(async () => {
-  prisma = legacyPrisma();
+  const t = testDb();
+  ({ db, raw } = t);
+  await t.storage.migrate(MIGRATIONS);
   seerrDeleteStatus = 204;
   net = stubFetch(rules());
   await seedMovieRequest();
 });
 afterEach(() => {
   net.restore();
-  prisma.db.close();
+  raw.close();
 });
 
 test("sans l'option : la demande part de Seerr, la ligne locale suit, le contenu reste", async () => {
@@ -79,7 +86,7 @@ test("sans l'option : la demande part de Seerr, la ligne locale suit, le contenu
   const [job] = await rowsOf(`SELECT delete_files, request_id, seerr_request_id FROM seer_cleanup_queue`);
   assert.deepEqual({ ...job }, { delete_files: 0, request_id: "r1", seerr_request_id: 42 });
 
-  await processCleanupQueue(prisma as never, config);
+  await processCleanupQueue(db, config);
 
   assert.ok(seen("DELETE", "/api/v1/request/42"), "la demande est supprimée dans Seerr");
   assert.ok(seen("PUT", "/api/v3/movie/77"), "Radarr arrête de surveiller");
@@ -92,7 +99,7 @@ test("sans l'option : la demande part de Seerr, la ligne locale suit, le contenu
 
 test("avec l'option : les fichiers sont supprimés, et la disponibilité se relance", async () => {
   await deleteViaRoute({ deleteFiles: true });
-  await processCleanupQueue(prisma as never, config);
+  await processCleanupQueue(db, config);
 
   assert.ok(seen("DELETE", "/api/v1/request/42"));
   assert.ok(seen("DELETE", "/api/v3/moviefile/5"), "le fichier est supprimé");
@@ -108,7 +115,7 @@ for (const failure of [500, "down"] as const) {
   test(`Seerr ${failure === "down" ? "injoignable" : "en erreur 500"} : rien n'est perdu, le nettoyage est rejoué`, async () => {
     seerrDeleteStatus = failure;
     await deleteViaRoute({});
-    await processCleanupQueue(prisma as never, config);
+    await processCleanupQueue(db, config);
 
     const [req] = await rowsOf(`SELECT status FROM seer_requests`);
     assert.equal(req.status, "deleting", "la demande locale reste, en suppression");
@@ -117,15 +124,15 @@ for (const failure of [500, "down"] as const) {
     assert.equal(job.retry_count, 1);
     assert.ok(String(job.last_error).length > 0);
     // Plus éligible tout de suite : la reprise attend son délai.
-    assert.deepEqual(await rowsOf(`SELECT id FROM seer_cleanup_queue WHERE next_retry_at <= datetime('now')`), []);
+    assert.deepEqual(await rowsOf(`SELECT id FROM seer_cleanup_queue WHERE next_retry_at <= CAST(unixepoch('subsec') * 1000 AS INTEGER)`), []);
   });
 }
 
 test("Seerr en panne au dernier essai : la demande passe « delete_failed », elle n'est pas supprimée", async () => {
   seerrDeleteStatus = 500;
   await deleteViaRoute({});
-  await prisma.$executeRawUnsafe(`UPDATE seer_cleanup_queue SET retry_count = max_retries - 1`);
-  await processCleanupQueue(prisma as never, config);
+  await db.execute(`UPDATE seer_cleanup_queue SET retry_count = max_retries - 1`);
+  await processCleanupQueue(db, config);
 
   const [req] = await rowsOf(`SELECT status, last_error FROM seer_requests`);
   assert.equal(req.status, "delete_failed");
@@ -136,13 +143,13 @@ test("Seerr en panne au dernier essai : la demande passe « delete_failed », el
 test("Seerr répond 404 : la demande y était déjà partie, la ligne locale suit", async () => {
   seerrDeleteStatus = 404;
   await deleteViaRoute({});
-  await processCleanupQueue(prisma as never, config);
+  await processCleanupQueue(db, config);
   assert.deepEqual(await rowsOf(`SELECT id FROM seer_requests`), []);
 });
 
 test("la demande d'un autre compte ne se supprime pas", async () => {
   const { app, call } = fakeApp();
-  registerRequestRoutes(app as never, prisma as never, async () => config);
+  registerRequestRoutes(app as never, db, async () => config);
   const res = await call("DELETE", "/requests/:id", { params: { id: "r1" }, body: {}, user: { ...owner, userId: "u2" } });
   assert.equal(res.status, 403);
   assert.deepEqual(await rowsOf(`SELECT id FROM seer_cleanup_queue`), []);

@@ -12,7 +12,7 @@
  * de la synchro (automatique ou demandée).
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { SeerUserSettings } from "./types";
 import { rowToUserSettings } from "./db-helpers";
 import { normalizeJellyfinId, type JellyfinAccount } from "./jellyfin-users";
@@ -56,18 +56,18 @@ export interface UsersOverview {
   defaults: { dailyLimit: number | null };
 }
 
-async function loadSettings(prisma: PrismaClient): Promise<Map<string, SeerUserSettings>> {
-  const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT * FROM seer_user_settings`);
+async function loadSettings(db: VigieDb): Promise<Map<string, SeerUserSettings>> {
+  const rows = await db.query(`SELECT * FROM seer_user_settings`);
   return new Map(rows.map((r) => {
     const s = rowToUserSettings(r);
     return [normalizeJellyfinId(s.jellyfinUserId), s] as const;
   }));
 }
 
-async function loadStats(prisma: PrismaClient): Promise<Map<string, { today: number; total: number }>> {
-  const rows = await prisma.$queryRawUnsafe<Array<{ jellyfin_user_id: string; today: unknown; total: unknown }>>(
+async function loadStats(db: VigieDb): Promise<Map<string, { today: number; total: number }>> {
+  const rows = await db.query<{ jellyfin_user_id: string; today: unknown; total: unknown }>(
     `SELECT jellyfin_user_id,
-       SUM(CASE WHEN created_at >= CURDATE() AND status NOT IN ('failed','deleted') THEN 1 ELSE 0 END) AS today,
+       SUM(CASE WHEN created_at >= ${db.sql.startOfToday()} AND status NOT IN ('failed','deleted') THEN 1 ELSE 0 END) AS today,
        SUM(CASE WHEN status != 'deleted' THEN 1 ELSE 0 END) AS total
      FROM seer_requests GROUP BY jellyfin_user_id`,
   );
@@ -81,8 +81,8 @@ async function loadStats(prisma: PrismaClient): Promise<Map<string, { today: num
 }
 
 /** Le dernier nom connu d'un demandeur disparu sans ligne à son nom. */
-async function lastKnownName(prisma: PrismaClient, jellyfinUserId: string): Promise<string> {
-  const rows = await prisma.$queryRawUnsafe<Array<{ username: string }>>(
+async function lastKnownName(db: VigieDb, jellyfinUserId: string): Promise<string> {
+  const rows = await db.query<{ username: string }>(
     `SELECT username FROM seer_requests WHERE jellyfin_user_id = ? ORDER BY created_at DESC LIMIT 1`,
     jellyfinUserId,
   ).catch(() => []);
@@ -102,10 +102,10 @@ const seerrRef = (s: SeerrAccount | undefined): SeerrRef | null =>
   s ? { id: s.id, name: s.name, requestCount: s.requestCount } : null;
 
 export async function buildUsersOverview(
-  prisma: PrismaClient, cfg: SeerCfg | null, defaults: { dailyLimit: number | null },
+  db: VigieDb, cfg: SeerCfg | null, defaults: { dailyLimit: number | null },
 ): Promise<UsersOverview> {
   const [snap, settings, stats] = await Promise.all([
-    collectUserSync(prisma, cfg), loadSettings(prisma), loadStats(prisma),
+    collectUserSync(db, cfg), loadSettings(db), loadStats(db),
   ]);
   const seerrById = new Map((snap.seerr ?? []).map((s) => [s.id, s]));
 
@@ -135,7 +135,7 @@ export async function buildUsersOverview(
   const plan = snap.plan;
   const gone = await Promise.all((plan?.gone ?? []).map(async (g) => ({
     jellyfinUserId: g.id,
-    username: g.username === g.id ? await lastKnownName(prisma, g.id) : g.username,
+    username: g.username === g.id ? await lastKnownName(db, g.id) : g.username,
     activeRequests: g.activeRequests,
     seerr: seerrRef(g.seerrId ? seerrById.get(g.seerrId) : undefined),
   })));

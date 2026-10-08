@@ -10,11 +10,11 @@
  * échouait donc en silence, et la synchro ne voyait que les comptes déjà
  * connus de Jellyseerr — jamais un compte supprimé, jamais un nouveau venu.
  *
- * On lit la table du serveur (la même base, le même client Prisma), et
+ * On lit la table du serveur (la même base, par `ctx.storage`), et
  * l'environnement ne sert plus que de repli pour les très vieux serveurs.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { cached, invalidate } from "./cache";
 import { jellyfinAuthHeaders } from "./jellyfin-auth";
 
@@ -47,10 +47,10 @@ export function normalizeJellyfinId(id: string | null | undefined): string {
   return (id ?? "").toLowerCase().replace(/-/g, "");
 }
 
-export async function jellyfinCredentials(prisma: PrismaClient): Promise<{ url: string; apiKey: string } | null> {
+export async function jellyfinCredentials(db: VigieDb): Promise<{ url: string; apiKey: string } | null> {
   try {
-    const rows = await prisma.$queryRawUnsafe<Array<{ k: string; v: string }>>(
-      "SELECT `key` AS k, `value` AS v FROM server_config WHERE `key` IN ('jellyfin_url', 'jellyfin_api_key')",
+    const rows = await db.query<{ k: string; v: string }>(
+      `SELECT "key" AS k, "value" AS v FROM server_config WHERE "key" IN ('jellyfin_url', 'jellyfin_api_key')`,
     );
     const url = rows.find((r) => r.k === "jellyfin_url")?.v ?? "";
     const apiKey = rows.find((r) => r.k === "jellyfin_api_key")?.v ?? "";
@@ -69,9 +69,9 @@ export async function jellyfinCredentials(prisma: PrismaClient): Promise<{ url: 
  * configuré : un échec ne doit JAMAIS se lire « plus aucun compte », sinon
  * la synchro retirerait tout le monde.
  */
-export async function fetchJellyfinAccounts(prisma: PrismaClient): Promise<JellyfinAccount[]> {
+export async function fetchJellyfinAccounts(db: VigieDb): Promise<JellyfinAccount[]> {
   return cached(ACCOUNTS_KEY, ACCOUNTS_TTL_MS, async () => {
-    const creds = await jellyfinCredentials(prisma);
+    const creds = await jellyfinCredentials(db);
     if (!creds) throw new Error("Jellyfin n'est pas configuré sur le serveur Tentacle");
     const res = await fetch(`${creds.url}/Users`, {
       headers: jellyfinAuthHeaders(creds.apiKey),

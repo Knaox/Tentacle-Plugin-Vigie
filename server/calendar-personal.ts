@@ -14,7 +14,7 @@
  * Il ne reste qu'une poignée de titres réellement en attente.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { RequestStatus } from "./types";
 import type { TmdbMeta, TmdbRef } from "./tmdb-cache";
 import { tmdbKey } from "./tmdb-cache";
@@ -90,7 +90,7 @@ export function collectRequestRefs(rows: MergedRows, includeSettled: boolean): R
 }
 
 export async function buildPersonalCalendar(
-  prisma: PrismaClient,
+  db: VigieDb,
   cfg: WorkerCfg,
   rows: MergedRows,
   opts: PersonalCalendarOpts,
@@ -101,7 +101,7 @@ export async function buildPersonalCalendar(
 
   /* 2) Enrichissement borné : la mémoire des fiches sert déjà la plupart. */
   const list = Array.from(refs.values());
-  const { meta, missing } = await resolveTmdbMeta(prisma, cfg, list, {
+  const { meta, missing } = await resolveTmdbMeta(db, cfg, list, {
     maxFetch: opts.maxFetch ?? FETCH_BUDGET,
     region,
   });
@@ -128,7 +128,7 @@ export async function buildPersonalCalendar(
   });
 
   if (toFill.length > 0 || untyped.length > 0) {
-    scheduleTmdbBackfill(prisma, cfg, [...toFill, ...untyped], region);
+    scheduleTmdbBackfill(db, cfg, [...toFill, ...untyped], region);
   }
 
   /* 3) Construction, purement en mémoire. */

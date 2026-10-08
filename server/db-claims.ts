@@ -2,7 +2,7 @@
 /*  Seer Plugin — Anti-doublon : claims de contenu (table CORE)        */
 /* ------------------------------------------------------------------ */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 
 /**
  * Revendique un contenu dans la table CORE générique `content_claims` : tant
@@ -12,18 +12,23 @@ import type { PrismaClient } from "@prisma/client";
  * quand elle devient disponible).
  */
 export async function upsertContentClaim(
-  prisma: PrismaClient, tmdbId: number, jellyfinUserId: string,
+  db: VigieDb, tmdbId: number, jellyfinUserId: string,
   mediaType: string, title: string, ttlSeconds: number,
 ): Promise<void> {
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO content_claims (tmdbId, jellyfinUserId, mediaType, title, expiresAt)
-     VALUES (?, ?, ?, ?, DATE_ADD(NOW(3), INTERVAL ? SECOND))
-     ON DUPLICATE KEY UPDATE mediaType = VALUES(mediaType), title = VALUES(title), expiresAt = VALUES(expiresAt)`,
-    tmdbId, jellyfinUserId, mediaType, title, ttlSeconds,
+  // Table du cœur, relue par Prisma : l'échéance en millisecondes entières.
+  const expiresAt = db.sql.dateParam(new Date(Date.now() + ttlSeconds * 1000));
+  await db.execute(
+    db.sql.upsert({
+      table: "content_claims",
+      columns: ["tmdbId", "jellyfinUserId", "mediaType", "title", "expiresAt"],
+      conflict: ["tmdbId", "jellyfinUserId"],
+      update: ["mediaType", "title", "expiresAt"],
+    }),
+    tmdbId, jellyfinUserId, mediaType, title, expiresAt,
   );
 }
 
 /** Purge les revendications expirées (table CORE content_claims). */
-export async function purgeExpiredContentClaims(prisma: PrismaClient): Promise<void> {
-  await prisma.$executeRawUnsafe(`DELETE FROM content_claims WHERE expiresAt < NOW(3)`);
+export async function purgeExpiredContentClaims(db: VigieDb): Promise<void> {
+  await db.execute(`DELETE FROM content_claims WHERE expiresAt < ${db.sql.now()}`);
 }

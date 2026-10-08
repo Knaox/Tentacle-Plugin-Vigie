@@ -6,7 +6,7 @@
  * rapport avec le proxy Jellyseerr ni la configuration. */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { getQueueStatus, getUserStats, getGlobalStats } from "./db";
 import { isWorkerRunning } from "./worker";
 import { cached, invalidate } from "./cache";
@@ -15,7 +15,7 @@ import { userMarks } from "./user-marks";
 
 export function registerMiscRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
   requireAdmin: (req: FastifyRequest, reply: FastifyReply) => Promise<void>,
 ): void {
@@ -27,7 +27,7 @@ app.get("/marks", async (request) => {
   // `fresh=1` : un geste vient de changer Ma liste d'un titre déjà là — c'est
   // Jellyfin qui le dit, pas la copie d'il y a une minute.
   if ((request.query as { fresh?: string }).fresh === "1") invalidate(`vigie:marks:${userId}`);
-  return userMarks(prisma, userId);
+  return userMarks(db, userId);
 });
 
 /* ── Watch providers, queue, stats, worker control ─────────────── */
@@ -84,23 +84,23 @@ app.post("/check-providers", async (request, reply) => {
 
 app.get("/queue/status", async (request) => {
   const user = (request as any).user;
-  const status = await getQueueStatus(prisma, user.isAdmin ? undefined : user.userId);
+  const status = await getQueueStatus(db, user.isAdmin ? undefined : user.userId);
   return { ...status, workerRunning: isWorkerRunning() };
 });
 
 app.get("/stats", async (request) => {
   const user = (request as any).user;
   if (user.isAdmin) {
-    const [personal, global] = await Promise.all([getUserStats(prisma, user.userId), getGlobalStats(prisma)]);
+    const [personal, global] = await Promise.all([getUserStats(db, user.userId), getGlobalStats(db)]);
     return { personal, global };
   }
-  return { personal: await getUserStats(prisma, user.userId) };
+  return { personal: await getUserStats(db, user.userId) };
 });
 
 app.post("/worker/trigger", { preHandler: requireAdmin }, async () => {
   const config = await getWorkerConfig();
   if (!config) return { message: "Seerr not configured" };
-  const next = await getQueueStatus(prisma);
+  const next = await getQueueStatus(db);
   return { workerRunning: isWorkerRunning(), processing: next.processing, queued: next.queued, triggered: true };
 });
 }

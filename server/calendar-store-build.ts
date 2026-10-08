@@ -16,7 +16,7 @@
  * du service — jamais figés dans une entrée partagée par tous les comptes.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { WorkerCfg } from "./seerr-unified";
 import { cached } from "./cache";
 import { detectAnimeLoose } from "./tmdb-traits";
@@ -49,7 +49,7 @@ export interface CalendarStore {
 }
 
 export async function buildCalendarStore(
-  prisma: PrismaClient,
+  db: VigieDb,
   cfg: WorkerCfg,
   region: string,
   from: string,
@@ -80,7 +80,7 @@ export async function buildCalendarStore(
       sourceOrFallback(discoverTvTopProviders(cfg, region), [], fail("plateformes")),
       sourceOrFallback(sonarrWindowEpisodes(cfg, from, to), [], fail("calendrier Sonarr")),
       // Ne lève jamais : repli local interne + drapeau seerrUnreachable.
-      cached("seer:rows:everyone", 60_000, () => buildEveryoneRows(prisma, cfg, warn), {
+      cached("seer:rows:everyone", 60_000, () => buildEveryoneRows(db, cfg, warn), {
         staleMs: 600_000,
       }),
     ]);
@@ -90,7 +90,7 @@ export async function buildCalendarStore(
    * `buildPersonalCalendar` porte toute la logique de fraîcheur (fiches
    * amorcées à redemander, remplissage de fond) — on le réutilise tel quel et
    * on NEUTRALISE ses statuts : le store ne porte l'identité de personne. */
-  const requests = await buildPersonalCalendar(prisma, cfg, rows, {
+  const requests = await buildPersonalCalendar(db, cfg, rows, {
     from, to, includeSettled: true, maxFetch: REQUESTS_FETCH_BUDGET, region,
   });
   const requestItems = requests.items.map((it) => ({
@@ -99,12 +99,12 @@ export async function buildCalendarStore(
 
   /* 3) Épisodes Sonarr (passé compris), habillés par les fiches. */
   const { items: sonarrItems, missing: sonarrMissing } =
-    await sonarrEpisodesToItems(prisma, sonarrEps, from, to);
-  if (sonarrMissing.length > 0) scheduleTmdbBackfill(prisma, cfg, sonarrMissing, region);
+    await sonarrEpisodesToItems(db, sonarrEps, from, to);
+  if (sonarrMissing.length > 0) scheduleTmdbBackfill(db, cfg, sonarrMissing, region);
 
   /* 4) Prochains épisodes des séries en cours (popularité + plateformes). */
   const seriesRows = dedupeRows([...tvReturning, ...tvProviders]);
-  const episodes = await buildProviderEpisodes(prisma, cfg, seriesRows, { region, from, to });
+  const episodes = await buildProviderEpisodes(db, cfg, seriesRows, { region, from, to });
 
   /* 5) Premières et sorties salle, fenêtre appliquée. */
   const discoverItems = [
@@ -120,7 +120,7 @@ export async function buildCalendarStore(
   ]);
 
   /* 7) Enrichissement final depuis la mémoire des fiches, SQL seul. */
-  await enrichFromMeta(prisma, cfg, merged, region);
+  await enrichFromMeta(db, cfg, merged, region);
 
   let items = sortCalendarItems(merged);
   if (items.length > MAX_STORE_ITEMS) {
@@ -213,7 +213,7 @@ export function dedupeStoreItems(items: CalendarItem[]): CalendarItem[] {
 
 /** Épisodes Sonarr → entrées, habillées depuis la mémoire des fiches. */
 async function sonarrEpisodesToItems(
-  prisma: PrismaClient,
+  db: VigieDb,
   eps: SonarrWindowEpisode[],
   from: string,
   to: string,
@@ -224,7 +224,7 @@ async function sonarrEpisodesToItems(
     .map((tmdbId) => ({ mediaType: "tv" as const, tmdbId }));
   // SQL seul : le build ne paie pas un appel par série suivie — une fiche
   // absente part en remplissage de fond et l'épisode attendra le prochain tour.
-  const { meta, missing } = await resolveTmdbMeta(prisma, null, refs, { maxFetch: 0 });
+  const { meta, missing } = await resolveTmdbMeta(db, null, refs, { maxFetch: 0 });
 
   const items: CalendarItem[] = [];
   for (const e of eps) {
@@ -267,13 +267,13 @@ async function sonarrEpisodesToItems(
  * qu'une fiche.
  */
 async function enrichFromMeta(
-  prisma: PrismaClient,
+  db: VigieDb,
   cfg: WorkerCfg,
   items: CalendarItem[],
   region: string,
 ): Promise<void> {
   const refs = items.map((i) => ({ mediaType: i.mediaType, tmdbId: i.tmdbId }));
-  const { meta } = await resolveTmdbMeta(prisma, cfg, refs, { maxFetch: 0, region });
+  const { meta } = await resolveTmdbMeta(db, cfg, refs, { maxFetch: 0, region });
 
   for (const it of items) {
     const m = meta.get(tmdbKey({ mediaType: it.mediaType, tmdbId: it.tmdbId }));

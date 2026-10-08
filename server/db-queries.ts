@@ -2,16 +2,14 @@
 /*  Seer Plugin — Database queries (lists, stats)                      */
 /* ------------------------------------------------------------------ */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { SeerRequest } from "./types";
 import { rowToRequest } from "./db-helpers";
-
-type Prisma = PrismaClient;
 
 /* ── User / All requests (paginated) ─────────────────────────────── */
 
 export async function getUserRequests(
-  prisma: Prisma,
+  db: VigieDb,
   jellyfinUserId: string,
   opts: { page?: number; limit?: number; status?: string; mediaType?: string },
 ): Promise<{ results: SeerRequest[]; total: number; page: number; pages: number }> {
@@ -32,13 +30,13 @@ export async function getUserRequests(
     params.push(opts.mediaType);
   }
 
-  const countRows = await prisma.$queryRawUnsafe<[{ cnt: bigint }]>(
+  const countRows = await db.query<{ cnt: number }>(
     `SELECT COUNT(*) as cnt FROM seer_requests ${where}`,
     ...params,
   );
   const total = Number(countRows[0].cnt);
 
-  const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+  const rows = await db.query(
     `SELECT * FROM seer_requests ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
     ...params,
     limit,
@@ -49,7 +47,7 @@ export async function getUserRequests(
 }
 
 export async function getAllRequests(
-  prisma: Prisma,
+  db: VigieDb,
   opts: { page?: number; limit?: number; status?: string; mediaType?: string },
 ): Promise<{ results: SeerRequest[]; total: number; page: number; pages: number }> {
   const page = opts.page || 1;
@@ -69,13 +67,13 @@ export async function getAllRequests(
     params.push(opts.mediaType);
   }
 
-  const countRows = await prisma.$queryRawUnsafe<[{ cnt: bigint }]>(
+  const countRows = await db.query<{ cnt: number }>(
     `SELECT COUNT(*) as cnt FROM seer_requests ${where}`,
     ...params,
   );
   const total = Number(countRows[0].cnt);
 
-  const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+  const rows = await db.query(
     `SELECT * FROM seer_requests ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
     ...params,
     limit,
@@ -88,18 +86,18 @@ export async function getAllRequests(
 /* ── Queue status ────────────────────────────────────────────────── */
 
 export async function getQueueStatus(
-  prisma: Prisma,
+  db: VigieDb,
   jellyfinUserId?: string,
 ): Promise<{ processing: SeerRequest | null; queued: number; retryPending: number; deleting: number }> {
   const userFilter = jellyfinUserId ? ` AND jellyfin_user_id = ?` : "";
   const userParams = jellyfinUserId ? [jellyfinUserId] : [];
 
-  const processingRows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+  const processingRows = await db.query(
     `SELECT * FROM seer_requests WHERE status = 'processing'${userFilter} LIMIT 1`,
     ...userParams,
   );
 
-  const countRows = await prisma.$queryRawUnsafe<[{ queued: bigint; retry_pending: bigint; deleting: bigint }]>(
+  const countRows = await db.query<{ queued: number; retry_pending: number; deleting: number }>(
     `SELECT
        SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
        SUM(CASE WHEN status = 'retry_pending' THEN 1 ELSE 0 END) as retry_pending,
@@ -118,14 +116,14 @@ export async function getQueueStatus(
 
 /* ── Stats ────────────────────────────────────────────────────────── */
 
-export async function getUserStats(prisma: Prisma, jellyfinUserId: string) {
-  const byStatus = await prisma.$queryRawUnsafe<{ status: string; cnt: bigint }[]>(
+export async function getUserStats(db: VigieDb, jellyfinUserId: string) {
+  const byStatus = await db.query<{ status: string; cnt: number }>(
     `SELECT status, COUNT(*) as cnt FROM seer_requests
      WHERE jellyfin_user_id = ? AND status != 'deleted'
      GROUP BY status`,
     jellyfinUserId,
   );
-  const byType = await prisma.$queryRawUnsafe<{ media_type: string; cnt: bigint }[]>(
+  const byType = await db.query<{ media_type: string; cnt: number }>(
     `SELECT media_type, COUNT(*) as cnt FROM seer_requests
      WHERE jellyfin_user_id = ? AND status != 'deleted'
      GROUP BY media_type`,
@@ -140,22 +138,24 @@ export async function getUserStats(prisma: Prisma, jellyfinUserId: string) {
   };
 }
 
-export async function getGlobalStats(prisma: Prisma) {
-  const byStatus = await prisma.$queryRawUnsafe<{ status: string; cnt: bigint }[]>(
+export async function getGlobalStats(db: VigieDb) {
+  const byStatus = await db.query<{ status: string; cnt: number }>(
     `SELECT status, COUNT(*) as cnt FROM seer_requests
      WHERE status != 'deleted' GROUP BY status`,
   );
-  const byType = await prisma.$queryRawUnsafe<{ media_type: string; cnt: bigint }[]>(
+  const byType = await db.query<{ media_type: string; cnt: number }>(
     `SELECT media_type, COUNT(*) as cnt FROM seer_requests
      WHERE status != 'deleted' GROUP BY media_type`,
   );
-  const topRequested = await prisma.$queryRawUnsafe<{ title: string; tmdb_id: number; cnt: bigint }[]>(
+  const topRequested = await db.query<{ title: string; tmdb_id: number; cnt: number }>(
     `SELECT title, tmdb_id, COUNT(*) as cnt FROM seer_requests
-     WHERE status != 'deleted' GROUP BY title, tmdb_id ORDER BY cnt DESC LIMIT 10`,
+     WHERE status != 'deleted' GROUP BY title, tmdb_id ORDER BY cnt DESC, title ASC LIMIT 10`,
   );
-  const topUsers = await prisma.$queryRawUnsafe<{ username: string; cnt: bigint }[]>(
-    `SELECT username, COUNT(*) as cnt FROM seer_requests
-     WHERE status != 'deleted' GROUP BY username ORDER BY cnt DESC LIMIT 10`,
+  // Par COMPTE, pas par nom (SQLite compare les noms à la casse près) : le nom
+  // affiché est celui de sa demande la plus récente (colonne nue + MAX, SQLite).
+  const topUsers = await db.query<{ username: string; cnt: number }>(
+    `SELECT username, MAX(created_at) AS last_at, COUNT(*) as cnt FROM seer_requests
+     WHERE status != 'deleted' GROUP BY jellyfin_user_id ORDER BY cnt DESC, username ASC LIMIT 10`,
   );
   const total = byStatus.reduce((n, r) => n + Number(r.cnt), 0);
   const available = Number(byStatus.find((r) => r.status === "available")?.cnt || 0);

@@ -17,7 +17,7 @@
  */
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { DownloadProgress, RequestStatus } from "./types";
 import { fetchServerQueue, type QueueResponse } from "./arr-queue";
 import { cached } from "./cache";
@@ -42,7 +42,7 @@ export interface ProgressItem {
 
 export function registerProgressRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
   requireAdmin: (req: FastifyRequest, reply: FastifyReply) => Promise<void>,
 ): void {
@@ -70,7 +70,7 @@ export function registerProgressRoutes(
     if (!config) return { updatedAt: new Date().toISOString(), items: [] as ProgressItem[] };
 
     return cached(`seer-cache:${user.userId}:progress`, PROGRESS_TTL_MS, async () => {
-      const rows = await loadMergedRows(prisma, config, user, (err, msg) => app.log?.warn?.({ err }, msg));
+      const rows = await loadMergedRows(db, config, user, (err, msg) => app.log?.warn?.({ err }, msg));
       /* Les lignes de la liste, telles quelles : mêmes identifiants (le front
        * rattache chaque avancement à sa carte), mêmes saisons demandées. */
       const requests = hydrateRows(rows, new Map(), user).filter((r) => IN_FLIGHT.has(r.status));

@@ -5,18 +5,18 @@
 /* Extrait de routes-users.ts pour tenir sous 300 lignes : les outils de la
  * réattribution des demandes, sans la route qui les enchaîne. */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 
 /** Sélectionne le meilleur username Jellyfin pour un jellyfin_user_id donné.
  *  Préfère un username depuis seer_requests qui ne ressemble PAS à un UUID,
  *  fallback : la valeur la plus récente, fallback : `fallback`. */
 export async function pickBestUsernameFor(
-  prisma: PrismaClient,
+  db: VigieDb,
   jellyfinUserId: string,
   fallback: string,
 ): Promise<string> {
   const isUuid = /^[0-9a-f]{8,}(-[0-9a-f]+)*$/i;
-  const rows = await prisma.$queryRawUnsafe<Array<{ username: string }>>(
+  const rows = await db.query<{ username: string }>(
     `SELECT username FROM seer_requests
      WHERE jellyfin_user_id = ? AND username IS NOT NULL AND username <> ''
      ORDER BY created_at DESC LIMIT 50`,
@@ -28,7 +28,7 @@ export async function pickBestUsernameFor(
     }
   }
   // Aucun username valide en historique : essayer seer_user_settings
-  const settings = await prisma.$queryRawUnsafe<Array<{ username: string }>>(
+  const settings = await db.query<{ username: string }>(
     `SELECT username FROM seer_user_settings WHERE jellyfin_user_id = ? LIMIT 1`,
     jellyfinUserId,
   );

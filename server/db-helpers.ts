@@ -58,8 +58,22 @@ export function rowToUserSettings(r: Record<string, unknown>): import("./types")
   };
 }
 
+/**
+ * Une date relue en base : millisecondes entières (le format d'aujourd'hui),
+ * `Date` (Prisma relit ainsi une colonne DATETIME), ou texte d'une base
+ * d'avant (« AAAA-MM-JJ HH:MM:SS » sans fuseau : UTC). `null` si illisible.
+ */
+export function readStoredDate(v: unknown): Date | null {
+  if (v === null || v === undefined || v === "") return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
+  if (typeof v === "number" || typeof v === "bigint") return new Date(Number(v));
+  if (typeof v !== "string") return null;
+  if (/^\d+$/.test(v)) return new Date(Number(v));
+  const text = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(v) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(v) ? `${v.replace(" ", "T")}Z` : v;
+  const d = new Date(text);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 export function toIso(v: unknown): string {
-  if (v instanceof Date) return v.toISOString();
-  if (typeof v === "string") return v;
-  return new Date().toISOString();
+  return (readStoredDate(v) ?? new Date()).toISOString();
 }

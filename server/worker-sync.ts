@@ -2,7 +2,7 @@
 /*  Seer Plugin — Worker: status sync + auto-retry                     */
 /* ------------------------------------------------------------------ */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { getRequestsToSync, updateRequestStatus, upsertContentClaim, purgeExpiredContentClaims } from "./db";
 import { invalidateRequestCaches } from "./cache";
 import { fetchMediaDetail } from "./anime";
@@ -29,9 +29,9 @@ export interface WorkerConfig {
 
 /* ── Sync statuses with Seerr ──────────────────────────────────────── */
 
-export async function syncStatuses(prisma: PrismaClient, config: WorkerConfig): Promise<void> {
-  const requests = await getRequestsToSync(prisma);
-  await purgeExpiredContentClaims(prisma).catch(() => {});
+export async function syncStatuses(db: VigieDb, config: WorkerConfig): Promise<void> {
+  const requests = await getRequestsToSync(db);
+  await purgeExpiredContentClaims(db).catch(() => {});
   if (requests.length === 0) return;
 
   let availabilitySyncDone = false; // Part C : 1 availability-sync par passe max.
@@ -43,7 +43,7 @@ export async function syncStatuses(prisma: PrismaClient, config: WorkerConfig): 
     // pour que le notifier biblio du core n'envoie pas de push doublon à cet
     // utilisateur (TTL glissant ; expire seul quand la demande devient dispo).
     await upsertContentClaim(
-      prisma, request.tmdbId, request.jellyfinUserId,
+      db, request.tmdbId, request.jellyfinUserId,
       request.mediaType, request.title, CLAIM_TTL_SECONDS,
     ).catch(() => {});
 
@@ -59,7 +59,7 @@ export async function syncStatuses(prisma: PrismaClient, config: WorkerConfig): 
           // DÉCISION, pas une panne. Classée « failed », l'auto-retry la
           // recréait quelques minutes plus tard — la saison qu'on venait de
           // libérer réapparaissait « Demandée ». Terminal : ni retry, ni verrou.
-          await updateRequestStatus(prisma, request.id, "deleted", {
+          await updateRequestStatus(db, request.id, "deleted", {
             lastError: "Demande supprimée côté Jellyseerr",
           });
           invalidateRequestCaches(request.jellyfinUserId);
@@ -79,7 +79,7 @@ export async function syncStatuses(prisma: PrismaClient, config: WorkerConfig): 
 
       // Échec → retry/suppression (commun film/série).
       if (globalStatus === "failed" && request.status !== "failed") {
-        await handleFailedSync(prisma, config, request, data);
+        await handleFailedSync(db, config, request, data);
         invalidateRequestCaches(request.jellyfinUserId);
         continue;
       }
@@ -87,9 +87,9 @@ export async function syncStatuses(prisma: PrismaClient, config: WorkerConfig): 
       // Séries : disponibilité PAR-SAISON (le statut global reste « partiel »
       // tant que des saisons NON demandées manquent). Films : statut global.
       if (request.mediaType === "tv" && (request.seasons?.length ?? 0) > 0) {
-        await syncTvSeasons(prisma, config, request, globalStatus, data.media?.status);
+        await syncTvSeasons(db, config, request, globalStatus, data.media?.status);
       } else {
-        await syncGlobal(prisma, request, globalStatus, data.media?.status);
+        await syncGlobal(db, request, globalStatus, data.media?.status);
       }
 
       // Part C : accélérer la réconciliation par-saison côté Jellyseerr
@@ -107,7 +107,7 @@ export async function syncStatuses(prisma: PrismaClient, config: WorkerConfig): 
 
 /** Applique un changement de statut global + notif (film, ou série sans dispo par-saison). */
 async function syncGlobal(
-  prisma: PrismaClient, request: SeerRequest,
+  db: VigieDb, request: SeerRequest,
   newStatus: SeerRequest["status"], mediaStatus?: number,
 ): Promise<void> {
   if (newStatus === request.status) return;
@@ -116,12 +116,12 @@ async function syncGlobal(
   if (arrKnows(request.mediaType) && isDowngrade(request.status, newStatus)) return;
   const extra: Record<string, unknown> = { seerrMediaStatus: mediaStatus };
   if (newStatus === "available") extra.completedAt = new Date();
-  await updateRequestStatus(prisma, request.id, newStatus, extra as any);
+  await updateRequestStatus(db, request.id, newStatus, extra as any);
   invalidateRequestCaches(request.jellyfinUserId);
 
   const notif = statusNotification(request, newStatus);
   if (notif) {
-    await prisma.notification.create({
+    await db.core.notification.create({
       data: {
         jellyfinUserId: request.jellyfinUserId, type: "request_status",
         title: notif.title, body: notif.message, refId: request.id,
@@ -138,22 +138,22 @@ async function syncGlobal(
  * les saisons demandées sont là.
  */
 async function syncTvSeasons(
-  prisma: PrismaClient, config: WorkerConfig, request: SeerRequest,
+  db: VigieDb, config: WorkerConfig, request: SeerRequest,
   fallbackStatus: SeerRequest["status"], mediaStatus?: number,
 ): Promise<void> {
   const detail = await fetchMediaDetail(config.seerrUrl, config.seerrApiKey, "tv", request.tmdbId);
   const mediaSeasons = detail?.mediaInfo?.seasons;
 
   // Saisons demandées que Jellyseerr dit SUPPRIMÉES : libérées (null = demande close).
-  const kept = await releaseGoneSeasons(prisma, request, mediaSeasons);
+  const kept = await releaseGoneSeasons(db, request, mediaSeasons);
   if (!kept) return;
   request = kept;
 
-  const newStatus = await notifyAvailableSeasons(prisma, request, mediaSeasons);
+  const newStatus = await notifyAvailableSeasons(db, request, mediaSeasons);
 
   // Aucune saison demandée encore dispo (ou pas de granularité) → repli global.
   if (newStatus === null) {
-    await syncGlobal(prisma, request, fallbackStatus, mediaStatus);
+    await syncGlobal(db, request, fallbackStatus, mediaStatus);
     return;
   }
 
@@ -161,14 +161,14 @@ async function syncTvSeasons(
   if (newStatus !== request.status && !(arrKnows("tv") && isDowngrade(request.status, newStatus))) {
     const extra: Record<string, unknown> = { seerrMediaStatus: mediaStatus };
     if (newStatus === "available") extra.completedAt = new Date();
-    await updateRequestStatus(prisma, request.id, newStatus, extra as any);
+    await updateRequestStatus(db, request.id, newStatus, extra as any);
     invalidateRequestCaches(request.jellyfinUserId);
     console.log(`[SeerWorker] "${request.title}" status: ${request.status} → ${newStatus}`);
   }
 }
 
 async function handleFailedSync(
-  prisma: PrismaClient, config: WorkerConfig,
+  db: VigieDb, config: WorkerConfig,
   request: SeerRequest, data: { media?: { status: number } },
 ): Promise<void> {
   const retryN = request.retryCount + 1;
@@ -186,18 +186,18 @@ async function handleFailedSync(
       }).catch(() => {});
     }
 
-    await prisma.$executeRawUnsafe(
-      `UPDATE seer_requests SET status = 'retry_pending', seerr_request_id = NULL, seerr_media_id = NULL, seerr_media_status = NULL, retry_count = ? WHERE id = ?`,
+    await db.execute(
+      `UPDATE seer_requests SET updated_at = ${db.sql.now()}, status = 'retry_pending', seerr_request_id = NULL, seerr_media_id = NULL, seerr_media_status = NULL, retry_count = ? WHERE id = ?`,
       retryN, request.id,
     );
 
     // Pas de notif sur les tentatives auto (anti-spam) — seul l'échec définitif notifie.
     console.log(`[SeerWorker] Auto-retry "${request.title}" (attempt ${retryN}/${request.maxRetries})`);
   } else {
-    await updateRequestStatus(prisma, request.id, "failed", {
+    await updateRequestStatus(db, request.id, "failed", {
       seerrMediaStatus: data.media?.status, retryCount: retryN,
     } as any);
-    await prisma.notification.create({
+    await db.core.notification.create({
       data: {
         jellyfinUserId: request.jellyfinUserId, type: "request_status",
         title: request.title,
@@ -211,8 +211,8 @@ async function handleFailedSync(
 
 /* ── Auto-retry failed requests ──────────────────────────────────── */
 
-export async function retryFailedRequests(prisma: PrismaClient): Promise<void> {
-  const failed = await prisma.$queryRawUnsafe<Array<{ id: string; title: string; retry_count: number; max_retries: number }>>(
+export async function retryFailedRequests(db: VigieDb): Promise<void> {
+  const failed = await db.query<{ id: string; title: string; retry_count: number; max_retries: number }>(
     // Les lignes héritées de l'ancien classement (404 → « failed ») ne sont
     // plus recréées non plus : une suppression côté Jellyseerr est acquise.
     `SELECT id, title, retry_count, max_retries FROM seer_requests
@@ -222,8 +222,8 @@ export async function retryFailedRequests(prisma: PrismaClient): Promise<void> {
 
   for (const req of failed) {
     const newRetry = req.retry_count + 1;
-    await prisma.$executeRawUnsafe(
-      `UPDATE seer_requests SET status = 'retry_pending', seerr_request_id = NULL, seerr_media_id = NULL, seerr_media_status = NULL, retry_count = ? WHERE id = ?`,
+    await db.execute(
+      `UPDATE seer_requests SET updated_at = ${db.sql.now()}, status = 'retry_pending', seerr_request_id = NULL, seerr_media_id = NULL, seerr_media_status = NULL, retry_count = ? WHERE id = ?`,
       newRetry, req.id,
     );
     console.log(`[SeerWorker] Auto-retry "${req.title}" (attempt ${newRetry}/${req.max_retries})`);

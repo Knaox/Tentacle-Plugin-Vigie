@@ -3,7 +3,7 @@
 /* ------------------------------------------------------------------ */
 
 import type { FastifyInstance } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { getAllRequests, getUserRequests } from "./db";
 import type { UnifiedRequest } from "./types";
 import { cached, peek } from "./cache";
@@ -28,22 +28,22 @@ export const rowsCacheKey = (userId: string) => `seer-cache:${userId}:rows`;
 
 /** Les lignes brutes d'un compte — partagées par la liste et le suivi en direct. */
 export function loadMergedRows(
-  prisma: PrismaClient,
+  db: VigieDb,
   cfg: WorkerCfg,
   user: ReturnType<typeof getUser>,
   log?: (err: unknown, msg: string) => void,
 ): Promise<MergedRows> {
-  return cached(rowsCacheKey(user.userId), ROWS_TTL_MS, () => buildMergedRows(prisma, cfg, user, log), { staleMs: ROWS_STALE_MS });
+  return cached(rowsCacheKey(user.userId), ROWS_TTL_MS, () => buildMergedRows(db, cfg, user, log), { staleMs: ROWS_STALE_MS });
 }
 
 export function registerRequestReadRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
 ): void {
 
   const loadRows = (cfg: WorkerCfg, user: ReturnType<typeof getUser>) =>
-    loadMergedRows(prisma, cfg, user, (err, msg) => app.log?.warn?.({ err }, msg));
+    loadMergedRows(db, cfg, user, (err, msg) => app.log?.warn?.({ err }, msg));
 
   /* ── GET /requests — Jellyseerr + locales en attente ; ce qui attend encore,
    *    Sonarr et Radarr disent où il en est (cf. arr-truth.ts) ── */
@@ -54,7 +54,7 @@ export function registerRequestReadRoutes(
     };
 
     if (user.isAdmin && query.status === "all_users") {
-      const list = await getAllRequests(prisma, {
+      const list = await getAllRequests(db, {
         page: Number(query.page) || 1,
         limit: Number(query.limit) || 20,
         mediaType: query.type,
@@ -67,7 +67,7 @@ export function registerRequestReadRoutes(
 
     const config = await getWorkerConfig();
     if (!config) {
-      const local = await getUserRequests(prisma, user.userId, { page, limit, mediaType: query.type });
+      const local = await getUserRequests(db, user.userId, { page, limit, mediaType: query.type });
       return { ...local, results: local.results.map(localToUnified) };
     }
 
@@ -75,7 +75,7 @@ export function registerRequestReadRoutes(
     const refs = collectTmdbRefs(rows);
 
     // 1) Lecture SQL seule : instantanée, aucun appel réseau.
-    const { meta, missing } = await resolveTmdbMeta(prisma, config, refs, { maxFetch: 0 });
+    const { meta, missing } = await resolveTmdbMeta(db, config, refs, { maxFetch: 0 });
     const hydrated = hydrateRows(rows, meta, user);
     /* Sonarr et Radarr disent où en sont les demandes qui attendent encore :
      * en route, arrivées — sans attendre que Jellyseerr le constate. */
@@ -93,13 +93,13 @@ export function registerRequestReadRoutes(
       const onPage = missing.filter((r) => visible.has(tmdbKey(r)));
 
       if (onPage.length > 0) {
-        const filled = await resolveTmdbMeta(prisma, config, onPage, { maxFetch: PAGE_META_BUDGET });
+        const filled = await resolveTmdbMeta(db, config, onPage, { maxFetch: PAGE_META_BUDGET });
         for (const [k, v] of filled.meta) meta.set(k, v);
         items = withArrStatus(hydrateRows(rows, meta, user), verdicts);
         result = filterAndPaginate(items, { page, limit, status: query.status, type: query.type, q: query.q });
       }
 
-      scheduleTmdbBackfill(prisma, config, missing);
+      scheduleTmdbBackfill(db, config, missing);
     }
 
     return {
@@ -137,7 +137,7 @@ export function registerRequestReadRoutes(
     const q = request.query as { mediaType?: string; tmdbId?: string };
     const tmdbId = Number(q.tmdbId);
     if (q.mediaType !== "tv" || !Number.isFinite(tmdbId) || tmdbId <= 0) return { seasons: [] };
-    return { seasons: await localRequestedSeasons(prisma, user.userId, tmdbId) };
+    return { seasons: await localRequestedSeasons(db, user.userId, tmdbId) };
   });
 
 }

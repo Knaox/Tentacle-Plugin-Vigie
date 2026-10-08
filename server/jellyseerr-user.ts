@@ -2,7 +2,7 @@
 /*  Seer Plugin — Jellyseerr user lookup + auto-import                 */
 /* ------------------------------------------------------------------ */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { getOrCreateUserSettings, updateUserSettings } from "./db";
 
 interface SeerConfig {
@@ -78,21 +78,21 @@ async function seerrUserExists(config: SeerConfig, id: number): Promise<boolean 
  */
 export async function resolveJellyseerrUserId(
   config: SeerConfig,
-  prisma: PrismaClient,
+  db: VigieDb,
   jellyfinUserId: string,
   username: string,
 ): Promise<number> {
-  const settings = await getOrCreateUserSettings(prisma, jellyfinUserId, username);
+  const settings = await getOrCreateUserSettings(db, jellyfinUserId, username);
   if (settings.jellyseerrUserId) {
     // Jellyseerr muet : on garde le lien, la demande échouera ou passera d'elle-même.
     if ((await seerrUserExists(config, settings.jellyseerrUserId)) !== false) return settings.jellyseerrUserId;
-    await updateUserSettings(prisma, jellyfinUserId, { jellyseerrUserId: null, jellyseerrLastSync: null });
+    await updateUserSettings(db, jellyfinUserId, { jellyseerrUserId: null, jellyseerrLastSync: null });
   }
 
   // Lookup live par jellyfinUserId
   const found = await findJellyseerrUserByJellyfinId(config, jellyfinUserId);
   if (found) {
-    await updateUserSettings(prisma, jellyfinUserId, {
+    await updateUserSettings(db, jellyfinUserId, {
       jellyseerrUserId: found.id,
       jellyseerrLastSync: new Date(),
     });
@@ -104,7 +104,7 @@ export async function resolveJellyseerrUserId(
     const placeholder = await findOrphanPlaceholderByUsername(config, username);
     if (placeholder) {
       await relinkJellyseerrUserToJellyfin(config, placeholder.id, jellyfinUserId);
-      await updateUserSettings(prisma, jellyfinUserId, {
+      await updateUserSettings(db, jellyfinUserId, {
         jellyseerrUserId: placeholder.id,
         jellyseerrLastSync: new Date(),
       });
@@ -117,7 +117,7 @@ export async function resolveJellyseerrUserId(
   try {
     const imported = await importJellyseerrUserFromJellyfin(config, jellyfinUserId);
     if (imported) {
-      await updateUserSettings(prisma, jellyfinUserId, {
+      await updateUserSettings(db, jellyfinUserId, {
         jellyseerrUserId: imported.id,
         jellyseerrLastSync: new Date(),
       });
@@ -130,7 +130,7 @@ export async function resolveJellyseerrUserId(
   // Dernier essai après import : Jellyseerr peut avoir importé sans renvoyer l'objet
   const refreshed = await findJellyseerrUserByJellyfinId(config, jellyfinUserId);
   if (refreshed) {
-    await updateUserSettings(prisma, jellyfinUserId, {
+    await updateUserSettings(db, jellyfinUserId, {
       jellyseerrUserId: refreshed.id,
       jellyseerrLastSync: new Date(),
     });
@@ -147,7 +147,7 @@ export async function resolveJellyseerrUserId(
    */
   try {
     const local = await createPlaceholderJellyseerrUser(config, username || jellyfinUserId);
-    await updateUserSettings(prisma, jellyfinUserId, {
+    await updateUserSettings(db, jellyfinUserId, {
       jellyseerrUserId: local.id,
       jellyseerrLastSync: new Date(),
     });
@@ -211,20 +211,20 @@ export async function createPlaceholderJellyseerrUser(
  */
 export async function invalidateStaleJellyseerrCache(
   config: SeerConfig,
-  prisma: PrismaClient,
+  db: VigieDb,
 ): Promise<number> {
   const seerUsers = await listAllJellyseerrUsers(config);
   const validIds = new Set(seerUsers.map((u) => u.id));
 
-  const rows = await prisma.$queryRawUnsafe<Array<{ jellyfin_user_id: string; jellyseerr_user_id: number }>>(
+  const rows = await db.query<{ jellyfin_user_id: string; jellyseerr_user_id: number }>(
     `SELECT jellyfin_user_id, jellyseerr_user_id FROM seer_user_settings WHERE jellyseerr_user_id IS NOT NULL`,
   );
 
   let invalidated = 0;
   for (const row of rows) {
     if (!validIds.has(row.jellyseerr_user_id)) {
-      await prisma.$executeRawUnsafe(
-        `UPDATE seer_user_settings SET jellyseerr_user_id = NULL, jellyseerr_last_sync = NULL WHERE jellyfin_user_id = ?`,
+      await db.execute(
+        `UPDATE seer_user_settings SET updated_at = ${db.sql.now()}, jellyseerr_user_id = NULL, jellyseerr_last_sync = NULL WHERE jellyfin_user_id = ?`,
         row.jellyfin_user_id,
       );
       invalidated++;

@@ -18,7 +18,7 @@
  *   2. la concurrence est bornée par un pool.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import {
   type TmdbMeta, type TmdbRef, tmdbKey,
   getTmdbMetaBulk, upsertTmdbMetaBulk,
@@ -74,7 +74,7 @@ export function dedupeRefs(refs: readonly TmdbRef[]): TmdbRef[] {
 
 /** SQL groupé → récupération bornée des manquantes → écriture groupée. */
 export async function resolveTmdbMeta(
-  prisma: PrismaClient,
+  db: VigieDb,
   cfg: WorkerCfg | null,
   refs: readonly TmdbRef[],
   opts: ResolveOpts = {},
@@ -82,7 +82,7 @@ export async function resolveTmdbMeta(
   const unique = dedupeRefs(refs);
   if (unique.length === 0) return { meta: new Map(), missing: [] };
 
-  const meta = await getTmdbMetaBulk(prisma, unique, opts.includeExpired ?? true);
+  const meta = await getTmdbMetaBulk(db, unique, opts.includeExpired ?? true);
   const missing = unique.filter((r) => !meta.has(tmdbKey(r)));
 
   const budget = opts.maxFetch ?? 0;
@@ -98,7 +98,7 @@ export async function resolveTmdbMeta(
 
   const ok = fetched.filter((m): m is TmdbMeta => m !== null);
   if (ok.length > 0) {
-    await upsertTmdbMetaBulk(prisma, ok).catch(() => { /* affichage prioritaire sur la persistance */ });
+    await upsertTmdbMetaBulk(db, ok).catch(() => { /* affichage prioritaire sur la persistance */ });
     for (const m of ok) meta.set(tmdbKey(m), m);
   }
 
@@ -122,7 +122,7 @@ export function pendingBackfillCount(): number {
  * leurs clés dans la file en cours.
  */
 export function scheduleTmdbBackfill(
-  prisma: PrismaClient,
+  db: VigieDb,
   cfg: WorkerCfg | null,
   refs: readonly TmdbRef[],
   region = DEFAULT_REGION,
@@ -137,19 +137,19 @@ export function scheduleTmdbBackfill(
   if (backfillRunning || backfillQueue.size === 0) return;
 
   backfillRunning = true;
-  void drainBackfill(prisma, cfg, region)
+  void drainBackfill(db, cfg, region)
     .catch(() => { /* jamais de rejet non capté : il tuerait le process host */ })
     .finally(() => { backfillRunning = false; });
 }
 
-async function drainBackfill(prisma: PrismaClient, cfg: WorkerCfg, region: string): Promise<void> {
+async function drainBackfill(db: VigieDb, cfg: WorkerCfg, region: string): Promise<void> {
   while (backfillQueue.size > 0) {
     const batch = Array.from(backfillQueue).slice(0, 40);
     const refs = batch.map((k) => backfillRefs.get(k)).filter((r): r is TmdbRef => !!r);
 
     const fetched = await mapLimit(refs, 4, (ref) => fetchOnce(cfg, ref, region));
     const ok = fetched.filter((m): m is TmdbMeta => m !== null);
-    if (ok.length > 0) await upsertTmdbMetaBulk(prisma, ok).catch(() => {});
+    if (ok.length > 0) await upsertTmdbMetaBulk(db, ok).catch(() => {});
 
     for (const k of batch) {
       backfillQueue.delete(k);

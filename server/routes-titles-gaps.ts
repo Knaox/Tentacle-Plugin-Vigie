@@ -20,7 +20,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { getUser, type WorkerCfg } from "./seerr-unified";
 import { fetchMediaDetail } from "./anime";
 import { cached } from "./cache";
@@ -52,7 +52,7 @@ function tvDetail(cfg: WorkerCfg, tmdbId: number): Promise<SeerrTvDetail> {
 
 export function registerTitleGapRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
 ): void {
   app.get("/titles/gaps", async (request) => {
@@ -62,7 +62,7 @@ export function registerTitleGapRoutes(
     if (!cfg || keys.length === 0) return { items: {} };
     // Ni l'un ni l'autre n'est attendu : la réponse part avec ce qu'on sait déjà.
     refreshStatusMap(cfg);
-    refreshLocalPending(prisma);
+    refreshLocalPending(db);
     const partial = keys
       .filter((k) => hasGapsToTell(statusFor({ key: k.key, mediaType: k.mediaType, tmdbId: k.tmdbId, remoteStatus: undefined })))
       .slice(0, MAX_GAP_LOOKUPS);
@@ -71,7 +71,7 @@ export function registerTitleGapRoutes(
     const lang = readLang(query.lang);
     const user = getUser(request);
     const [rights, specials] = await Promise.all([
-      rightsOf(prisma, user.userId, cfg),
+      rightsOf(db, user.userId, cfg),
       specialSeasonsQuick(cfg.seerrUrl, cfg.seerrApiKey),
     ]);
     const items: Record<string, { seasons: SeasonOut[] }> = {};
@@ -79,7 +79,7 @@ export function registerTitleGapRoutes(
     await mapLimit(partial, LOOKUP_CONCURRENCY, async (k) => {
       const [detail, local] = await Promise.all([
         tvDetail(cfg, k.tmdbId),
-        localRequestedSeasons(prisma, user.userId, k.tmdbId).catch(() => [] as number[]),
+        localRequestedSeasons(db, user.userId, k.tmdbId).catch(() => [] as number[]),
       ]);
       const seasons = seriesGaps(detail, local, rights, { specials, lang });
       if (seasons.length > 0) items[k.key] = { seasons };

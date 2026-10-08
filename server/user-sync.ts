@@ -12,7 +12,7 @@
  * attend son résultat au lieu d'en lancer une seconde.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { fetchJellyfinAccounts, forgetJellyfinAccounts, normalizeJellyfinId, type JellyfinAccount } from "./jellyfin-users";
 import { listAllJellyseerrUsers, resolveJellyseerrUserId, forgetSeerrUserChecks } from "./jellyseerr-user";
 import { planUserSync, pendingFixes, type LocalUserRow, type SeerrAccount, type UserSyncPlan } from "./user-sync-plan";
@@ -85,9 +85,9 @@ export function toSeerrAccount(u: {
 }
 
 /** Les trois registres, et ce que la synchro en ferait — sans rien écrire. */
-export async function collectUserSync(prisma: PrismaClient, cfg: SeerCfg | null): Promise<UserSyncSnapshot> {
+export async function collectUserSync(db: VigieDb, cfg: SeerCfg | null): Promise<UserSyncSnapshot> {
   const [accountsResult, seerrResult, rows, activeRequests] = await Promise.all([
-    fetchJellyfinAccounts(prisma).then(
+    fetchJellyfinAccounts(db).then(
       (accounts) => ({ accounts, error: null as string | null }),
       (err) => ({ accounts: null, error: errorText(err) }),
     ),
@@ -97,8 +97,8 @@ export async function collectUserSync(prisma: PrismaClient, cfg: SeerCfg | null)
         (err) => ({ seerr: null, error: errorText(err) }),
       )
       : Promise.resolve({ seerr: null, error: "Jellyseerr n'est pas configuré" }),
-    loadLocalRows(prisma),
-    loadActiveRequests(prisma),
+    loadLocalRows(db),
+    loadActiveRequests(db),
   ]);
   const plan = accountsResult.accounts
     ? planUserSync({ accounts: accountsResult.accounts, seerr: seerrResult.seerr, rows, activeRequests })
@@ -114,10 +114,10 @@ export async function collectUserSync(prisma: PrismaClient, cfg: SeerCfg | null)
   };
 }
 
-async function loadLocalRows(prisma: PrismaClient): Promise<LocalUserRow[]> {
-  const rows = await prisma.$queryRawUnsafe<Array<{
-    jellyfin_user_id: string; username: string; jellyseerr_user_id: number | bigint | null;
-  }>>(`SELECT jellyfin_user_id, username, jellyseerr_user_id FROM seer_user_settings`);
+async function loadLocalRows(db: VigieDb): Promise<LocalUserRow[]> {
+  const rows = await db.query<{
+    jellyfin_user_id: string; username: string; jellyseerr_user_id: number | number | null;
+  }>(`SELECT jellyfin_user_id, username, jellyseerr_user_id FROM seer_user_settings`);
   return rows.map((r) => ({
     jellyfinUserId: r.jellyfin_user_id,
     username: r.username,
@@ -126,8 +126,8 @@ async function loadLocalRows(prisma: PrismaClient): Promise<LocalUserRow[]> {
 }
 
 /** Demandes encore attendues, par compte (identifiant normalisé). */
-async function loadActiveRequests(prisma: PrismaClient): Promise<Map<string, number>> {
-  const rows = await prisma.$queryRawUnsafe<Array<{ jellyfin_user_id: string; cnt: bigint | number }>>(
+async function loadActiveRequests(db: VigieDb): Promise<Map<string, number>> {
+  const rows = await db.query<{ jellyfin_user_id: string; cnt: number }>(
     `SELECT jellyfin_user_id, COUNT(*) AS cnt FROM seer_requests
      WHERE status NOT IN ('available', 'failed', 'deleted', 'deleting', 'delete_failed')
      GROUP BY jellyfin_user_id`,
@@ -146,11 +146,11 @@ export interface RunOptions {
   importMissing?: boolean | string[];
 }
 
-export function runUserSync(prisma: PrismaClient, cfg: SeerCfg | null, opts: RunOptions): Promise<UserSyncReport> {
+export function runUserSync(db: VigieDb, cfg: SeerCfg | null, opts: RunOptions): Promise<UserSyncReport> {
   if (inflight) return inflight;
   inflight = (async () => {
     try {
-      const report = await syncOnce(prisma, cfg, opts);
+      const report = await syncOnce(db, cfg, opts);
       lastReport = report;
       return report;
     } finally {
@@ -160,21 +160,21 @@ export function runUserSync(prisma: PrismaClient, cfg: SeerCfg | null, opts: Run
   return inflight;
 }
 
-async function syncOnce(prisma: PrismaClient, cfg: SeerCfg | null, opts: RunOptions): Promise<UserSyncReport> {
+async function syncOnce(db: VigieDb, cfg: SeerCfg | null, opts: RunOptions): Promise<UserSyncReport> {
   const started = Date.now();
   // À la main, on veut l'état du moment : pas celui gardé une demi-minute.
   if (opts.trigger === "manual") {
     forgetJellyfinAccounts();
     forgetSeerrUserChecks();
   }
-  const snap = await collectUserSync(prisma, cfg);
+  const snap = await collectUserSync(db, cfg);
   const report: UserSyncReport = {
     at: new Date().toISOString(), trigger: opts.trigger, durationMs: 0,
     jellyfinError: snap.jellyfinError, seerrError: snap.seerrError,
     created: [], renamed: [], linked: [], adopted: [], unlinked: [], removed: [], imported: [], failures: [],
   };
-  if (snap.plan) await applyPlan(prisma, snap.plan, report);
-  if (cfg && snap.plan && opts.importMissing) await importMissing(prisma, cfg, snap.plan, opts.importMissing, report);
+  if (snap.plan) await applyPlan(db, snap.plan, report);
+  if (cfg && snap.plan && opts.importMissing) await importMissing(db, cfg, snap.plan, opts.importMissing, report);
   if (pendingFixes(snap.plan ?? emptyPlan()) > 0 || report.imported.length > 0) invalidateRequestCaches();
   report.durationMs = Date.now() - started;
   const touched = report.created.length + report.renamed.length + report.linked.length + report.adopted.length
@@ -192,7 +192,7 @@ function emptyPlan(): UserSyncPlan {
   };
 }
 
-async function applyPlan(prisma: PrismaClient, plan: UserSyncPlan, report: UserSyncReport): Promise<void> {
+async function applyPlan(db: VigieDb, plan: UserSyncPlan, report: UserSyncReport): Promise<void> {
   const attempt = async (username: string, action: () => Promise<void>, onDone: () => void) => {
     try {
       await action();
@@ -202,23 +202,23 @@ async function applyPlan(prisma: PrismaClient, plan: UserSyncPlan, report: UserS
     }
   };
   for (const c of plan.createRows) {
-    await attempt(c.name, () => getOrCreateUserSettings(prisma, c.id, c.name).then(() => undefined), () => report.created.push(c.name));
+    await attempt(c.name, () => getOrCreateUserSettings(db, c.id, c.name).then(() => undefined), () => report.created.push(c.name));
   }
   for (const r of plan.renames) {
-    await attempt(r.to, () => updateUserSettings(prisma, r.id, { username: r.to }), () => report.renamed.push({ from: r.from, to: r.to }));
+    await attempt(r.to, () => updateUserSettings(db, r.id, { username: r.to }), () => report.renamed.push({ from: r.from, to: r.to }));
   }
   for (const l of plan.clearLinks) {
-    await attempt(l.username, () => updateUserSettings(prisma, l.id, { jellyseerrUserId: null, jellyseerrLastSync: null }),
+    await attempt(l.username, () => updateUserSettings(db, l.id, { jellyseerrUserId: null, jellyseerrLastSync: null }),
       () => report.unlinked.push(l.username));
   }
   for (const l of plan.setLinks) {
-    await attempt(l.username, () => updateUserSettings(prisma, l.id, { jellyseerrUserId: l.seerrId, jellyseerrLastSync: new Date() }),
+    await attempt(l.username, () => updateUserSettings(db, l.id, { jellyseerrUserId: l.seerrId, jellyseerrLastSync: new Date() }),
       () => (l.reason === "name" ? report.adopted : report.linked).push(l.username));
   }
   for (const r of plan.removeRows) {
     // Relu au dernier moment : une demande a pu arriver depuis la collecte.
     await attempt(r.username, async () => {
-      await prisma.$executeRawUnsafe(
+      await db.execute(
         `DELETE FROM seer_user_settings WHERE jellyfin_user_id = ?
            AND NOT EXISTS (
              SELECT 1 FROM seer_requests WHERE seer_requests.jellyfin_user_id = seer_user_settings.jellyfin_user_id
@@ -230,14 +230,14 @@ async function applyPlan(prisma: PrismaClient, plan: UserSyncPlan, report: UserS
 }
 
 async function importMissing(
-  prisma: PrismaClient, cfg: SeerCfg, plan: UserSyncPlan,
+  db: VigieDb, cfg: SeerCfg, plan: UserSyncPlan,
   which: true | string[], report: UserSyncReport,
 ): Promise<void> {
   const wanted = which === true ? null : new Set(which.map(normalizeJellyfinId));
   const targets = plan.missingSeerr.filter((m) => !wanted || wanted.has(normalizeJellyfinId(m.id)));
   for (const t of targets) {
     try {
-      await resolveJellyseerrUserId(cfg, prisma, t.id, t.username);
+      await resolveJellyseerrUserId(cfg, db, t.id, t.username);
       report.imported.push(t.username);
     } catch (err) {
       report.failures.push({ username: t.username, reason: errorText(err) });

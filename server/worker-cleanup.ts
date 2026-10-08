@@ -2,7 +2,7 @@
 /*  Seer Plugin — Worker: cleanup queue (suppression via Jellyseerr)   */
 /* ------------------------------------------------------------------ */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import {
   getPendingCleanups, updateCleanupJob, enqueueCleanup,
   clearPendingCleanup, deleteRequestById, updateRequestStatus,
@@ -26,12 +26,12 @@ const CLEANUP_BATCH = 25;
  * Un job qui échoue reçoit un next_retry_at futur et sort du lot suivant —
  * pas de boucle infinie. Cap de sécurité à 4 lots (100 jobs) par passe.
  */
-export async function processCleanupQueue(prisma: PrismaClient, config: WorkerConfig): Promise<void> {
+export async function processCleanupQueue(db: VigieDb, config: WorkerConfig): Promise<void> {
   for (let pass = 0; pass < 4; pass++) {
-    const jobs = await getPendingCleanups(prisma, CLEANUP_BATCH);
+    const jobs = await getPendingCleanups(db, CLEANUP_BATCH);
     if (jobs.length === 0) return;
     for (const job of jobs) {
-      await processCleanupJob(prisma, config, job);
+      await processCleanupJob(db, config, job);
     }
     if (jobs.length < CLEANUP_BATCH) return;
   }
@@ -47,7 +47,7 @@ function invalidateForJob(job: CleanupJob): void {
 }
 
 async function processCleanupJob(
-  prisma: PrismaClient,
+  db: VigieDb,
   config: WorkerConfig,
   job: CleanupJob,
 ): Promise<void> {
@@ -58,7 +58,7 @@ async function processCleanupJob(
     // Jellyseerr une fois que Jellyfin a eu le temps de rescanner.
     if (job.action === "sync") {
       await triggerSeerrJob(config.seerrUrl, config.seerrApiKey, "availability-sync");
-      await updateCleanupJob(prisma, job.id, "completed");
+      await updateCleanupJob(db, job.id, "completed");
       invalidateForJob(job);
       console.log(`[SeerWorker] availability-sync re-déclenchée pour "${job.title}"`);
       return;
@@ -124,18 +124,18 @@ async function processCleanupJob(
     // Sans cela, une suppression partielle (ex. S2 sur S1+S2) laissait S2
     // « demandée » pour toujours dans Jellyseerr.
     if (job.mediaType === "tv" && job.seasons && job.seasons.length > 0) {
-      await reconcileSeerrSeasons(prisma, config, job.tmdbId, job.seasons);
+      await reconcileSeerrSeasons(db, config, job.tmdbId, job.seasons);
     }
 
     // === Cleanup local ===
-    await updateCleanupJob(prisma, job.id, "completed");
+    await updateCleanupJob(db, job.id, "completed");
 
     if (job.requestId) {
-      await deleteRequestById(prisma, job.requestId);
+      await deleteRequestById(db, job.requestId);
       console.log(`[SeerWorker] Deleted local request ${job.requestId}`);
     }
 
-    await clearPendingCleanup(prisma, job.id);
+    await clearPendingCleanup(db, job.id);
 
     // Si on a supprimé des fichiers, on relance la réconciliation de disponibilité
     // Jellyseerr (par saison) au lieu d'attendre l'exécution planifiée. Best-effort.
@@ -150,7 +150,7 @@ async function processCleanupJob(
       // +10 min pour que la saison bascule réellement « non disponible »
       // dans Jellyseerr sans attendre le job planifié.
       for (const delay of [120, 600]) {
-        await enqueueCleanup(prisma, {
+        await enqueueCleanup(db, {
           action: "sync", mediaType: job.mediaType, tmdbId: job.tmdbId,
           title: job.title, deleteFiles: false, seasons: null, delaySeconds: delay,
           // Propagation obligatoire : sans elle, ces jobs enfants naîtraient
@@ -171,20 +171,20 @@ async function processCleanupJob(
     const newRetry = job.retryCount + 1;
 
     if (newRetry >= job.maxRetries) {
-      await updateCleanupJob(prisma, job.id, "failed", { lastError: errMsg, retryCount: newRetry });
+      await updateCleanupJob(db, job.id, "failed", { lastError: errMsg, retryCount: newRetry });
 
       if (job.requestId) {
-        await updateRequestStatus(prisma, job.requestId, "delete_failed", {
+        await updateRequestStatus(db, job.requestId, "delete_failed", {
           lastError: `Échec suppression: ${errMsg}`,
         });
       }
 
-      await clearPendingCleanup(prisma, job.id);
+      await clearPendingCleanup(db, job.id);
       console.warn(`[SeerWorker] Cleanup FAILED permanently for "${job.title}" after ${newRetry} retries`);
     } else {
       const delaySec = Math.min(30 * Math.pow(2, newRetry - 1), 1800);
       const nextRetry = new Date(Date.now() + delaySec * 1000);
-      await updateCleanupJob(prisma, job.id, "pending", {
+      await updateCleanupJob(db, job.id, "pending", {
         lastError: errMsg, retryCount: newRetry, nextRetryAt: nextRetry,
       });
       console.log(`[SeerWorker] Cleanup retry ${newRetry}/${job.maxRetries} for "${job.title}" in ${delaySec}s`);

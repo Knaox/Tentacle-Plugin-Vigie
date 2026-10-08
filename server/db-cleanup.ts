@@ -2,10 +2,8 @@
 /*  Seer Plugin — Cleanup queue database operations                    */
 /* ------------------------------------------------------------------ */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { toIso, uuid } from "./db-helpers";
-
-type Prisma = PrismaClient;
 
 /* ── Types ────────────────────────────────────────────────────────── */
 
@@ -46,7 +44,7 @@ function parseSeasons(raw: unknown): number[] | null {
 /* ── CRUD ─────────────────────────────────────────────────────────── */
 
 export async function enqueueCleanup(
-  prisma: Prisma,
+  db: VigieDb,
   job: {
     action: string;
     mediaType: string;
@@ -64,24 +62,23 @@ export async function enqueueCleanup(
 ): Promise<string> {
   const id = uuid();
   const delay = Math.max(0, Math.floor(job.delaySeconds ?? 0));
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO seer_cleanup_queue (id, action, media_type, tmdb_id, title, seerr_request_id, seerr_media_id, delete_files, seasons, request_id, jellyfin_user_id, next_retry_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
+  await db.execute(
+    `INSERT INTO seer_cleanup_queue (id, action, media_type, tmdb_id, title, seerr_request_id, seerr_media_id, delete_files, seasons, request_id, jellyfin_user_id, created_at, next_retry_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${db.sql.now()}, ${db.sql.shiftedNow(delay, "second")})`,
     id, job.action, job.mediaType, job.tmdbId, job.title,
     job.seerrRequestId ?? null, job.seerrMediaId ?? null, job.deleteFiles ? 1 : 0,
     job.seasons && job.seasons.length > 0 ? JSON.stringify(job.seasons) : null,
     job.requestId ?? null,
     job.jellyfinUserId ?? null,
-    delay,
   );
   return id;
 }
 
-export async function getPendingCleanups(prisma: Prisma, limit = 25): Promise<CleanupJob[]> {
-  const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+export async function getPendingCleanups(db: VigieDb, limit = 25): Promise<CleanupJob[]> {
+  const rows = await db.query(
     `SELECT * FROM seer_cleanup_queue
-     WHERE status = 'pending' AND next_retry_at <= NOW()
-     ORDER BY created_at ASC LIMIT ${Math.max(1, Math.min(100, limit))}`,
+     WHERE status = 'pending' AND next_retry_at <= ${db.sql.now()}
+     ORDER BY created_at ASC, id ASC LIMIT ${Math.max(1, Math.min(100, limit))}`,
   );
   return rows.map((r) => ({
     id: r.id as string,
@@ -104,7 +101,7 @@ export async function getPendingCleanups(prisma: Prisma, limit = 25): Promise<Cl
 }
 
 export async function updateCleanupJob(
-  prisma: Prisma,
+  db: VigieDb,
   id: string,
   status: string,
   extra?: { lastError?: string; retryCount?: number; nextRetryAt?: Date },
@@ -115,13 +112,13 @@ export async function updateCleanupJob(
   if (extra?.retryCount !== undefined) { sets.push("retry_count = ?"); params.push(extra.retryCount); }
   if (extra?.nextRetryAt !== undefined) { sets.push("next_retry_at = ?"); params.push(extra.nextRetryAt); }
   params.push(id);
-  await prisma.$executeRawUnsafe(`UPDATE seer_cleanup_queue SET ${sets.join(", ")} WHERE id = ?`, ...params);
+  await db.execute(`UPDATE seer_cleanup_queue SET ${sets.join(", ")} WHERE id = ?`, ...params);
 }
 
 /** Clear pending_cleanup_id on requests linked to a completed cleanup job */
-export async function clearPendingCleanup(prisma: Prisma, cleanupId: string): Promise<void> {
-  await prisma.$executeRawUnsafe(
-    `UPDATE seer_requests SET pending_cleanup_id = NULL WHERE pending_cleanup_id = ?`,
+export async function clearPendingCleanup(db: VigieDb, cleanupId: string): Promise<void> {
+  await db.execute(
+    `UPDATE seer_requests SET updated_at = ${db.sql.now()}, pending_cleanup_id = NULL WHERE pending_cleanup_id = ?`,
     cleanupId,
   );
 }
@@ -130,17 +127,17 @@ export async function clearPendingCleanup(prisma: Prisma, cleanupId: string): Pr
  * Abandonne les nettoyages *arr pas encore aboutis d'une demande qu'on retire
  * sans rien toucher : ce sont eux qui toucheraient Sonarr ou Radarr.
  */
-export async function cancelCleanupsForRequest(prisma: Prisma, requestId: string): Promise<number> {
-  return prisma.$executeRawUnsafe(
+export async function cancelCleanupsForRequest(db: VigieDb, requestId: string): Promise<number> {
+  return db.execute(
     `DELETE FROM seer_cleanup_queue WHERE request_id = ? AND status <> 'completed'`,
     requestId,
   );
 }
 
 /** Link a request to a cleanup job so it waits for cleanup to complete */
-export async function setPendingCleanup(prisma: Prisma, requestId: string, cleanupId: string): Promise<void> {
-  await prisma.$executeRawUnsafe(
-    `UPDATE seer_requests SET pending_cleanup_id = ? WHERE id = ?`,
+export async function setPendingCleanup(db: VigieDb, requestId: string, cleanupId: string): Promise<void> {
+  await db.execute(
+    `UPDATE seer_requests SET updated_at = ${db.sql.now()}, pending_cleanup_id = ? WHERE id = ?`,
     cleanupId,
     requestId,
   );

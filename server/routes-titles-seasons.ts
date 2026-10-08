@@ -19,7 +19,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { getUser, type JellyfinUser, type WorkerCfg } from "./seerr-unified";
 import { fetchMediaDetail } from "./anime";
 import { specialSeasonsQuick } from "./seerr-settings";
@@ -42,7 +42,7 @@ interface SeasonsRead {
 
 /** La fiche Jellyseerr d'une série et ses saisons vues par CE compte ; `null` si Jellyseerr se tait. */
 async function readSeasons(
-  prisma: PrismaClient,
+  db: VigieDb,
   cfg: WorkerCfg,
   user: JellyfinUser,
   tmdbId: number,
@@ -51,8 +51,8 @@ async function readSeasons(
   const detail = (await fetchMediaDetail(cfg.seerrUrl, cfg.seerrApiKey, "tv", tmdbId)) as SeerrTvDetail | null;
   if (!detail?.name) return null;
   const [local, rights, specials] = await Promise.all([
-    localRequestedSeasons(prisma, user.userId, tmdbId).catch(() => [] as number[]),
-    rightsOf(prisma, user.userId, cfg),
+    localRequestedSeasons(db, user.userId, tmdbId).catch(() => [] as number[]),
+    rightsOf(db, user.userId, cfg),
     specialSeasonsQuick(cfg.seerrUrl, cfg.seerrApiKey),
   ]);
   return { detail, seasons: titleSeasons(detail, local, rights, { specials, lang }) };
@@ -60,7 +60,7 @@ async function readSeasons(
 
 export function registerTitleSeasonRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
 ): void {
   app.get("/titles/seasons", async (request) => {
@@ -69,7 +69,7 @@ export function registerTitleSeasonRoutes(
     const lang = readLang(query.lang);
     if (!match) return { seasons: [] };
     const cfg = await getWorkerConfig();
-    const read = cfg ? await readSeasons(prisma, cfg, getUser(request), Number(match[1]), lang) : null;
+    const read = cfg ? await readSeasons(db, cfg, getUser(request), Number(match[1]), lang) : null;
     if (!read) return { ok: false, message: unreachableMessage(lang), seasons: [] };
     return { seasons: read.seasons };
   });
@@ -81,7 +81,7 @@ export function registerTitleSeasonRoutes(
  * peut-être) → le refus « déjà demandé », et l'état du titre pour sa carte.
  */
 export async function requestSeasons(
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
   user: JellyfinUser,
   tmdbId: number,
@@ -91,9 +91,9 @@ export async function requestSeasons(
 ): Promise<Record<string, unknown>> {
   const cfg = await getWorkerConfig();
   if (!cfg) return { ok: false, message: unreachableMessage(lang) };
-  const read = await readSeasons(prisma, cfg, user, tmdbId, lang);
+  const read = await readSeasons(db, cfg, user, tmdbId, lang);
   if (!read) return { ok: false, message: unreachableMessage(lang) };
-  const rights = await rightsOf(prisma, user.userId, cfg);
+  const rights = await rightsOf(db, user.userId, cfg);
   const known = read.detail.mediaInfo?.status;
   const seasons = freeSeasons(chosen, read.seasons);
   if (seasons.length === 0) {
@@ -101,7 +101,7 @@ export async function requestSeasons(
   }
 
   const { detail } = read;
-  const result = await submitRequest(prisma, getWorkerConfig, user, {
+  const result = await submitRequest(db, getWorkerConfig, user, {
     mediaType: "tv",
     tmdbId,
     title: detail.name,

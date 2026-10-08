@@ -15,7 +15,7 @@
  * une passe sur cinq.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { SeerRequest } from "./types";
 import type { WorkerCfg } from "./seerr-unified";
 import { rowToRequest } from "./db-helpers";
@@ -65,7 +65,7 @@ function justLeft(id: string, inQueue: boolean): boolean {
   return true;
 }
 
-export async function advanceFromArr(prisma: PrismaClient, cfg: WorkerCfg): Promise<void> {
+export async function advanceFromArr(db: VigieDb, cfg: WorkerCfg): Promise<void> {
   passCount++;
   const queue = await queueSnapshot(cfg).catch(() => null);
   reachable = {
@@ -74,7 +74,7 @@ export async function advanceFromArr(prisma: PrismaClient, cfg: WorkerCfg): Prom
   };
   if (!queue || (!reachable.radarr && !reachable.sonarr)) return;
 
-  const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+  const rows = await db.query(
     `SELECT * FROM seer_requests
      WHERE status IN (${CANDIDATES.map(() => "?").join(", ")}) AND tmdb_id > 0
      ORDER BY updated_at DESC LIMIT 500`,
@@ -91,7 +91,7 @@ export async function advanceFromArr(prisma: PrismaClient, cfg: WorkerCfg): Prom
     const recent = justLeft(req.id, inQueue);
     if (!inQueue && !recent && !idleTurn && req.status !== "downloading") return;
     try {
-      await apply(prisma, req, await decide(cfg, req, inQueue));
+      await apply(db, req, await decide(cfg, req, inQueue));
     } catch (err) {
       console.warn(`[SeerArr] "${req.title}" :`, err);
     }
@@ -131,25 +131,25 @@ export function arrivalNotifications(req: SeerRequest, d: AdvanceDecision): Arra
   return out;
 }
 
-async function apply(prisma: PrismaClient, req: SeerRequest, d: AdvanceDecision): Promise<void> {
+async function apply(db: VigieDb, req: SeerRequest, d: AdvanceDecision): Promise<void> {
   const notifications = arrivalNotifications(req, d);
   if (d.status === null && d.notified === null && notifications.length === 0) return;
 
   if (d.status) {
-    await updateRequestStatus(prisma, req.id, d.status, d.completed ? { completedAt: new Date() } : undefined);
+    await updateRequestStatus(db, req.id, d.status, d.completed ? { completedAt: new Date() } : undefined);
     console.log(`[SeerArr] "${req.title}" status: ${req.status} → ${d.status}`);
   }
   // Annonce d'abord, mémoire ensuite : un échec entre les deux réannoncerait
   // plutôt que de taire une arrivée.
   for (const n of notifications) {
-    await prisma.notification.create({
+    await db.core.notification.create({
       data: { jellyfinUserId: req.jellyfinUserId, type: "request_status", title: n.title, body: n.body, refId: req.id },
     });
   }
-  if (d.notified) await setNotifiedSeasons(prisma, req.id, d.notified);
+  if (d.notified) await setNotifiedSeasons(db, req.id, d.notified);
   invalidateRequestCaches(req.jellyfinUserId);
   // Le notifier du serveur annonce l'arrivée dans Jellyfin au demandeur tant
   // que la revendication court : on la prolonge au moment où tout se joue.
-  await upsertContentClaim(prisma, req.tmdbId, req.jellyfinUserId, req.mediaType, req.title, CLAIM_TTL_SECONDS)
+  await upsertContentClaim(db, req.tmdbId, req.jellyfinUserId, req.mediaType, req.title, CLAIM_TTL_SECONDS)
     .catch(() => {});
 }

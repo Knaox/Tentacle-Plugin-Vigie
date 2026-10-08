@@ -11,7 +11,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { cached } from "./cache";
 import { getUser, type WorkerCfg } from "./seerr-unified";
 import { buildMergedRows, type MergedRows } from "./requests-list";
@@ -70,14 +70,14 @@ const EMPTY = (from: string, to: string): CalendarResponse => ({ from, to, items
 
 export function registerCalendarRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
 ): void {
   const warn = (err: unknown, msg: string) => app.log?.warn?.({ err }, msg);
 
   /* Préchauffage + entretien du calendrier maître. Branché ici plutôt que
    * dans index.ts, déjà au-delà du budget de lignes du projet. */
-  const stopMaintenance = initCalendarStoreMaintenance(prisma, getWorkerConfig, warn);
+  const stopMaintenance = initCalendarStoreMaintenance(db, getWorkerConfig, warn);
   app.addHook("onClose", async () => stopMaintenance());
 
   /* ── Les sorties des demandes — les miennes, ou celles de tout le monde ── */
@@ -112,16 +112,16 @@ export function registerCalendarRoutes(
           ? await cached(
               "seer:rows:everyone",
               60_000,
-              () => buildEveryoneRows(prisma, config, warn),
+              () => buildEveryoneRows(db, config, warn),
               { staleMs: 600_000 },
             )
           : await cached(
               rowsCacheKey(user.userId),
               60_000,
-              () => buildMergedRows(prisma, config, user, warn),
+              () => buildMergedRows(db, config, user, warn),
               { staleMs: 600_000 },
             );
-        return buildPersonalFromStore(prisma, config, rows, {
+        return buildPersonalFromStore(db, config, rows, {
           from, to, includeSettled, region,
           maxFetch: everyone ? EVERYONE_FETCH_BUDGET : undefined,
         }, warn);
@@ -158,7 +158,7 @@ export function registerCalendarRoutes(
       .slice(0, MAX_PROVIDERS);
     const mediaType = q.mediaType === "movie" || q.mediaType === "tv" ? q.mediaType : "both";
 
-    const res = await buildGlobalFromStore(prisma, config, {
+    const res = await buildGlobalFromStore(db, config, {
       providerIds, mediaType, region: readRegion(q), from, to,
     }, warn);
     return attachItemStates(config, res, todayString());

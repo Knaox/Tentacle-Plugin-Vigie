@@ -24,13 +24,12 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { WorkerCfg } from "./seerr-unified";
 import { fullIfReady, fullSearch, instantSearch, warmSearch, type SearchContext, type SearchOptions } from "./search/service";
 import { presentHub, presentProvider } from "./search/respond";
 import { genreFacets, providerFacets } from "./search/facets";
 import { titleIndexBuilding } from "./search/title-crawl";
-import { ensureSearchTables } from "./search/title-store";
 import { personProvider, readRole } from "./search/person-credits";
 import { collectionProvider } from "./search/collection-parts";
 
@@ -63,14 +62,12 @@ function todayIso(): string {
 
 export async function registerSearchRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
 ): Promise<void> {
-  await ensureSearchTables(prisma);
-
   async function context(): Promise<SearchContext | null> {
     const cfg = await getWorkerConfig();
-    return cfg ? { prisma, cfg } : null;
+    return cfg ? { db, cfg } : null;
   }
 
   // L'index et les statuts se chargent dès le démarrage : la première recherche

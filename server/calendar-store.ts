@@ -10,7 +10,7 @@
  * payait jusqu'ici la construction entière, sans même un message.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { WorkerCfg } from "./seerr-unified";
 import { cached } from "./cache";
 import { todayString } from "./tmdb-fetch";
@@ -50,7 +50,7 @@ export function calendarStoreHorizon(today: string): { from: string; to: string 
 }
 
 export async function getCalendarStore(
-  prisma: PrismaClient,
+  db: VigieDb,
   cfg: WorkerCfg,
   region: string,
   warn?: (err: unknown, msg: string) => void,
@@ -64,7 +64,7 @@ export async function getCalendarStore(
   return cached(
     `seer:store:${reg}:${from}`,
     STORE_TTL_MS,
-    () => buildCalendarStore(prisma, cfg, reg, from, to, warn),
+    () => buildCalendarStore(db, cfg, reg, from, to, warn),
     {
       staleMs: STORE_STALE_MS,
       ttlFor: (s) => (s.partial ? STORE_PARTIAL_TTL_MS : STORE_TTL_MS),
@@ -81,7 +81,7 @@ export async function getCalendarStore(
  * fichier d'entrée est déjà au-delà du budget de lignes du projet.
  */
 export function initCalendarStoreMaintenance(
-  prisma: PrismaClient,
+  db: VigieDb,
   getCfg: () => Promise<WorkerCfg | null>,
   warn?: (err: unknown, msg: string) => void,
 ): () => void {
@@ -93,7 +93,7 @@ export function initCalendarStoreMaintenance(
     if (!cfg) return;
     for (const region of seenRegions) {
       if (stopped) return;
-      await getCalendarStore(prisma, cfg, region, warn).catch((err) => {
+      await getCalendarStore(db, cfg, region, warn).catch((err) => {
         warn?.(err, `[seer] échec du préchauffage du calendrier (${region})`);
       });
     }

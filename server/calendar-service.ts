@@ -9,7 +9,7 @@
  * marquerait le calendrier de tout le monde.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { WorkerCfg } from "./seerr-unified";
 import { todayString } from "./tmdb-fetch";
 import { markRequested } from "./calendar-requested";
@@ -43,12 +43,12 @@ export function sliceStore(store: CalendarStore, from: string, to: string): Cale
 }
 
 export async function buildGlobalFromStore(
-  prisma: PrismaClient,
+  db: VigieDb,
   cfg: WorkerCfg,
   opts: GlobalServeOpts,
   warn?: (err: unknown, msg: string) => void,
 ): Promise<CalendarResponse> {
-  const store = await getCalendarStore(prisma, cfg, opts.region, warn);
+  const store = await getCalendarStore(db, cfg, opts.region, warn);
 
   /* Une navigation au-delà de l'horizon rend simplement la part couverte :
    * l'horizon dépasse déjà toute utilisation raisonnable de l'agenda. */
@@ -68,7 +68,7 @@ export async function buildGlobalFromStore(
 
   items = capPerSeriesFuture(sortCalendarItems(items), GLOBAL_MAX_PER_SERIES, todayString());
   // Sur les copies : la pastille est par instance, jamais figée dans le store.
-  await markRequested(prisma, items);
+  await markRequested(db, items);
 
   return { from: opts.from, to: opts.to, items, partial: store.partial };
 }

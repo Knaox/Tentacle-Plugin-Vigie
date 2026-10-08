@@ -16,7 +16,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { cancelCleanupsForRequest, deleteRequestById, getRequestById } from "./db";
 import { invalidateRequestCaches } from "./cache";
 import { fetchSeerrRequestById, getUser, parseRequestId, type WorkerCfg } from "./seerr-unified";
@@ -33,7 +33,7 @@ async function deleteSeerrRequest(config: WorkerCfg, seerrRequestId: number): Pr
 
 export function registerRequestForgetRoute(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
 ): void {
   app.post("/requests/:id/forget", async (request, reply) => {
@@ -43,7 +43,7 @@ export function registerRequestForgetRoute(
     const config = await getWorkerConfig();
 
     if (parsed.kind === "local") {
-      const req = await getRequestById(prisma, parsed.id);
+      const req = await getRequestById(db, parsed.id);
       if (!req) return reply.status(404).send({ message: "Request not found" });
       if (req.jellyfinUserId !== user.userId && !user.isAdmin) {
         return reply.status(403).send({ message: "Not your request" });
@@ -52,8 +52,8 @@ export function registerRequestForgetRoute(
         return reply.status(409).send({ errorKey: "seer:errNotForgettable", message: "Only requests to check can be removed alone" });
       }
       if (config && req.seerrRequestId) await deleteSeerrRequest(config, req.seerrRequestId);
-      await cancelCleanupsForRequest(prisma, parsed.id);
-      await deleteRequestById(prisma, parsed.id);
+      await cancelCleanupsForRequest(db, parsed.id);
+      await deleteRequestById(db, parsed.id);
       invalidateRequestCaches(req.jellyfinUserId);
       if (req.jellyfinUserId !== user.userId) invalidateRequestCaches(user.userId);
       return { success: true };
@@ -68,7 +68,7 @@ export function registerRequestForgetRoute(
       return { success: true };
     }
     if (!user.isAdmin) {
-      const rows = await prisma.$queryRawUnsafe<Array<{ jellyseerr_user_id: number | null }>>(
+      const rows = await db.query<{ jellyseerr_user_id: number | null }>(
         `SELECT jellyseerr_user_id FROM seer_user_settings WHERE jellyfin_user_id = ? LIMIT 1`,
         user.userId,
       );

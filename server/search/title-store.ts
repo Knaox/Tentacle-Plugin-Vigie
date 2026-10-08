@@ -10,7 +10,7 @@
  * petits paquets.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "../storage/vigie-db";
 import { chunk } from "../concurrency";
 import type { TitleIndex, TitleRecord } from "./title-index";
 
@@ -20,35 +20,6 @@ const BATCH = 200;
 
 let pending: TitleRecord[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
-
-export async function ensureSearchTables(prisma: PrismaClient): Promise<void> {
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS seer_search_titles (
-      media_type        VARCHAR(5)    NOT NULL,
-      tmdb_id           INT           NOT NULL,
-      lang              VARCHAR(8)    NOT NULL,
-      title             VARCHAR(500)  NOT NULL DEFAULT '',
-      original_title    VARCHAR(500)  DEFAULT NULL,
-      release_date      CHAR(10)      DEFAULT NULL,
-      popularity        DECIMAL(10,3) DEFAULT NULL,
-      vote_count        INT           DEFAULT NULL,
-      vote_average      DECIMAL(3,1)  DEFAULT NULL,
-      poster_path       VARCHAR(255)  DEFAULT NULL,
-      backdrop_path     VARCHAR(255)  DEFAULT NULL,
-      original_language VARCHAR(10)   DEFAULT NULL,
-      genre_ids         VARCHAR(120)  DEFAULT NULL,
-      updated_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (media_type, tmdb_id, lang)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS seer_search_meta (
-      meta_key   VARCHAR(64)  NOT NULL PRIMARY KEY,
-      meta_value VARCHAR(500) NOT NULL DEFAULT '',
-      updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
-}
 
 function num(v: unknown): number {
   const n = Number(v);
@@ -74,72 +45,78 @@ function rowToRecord(row: Record<string, unknown>): TitleRecord {
 }
 
 /** Relit toute la table dans l'index. Rend le nombre de lignes lues. */
-export async function loadTitles(prisma: PrismaClient, index: TitleIndex): Promise<number> {
-  const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT * FROM seer_search_titles`);
+export async function loadTitles(db: VigieDb, index: TitleIndex): Promise<number> {
+  const rows = await db.query(`SELECT * FROM seer_search_titles`);
   for (const row of rows) index.upsert(rowToRecord(row));
   return rows.length;
 }
 
-async function writeBatch(prisma: PrismaClient, records: TitleRecord[]): Promise<void> {
+const TITLE_KEY = ["media_type", "tmdb_id", "lang"];
+const TITLE_COLUMNS = [
+  ...TITLE_KEY, "title", "original_title", "release_date", "popularity", "vote_count",
+  "vote_average", "poster_path", "backdrop_path", "original_language", "genre_ids", "updated_at",
+];
+const TITLE_UPDATE = TITLE_COLUMNS.filter((c) => !TITLE_KEY.includes(c));
+
+function round(n: number, digits: number): number {
+  const f = 10 ** digits;
+  return Math.round(n * f) / f;
+}
+
+async function writeBatch(db: VigieDb, records: TitleRecord[]): Promise<void> {
   for (const part of chunk(records, BATCH)) {
-    const placeholders = part.map(() => "(?,?,?,?,?,?,?,?,?,?,?,?,?)").join(",");
+    const now = db.sql.dateParam(new Date());
     const values = part.flatMap((r) => [
       r.mediaType, r.tmdbId, r.lang.slice(0, 8), r.title.slice(0, 500), r.originalTitle?.slice(0, 500) ?? null,
       r.releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(r.releaseDate) ? r.releaseDate : null,
-      Math.min(r.popularity, 9_999_999), r.voteCount, Math.min(r.voteAverage, 10),
+      // Les arrondis que faisaient les colonnes DECIMAL(10,3) et DECIMAL(3,1) de MariaDB.
+      round(Math.min(r.popularity, 9_999_999), 3), r.voteCount, round(Math.min(r.voteAverage, 10), 1),
       r.posterPath, r.backdropPath, r.originalLanguage?.slice(0, 10) ?? null, r.genreIds.join(",").slice(0, 120) || null,
+      now,
     ]);
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO seer_search_titles
-         (media_type, tmdb_id, lang, title, original_title, release_date, popularity, vote_count,
-          vote_average, poster_path, backdrop_path, original_language, genre_ids)
-       VALUES ${placeholders}
-       ON DUPLICATE KEY UPDATE title = VALUES(title), original_title = VALUES(original_title),
-         release_date = VALUES(release_date), popularity = VALUES(popularity), vote_count = VALUES(vote_count),
-         vote_average = VALUES(vote_average), poster_path = VALUES(poster_path), backdrop_path = VALUES(backdrop_path),
-         original_language = VALUES(original_language), genre_ids = VALUES(genre_ids)`,
-      ...values,
-    );
+    await db.execute(db.sql.upsert({ table: "seer_search_titles", columns: TITLE_COLUMNS, rows: part.length, conflict: TITLE_KEY, update: TITLE_UPDATE }), ...values);
   }
 }
 
 /** Écrit tout ce qui attend. Ne rejette jamais : un index qui ne s'écrit pas reste un index qui cherche. */
-export async function flushTitles(prisma: PrismaClient): Promise<void> {
+export async function flushTitles(db: VigieDb): Promise<void> {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
   if (pending.length === 0) return;
   const batch = pending;
   pending = [];
   try {
-    await writeBatch(prisma, batch);
+    await writeBatch(db, batch);
   } catch (err) {
     console.warn(`[Vigie] Index de recherche non enregistré : ${err instanceof Error ? err.message : err}`);
   }
 }
 
 /** Met des titres de côté pour la prochaine écriture groupée. */
-export function queueTitles(prisma: PrismaClient, records: TitleRecord[]): void {
+export function queueTitles(db: VigieDb, records: TitleRecord[]): void {
   pending.push(...records);
-  if (pending.length >= FLUSH_AT) { void flushTitles(prisma); return; }
-  if (!flushTimer) flushTimer = setTimeout(() => { void flushTitles(prisma); }, FLUSH_EVERY_MS);
+  if (pending.length >= FLUSH_AT) { void flushTitles(db); return; }
+  if (!flushTimer) flushTimer = setTimeout(() => { void flushTitles(db); }, FLUSH_EVERY_MS);
 }
 
-export async function readMeta(prisma: PrismaClient, key: string): Promise<string | null> {
-  const rows = await prisma.$queryRawUnsafe<Array<{ meta_value: string }>>(
+export async function readMeta(db: VigieDb, key: string): Promise<string | null> {
+  const rows = await db.query<{ meta_value: string }>(
     `SELECT meta_value FROM seer_search_meta WHERE meta_key = ?`, key,
   );
   return rows[0]?.meta_value ?? null;
 }
 
-export async function writeMeta(prisma: PrismaClient, key: string, value: string): Promise<void> {
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO seer_search_meta (meta_key, meta_value) VALUES (?, ?)
-     ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)`,
-    key, value.slice(0, 500),
+export async function writeMeta(db: VigieDb, key: string, value: string): Promise<void> {
+  await db.execute(
+    db.sql.upsert({
+      table: "seer_search_meta", columns: ["meta_key", "meta_value", "updated_at"],
+      conflict: ["meta_key"], update: ["meta_value", "updated_at"],
+    }),
+    key, value.slice(0, 500), db.sql.dateParam(new Date()),
   );
 }
 
 /** Une liste de blocage a changé : tout ce qui a été appris avant peut être interdit. */
-export async function clearTitles(prisma: PrismaClient): Promise<void> {
+export async function clearTitles(db: VigieDb): Promise<void> {
   pending = [];
-  await prisma.$executeRawUnsafe(`DELETE FROM seer_search_titles`);
+  await db.execute(`DELETE FROM seer_search_titles`);
 }

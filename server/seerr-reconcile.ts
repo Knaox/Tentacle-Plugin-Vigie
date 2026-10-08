@@ -2,7 +2,7 @@
 /*  Seer Plugin — Réconciliation des demandes Jellyseerr (saisons)     */
 /* ------------------------------------------------------------------ */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 
 interface SeerrMediaRequest {
   id: number;
@@ -27,7 +27,7 @@ interface SeerrMediaRequest {
  * ou réduction de la liste de saisons).
  */
 export async function reconcileSeerrSeasons(
-  prisma: PrismaClient,
+  db: VigieDb,
   config: { seerrUrl: string; seerrApiKey: string },
   tmdbId: number,
   removedSeasons: number[],
@@ -65,7 +65,7 @@ export async function reconcileSeerrSeasons(
       if (!del.ok && del.status !== 404) {
         throw new Error(`Jellyseerr DELETE /request/${req.id} returned ${del.status}`);
       }
-      await prisma.$executeRawUnsafe(
+      await db.execute(
         `DELETE FROM seer_requests WHERE seerr_request_id = ?`,
         req.id,
       );
@@ -101,8 +101,8 @@ export async function reconcileSeerrSeasons(
           `saisons S${remaining.join(", S")}`,
         );
       }
-      await prisma.$executeRawUnsafe(
-        `UPDATE seer_requests SET seasons = ? WHERE seerr_request_id = ?`,
+      await db.execute(
+        `UPDATE seer_requests SET updated_at = ${db.sql.now()}, seasons = ? WHERE seerr_request_id = ?`,
         JSON.stringify(remaining),
         req.id,
       );

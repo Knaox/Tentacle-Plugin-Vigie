@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
+import { testSql } from "./test-support/sqlite-storage";
 import { reconcileSeerrSeasons } from "./seerr-reconcile";
 import { reassignSeerrRequestOwnership } from "./seerr-ownership";
 
@@ -39,7 +40,7 @@ const refused = () => ({ status: 409, json: { message: "Only pending requests ca
 
 test("Seerr 3.5 : une demande validée garde ses saisons, la suppression va au bout", async () => {
   const executed: unknown[][] = [];
-  const prisma = { $executeRawUnsafe: async (...args: unknown[]) => { executed.push(args); return 1; } } as unknown as PrismaClient;
+  const db = { sql: testSql(), execute: async (...args: unknown[]) => { executed.push(args); return 1; } } as unknown as VigieDb;
   const seasons = (...n: number[]) => n.map((seasonNumber) => ({ seasonNumber }));
   await withSeerr({
     "GET /api/v1/tv/1399": () => ({ status: 200, json: { mediaInfo: { requests: [
@@ -52,7 +53,7 @@ test("Seerr 3.5 : une demande validée garde ses saisons, la suppression va au b
     "PUT /api/v1/request/12": () => ({ status: 200, json: {} }),
     "DELETE /api/v1/request/13": () => ({ status: 204 }),
   }, async (calls) => {
-    await reconcileSeerrSeasons(prisma, cfg, 1399, [2]);
+    await reconcileSeerrSeasons(db, cfg, 1399, [2]);
     assert.deepEqual(calls.filter((c) => c.method !== "GET").map((c) => `${c.method} ${c.path}`), [
       "PUT /api/v1/request/11", "PUT /api/v1/request/12", "DELETE /api/v1/request/13",
     ]);

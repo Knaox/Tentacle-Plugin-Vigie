@@ -9,7 +9,7 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { getUserSettings } from "./db";
 import { deleteJellyseerrUser, resolveJellyseerrUserId, SeerrAccountError } from "./jellyseerr-user";
 import { fetchJellyfinAccounts, normalizeJellyfinId } from "./jellyfin-users";
@@ -26,7 +26,7 @@ const errorText = (err: unknown) => (err instanceof Error ? err.message : String
 
 export function registerUserSyncRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
   requireAdmin: Guard,
 ): void {
@@ -42,7 +42,7 @@ export function registerUserSyncRoutes(
     const importMissing = Array.isArray(body.importMissing)
       ? body.importMissing.filter((id): id is string => typeof id === "string")
       : body.importMissing === true;
-    return runUserSync(prisma, await seerCfg(), { trigger: "manual", importMissing });
+    return runUserSync(db, await seerCfg(), { trigger: "manual", importMissing });
   });
 
   /* Relier un compte à Jellyseerr : retrouvé, rattaché, ou créé. */
@@ -50,12 +50,12 @@ export function registerUserSyncRoutes(
     const cfg = await seerCfg();
     if (!cfg) return reply.status(503).send({ message: "Jellyseerr n'est pas configuré" });
     const { jellyfinUserId } = request.params as { jellyfinUserId: string };
-    const settings = await getUserSettings(prisma, jellyfinUserId);
-    const account = (await fetchJellyfinAccounts(prisma).catch(() => []))
+    const settings = await getUserSettings(db, jellyfinUserId);
+    const account = (await fetchJellyfinAccounts(db).catch(() => []))
       .find((a) => normalizeJellyfinId(a.id) === normalizeJellyfinId(jellyfinUserId));
     try {
       const seerrId = await resolveJellyseerrUserId(
-        cfg, prisma, jellyfinUserId, account?.name || settings?.username || jellyfinUserId,
+        cfg, db, jellyfinUserId, account?.name || settings?.username || jellyfinUserId,
       );
       invalidateRequestCaches(jellyfinUserId);
       return { seerrId };
@@ -72,14 +72,14 @@ export function registerUserSyncRoutes(
     const { jellyfinUserId } = request.params as { jellyfinUserId: string };
     let accounts;
     try {
-      accounts = await fetchJellyfinAccounts(prisma);
+      accounts = await fetchJellyfinAccounts(db);
     } catch (err) {
       return reply.status(503).send({ message: `Jellyfin injoignable : ${errorText(err)}` });
     }
     if (accounts.some((a) => normalizeJellyfinId(a.id) === normalizeJellyfinId(jellyfinUserId))) {
       return reply.status(409).send({ message: "Ce compte existe encore dans Jellyfin" });
     }
-    await prisma.$executeRawUnsafe(`DELETE FROM seer_user_settings WHERE jellyfin_user_id = ?`, jellyfinUserId);
+    await db.execute(`DELETE FROM seer_user_settings WHERE jellyfin_user_id = ?`, jellyfinUserId);
     invalidateRequestCaches(jellyfinUserId);
     return { ok: true };
   });
@@ -94,11 +94,11 @@ export function registerUserSyncRoutes(
     if (!Number.isInteger(seerrId) || seerrId <= 0) return reply.status(400).send({ message: "Identifiant invalide" });
     if (seerrId === SEERR_OWNER_ID) return reply.status(403).send({ message: "Le propriétaire de Jellyseerr ne se supprime pas" });
 
-    const linked = await prisma.$queryRawUnsafe<Array<{ jellyfin_user_id: string }>>(
+    const linked = await db.query<{ jellyfin_user_id: string }>(
       `SELECT jellyfin_user_id FROM seer_user_settings WHERE jellyseerr_user_id = ?`, seerrId,
     );
     if (linked.length > 0) {
-      const alive = new Set((await fetchJellyfinAccounts(prisma).catch(() => [])).map((a) => normalizeJellyfinId(a.id)));
+      const alive = new Set((await fetchJellyfinAccounts(db).catch(() => [])).map((a) => normalizeJellyfinId(a.id)));
       if (linked.some((l) => alive.has(normalizeJellyfinId(l.jellyfin_user_id)))) {
         return reply.status(409).send({ message: "Ce compte Jellyseerr sert encore un compte Jellyfin" });
       }
@@ -108,8 +108,8 @@ export function registerUserSyncRoutes(
     } catch (err) {
       return reply.status(502).send({ message: errorText(err) });
     }
-    await prisma.$executeRawUnsafe(
-      `UPDATE seer_user_settings SET jellyseerr_user_id = NULL, jellyseerr_last_sync = NULL WHERE jellyseerr_user_id = ?`,
+    await db.execute(
+      `UPDATE seer_user_settings SET updated_at = ${db.sql.now()}, jellyseerr_user_id = NULL, jellyseerr_last_sync = NULL WHERE jellyseerr_user_id = ?`,
       seerrId,
     );
     invalidateRequestCaches();

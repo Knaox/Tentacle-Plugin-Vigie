@@ -11,7 +11,7 @@
  *              tard, rien ne la lit encore.
  *
  * Vigie les garde avec la demande (colonnes `origin` et `platform` de
- * `seer_requests`, posées par `ensureTables`), et `GET /titles/mine?origin=tv`
+ * `seer_requests`, posées par storage/schema.ts), et `GET /titles/mine?origin=tv`
  * ne rend que les demandes de cette origine : « Mes demandes » d'un
  * téléviseur ne montre que ce qu'on a demandé depuis une TV.
  *

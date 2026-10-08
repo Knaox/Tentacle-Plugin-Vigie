@@ -35,7 +35,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { getUser, type WorkerCfg } from "./seerr-unified";
 import { fetchMediaDetail } from "./anime";
 import { refreshStatusMap, noteStatus, MEDIA_STATUS } from "./search/status-map";
@@ -73,7 +73,7 @@ interface MovieDetail {
 
 export function registerTitleRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
 ): void {
   app.get("/titles/state", async (request) => {
@@ -83,9 +83,9 @@ export function registerTitleRoutes(
     if (!cfg || keys.length === 0) return { items: {} };
     // Ni l'un ni l'autre n'est attendu : la réponse part avec ce qu'on sait déjà.
     refreshStatusMap(cfg);
-    refreshLocalPending(prisma);
+    refreshLocalPending(db);
     const lang = readLang(query.lang);
-    const rights = await rightsOf(prisma, getUser(request).userId, cfg);
+    const rights = await rightsOf(db, getUser(request).userId, cfg);
     const items: Record<string, TitleStateOut> = {};
     for (const k of keys) {
       const status = statusFor({ key: k.key, mediaType: k.mediaType, tmdbId: k.tmdbId, remoteStatus: undefined });
@@ -110,13 +110,13 @@ export function registerTitleRoutes(
       // (`titles.seasons`), elles partent ; sinon, elles se choisissent dans le hub.
       const seasons = parseRequestedSeasons(body.seasons);
       if (!seasons) return { href: seasonsHref(tmdbId) };
-      return requestSeasons(prisma, getWorkerConfig, getUser(request), tmdbId, seasons, lang, origin);
+      return requestSeasons(db, getWorkerConfig, getUser(request), tmdbId, seasons, lang, origin);
     }
 
     const cfg = await getWorkerConfig();
     if (!cfg) return { ok: false, message: unreachableMessage(lang) };
     const user = getUser(request);
-    const rights = await rightsOf(prisma, user.userId, cfg);
+    const rights = await rightsOf(db, user.userId, cfg);
     const detail = (await fetchMediaDetail(cfg.seerrUrl, cfg.seerrApiKey, "movie", tmdbId)) as MovieDetail | null;
     if (!detail?.title) return { ok: false, message: unreachableMessage(lang) };
 
@@ -129,7 +129,7 @@ export function registerTitleRoutes(
       return { ok: false, message: refusalMessage(409, {}, lang), state: titleStateFor("movie", tmdbId, known, rights, lang) };
     }
 
-    const result = await submitRequest(prisma, getWorkerConfig, user, {
+    const result = await submitRequest(db, getWorkerConfig, user, {
       mediaType: "movie",
       tmdbId,
       title: detail.title,
@@ -151,7 +151,7 @@ export function registerTitleRoutes(
   app.get("/titles/access", async (request) => {
     const cfg = await getWorkerConfig();
     if (!cfg) return { request: false };
-    const rights = await rightsOf(prisma, getUser(request).userId, cfg);
+    const rights = await rightsOf(db, getUser(request).userId, cfg);
     return { request: rights.movies || rights.tv };
   });
 
@@ -164,8 +164,8 @@ export function registerTitleRoutes(
     // Une clé par filtre, toutes sous celle du compte : une demande faite les invalide ensemble.
     const key = `seer-cache:${user.userId}:mine${origin === undefined ? "" : `:origin=${origin}`}`;
     return cached(key, MINE_TTL_MS, async () => {
-      const rows = await loadMergedRows(prisma, cfg, user, (err, msg) => app.log?.warn?.({ err }, msg));
-      const { meta, missing } = await resolveTmdbMeta(prisma, cfg, collectTmdbRefs(rows), { maxFetch: 0 });
+      const rows = await loadMergedRows(db, cfg, user, (err, msg) => app.log?.warn?.({ err }, msg));
+      const { meta, missing } = await resolveTmdbMeta(db, cfg, collectTmdbRefs(rows), { maxFetch: 0 });
       // Les demandes AVANT les titres : un titre demandé de deux endroits ne garde que les saisons de la sienne.
       const requests = ofOrigin(hydrateRows(rows, meta, user), origin);
       const verdicts = await arrVerdicts(cfg, requests).catch(() => new Map<string, ArrVerdict>());
@@ -174,7 +174,7 @@ export function registerTitleRoutes(
       const waiting = new Set(items.map((i) => i.key));
       const absent = missing.filter((ref) => waiting.has(tmdbKey(ref)));
       if (absent.length > 0) {
-        const filled = await resolveTmdbMeta(prisma, cfg, absent, { maxFetch: MINE_META_BUDGET });
+        const filled = await resolveTmdbMeta(db, cfg, absent, { maxFetch: MINE_META_BUDGET });
         for (const [k, v] of filled.meta) meta.set(k, v);
         items = myTitles(ofOrigin(hydrateRows(rows, meta, user), origin), verdicts);
       }

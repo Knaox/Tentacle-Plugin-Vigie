@@ -6,7 +6,7 @@
  * page d'administration : il ne tourne jamais tout seul. */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { updateUserSettings } from "./db";
 import {
   resolveJellyseerrUserId,
@@ -20,7 +20,7 @@ type WorkerCfg = { seerrUrl: string; seerrApiKey: string };
 
 export function registerOwnershipRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
   requireAdmin: (req: FastifyRequest, reply: FastifyReply) => Promise<void>,
 ): void {
@@ -48,7 +48,7 @@ export function registerOwnershipRoutes(
       //    Sans ça, resolveJellyseerrUserId retournerait un ID stale et tout le sync
       //    pointerait vers un user inexistant.
       try {
-        await invalidateStaleJellyseerrCache(config, prisma);
+        await invalidateStaleJellyseerrCache(config, db);
       } catch { /* non bloquant */ }
 
       let alreadyOk = 0;
@@ -60,11 +60,11 @@ export function registerOwnershipRoutes(
       const errors: Array<{ requestId: string; reason: string }> = [];
 
       // 1) Liste toutes les demandes locales avec un seerr_request_id
-      const rows = await prisma.$queryRawUnsafe<Array<{
+      const rows = await db.query<{
         id: string; jellyfin_user_id: string; username: string;
         seerr_request_id: number | null; seerr_media_id: number | null;
         media_type: string; tmdb_id: number; seasons: unknown;
-      }>>(
+      }>(
         `SELECT id, jellyfin_user_id, username, seerr_request_id, seerr_media_id, media_type, tmdb_id, seasons
          FROM seer_requests
          WHERE seerr_request_id IS NOT NULL
@@ -77,7 +77,7 @@ export function registerOwnershipRoutes(
       const distinctUsers = new Map<string, string>();
       for (const r of rows) {
         if (distinctUsers.has(r.jellyfin_user_id)) continue;
-        const best = await pickBestUsernameFor(prisma, r.jellyfin_user_id, r.username);
+        const best = await pickBestUsernameFor(db, r.jellyfin_user_id, r.username);
         distinctUsers.set(r.jellyfin_user_id, best);
       }
 
@@ -85,13 +85,13 @@ export function registerOwnershipRoutes(
       const targetByJellyfin = new Map<string, number>();
       for (const [jfUserId, jfUsername] of distinctUsers) {
         try {
-          const seerUserId = await resolveJellyseerrUserId(config, prisma, jfUserId, jfUsername);
+          const seerUserId = await resolveJellyseerrUserId(config, db, jfUserId, jfUsername);
           targetByJellyfin.set(jfUserId, seerUserId);
         } catch {
           // User Jellyfin probablement supprimé → créer un placeholder avec le vrai username
           try {
             const placeholder = await createPlaceholderJellyseerrUser(config, jfUsername);
-            await updateUserSettings(prisma, jfUserId, {
+            await updateUserSettings(db, jfUserId, {
               jellyseerrUserId: placeholder.id,
               jellyseerrLastSync: new Date(),
               username: jfUsername,
@@ -138,8 +138,8 @@ export function registerOwnershipRoutes(
             recreated++;
             usersTouched.add(r.jellyfin_user_id);
             if (result.newRequestId) {
-              await prisma.$executeRawUnsafe(
-                `UPDATE seer_requests SET seerr_request_id = ? WHERE id = ?`,
+              await db.execute(
+                `UPDATE seer_requests SET updated_at = ${db.sql.now()}, seerr_request_id = ? WHERE id = ?`,
                 result.newRequestId, r.id,
               );
             }
@@ -147,8 +147,8 @@ export function registerOwnershipRoutes(
             reassigned++;
             usersTouched.add(r.jellyfin_user_id);
             if (result.method === "recreate" && result.newRequestId) {
-              await prisma.$executeRawUnsafe(
-                `UPDATE seer_requests SET seerr_request_id = ? WHERE id = ?`,
+              await db.execute(
+                `UPDATE seer_requests SET updated_at = ${db.sql.now()}, seerr_request_id = ? WHERE id = ?`,
                 result.newRequestId, r.id,
               );
             }

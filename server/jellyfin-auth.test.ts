@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { jellyfinAuthHeaders } from "./jellyfin-auth";
 import { fetchJellyfinAccounts, forgetJellyfinAccounts } from "./jellyfin-users";
 import { MARK_LIBRARY, MARK_WATCHED, userMarks } from "./user-marks";
@@ -15,12 +15,12 @@ import { MARK_LIBRARY, MARK_WATCHED, userMarks } from "./user-marks";
 const KEY = "cle-du-serveur-tentacle";
 const BASE = "http://jellyfin.test/jellyfin";
 
-const prisma = {
-  async $queryRawUnsafe(sql: string) {
+const db = {
+  async query(sql: string) {
     if (sql.includes("server_config")) return [{ k: "jellyfin_url", v: `${BASE}/` }, { k: "jellyfin_api_key", v: KEY }];
     return []; // user_likes, user_ratings : rien pour ces tests
   },
-} as unknown as PrismaClient;
+} as unknown as VigieDb;
 
 async function withJellyfin12(routes: Record<string, unknown>, run: () => Promise<void>): Promise<void> {
   const original = globalThis.fetch;
@@ -58,7 +58,7 @@ test("Jellyfin 12 : la synchro voit de nouveau les comptes", async () => {
       { Id: "0f0e0d0c0b0a09080706050403020100", Name: "Ancien", Policy: { IsDisabled: true } },
     ],
   }, async () => {
-    const accounts = await fetchJellyfinAccounts(prisma);
+    const accounts = await fetchJellyfinAccounts(db);
     assert.deepEqual(accounts.map((a) => [a.name, a.isDisabled]), [["Knaoxtest", false], ["Ancien", true]]);
   });
   forgetJellyfinAccounts();
@@ -69,7 +69,7 @@ test("Jellyfin 12 : les affiches gardent les marques de la bibliothèque", async
   await withJellyfin12({
     [`/jellyfin/Users/${userId}/Items`]: { Items: [{ Type: "Movie", ProviderIds: { Tmdb: "603" }, UserData: { Played: true } }] },
   }, async () => {
-    const { items } = await userMarks(prisma, userId);
+    const { items } = await userMarks(db, userId);
     assert.deepEqual(items, [["movie", 603, MARK_LIBRARY | MARK_WATCHED, 0]]);
   });
 });

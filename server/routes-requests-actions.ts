@@ -3,7 +3,7 @@
 /* ------------------------------------------------------------------ */
 
 import type { FastifyInstance } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import {
   createRequest, getRequestById, deleteRequestById,
   updateRequestStatus, enqueueCleanup,
@@ -20,7 +20,7 @@ import {
 
 export function registerRequestActionRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
 ): void {
 
@@ -34,7 +34,7 @@ export function registerRequestActionRoutes(
     const config = await getWorkerConfig();
 
     if (parsed.kind === "local") {
-      const req = await getRequestById(prisma, parsed.id);
+      const req = await getRequestById(db, parsed.id);
       if (!req) return reply.status(404).send({ message: "Request not found" });
       if (req.jellyfinUserId !== user.userId && !user.isAdmin) {
         return reply.status(403).send({ message: "Not your request" });
@@ -59,10 +59,10 @@ export function registerRequestActionRoutes(
         }
       }
 
-      await deleteRequestById(prisma, parsed.id);
+      await deleteRequestById(db, parsed.id);
 
       const retrySeasons = body.seasons && body.seasons.length > 0 ? body.seasons : req.seasons;
-      const newReq = await createRequest(prisma, {
+      const newReq = await createRequest(db, {
         jellyfinUserId: req.jellyfinUserId, username: req.username,
         mediaType: req.mediaType, tmdbId: req.tmdbId, title: req.title,
         posterPath: req.posterPath, backdropPath: req.backdropPath,
@@ -86,7 +86,7 @@ export function registerRequestActionRoutes(
 
     // Ownership
     if (!user.isAdmin) {
-      const settingsRows = await prisma.$queryRawUnsafe<Array<{ jellyseerr_user_id: number | null }>>(
+      const settingsRows = await db.query<{ jellyseerr_user_id: number | null }>(
         `SELECT jellyseerr_user_id FROM seer_user_settings WHERE jellyfin_user_id = ? LIMIT 1`,
         user.userId,
       );
@@ -121,7 +121,7 @@ export function registerRequestActionRoutes(
       ? body.seasons
       : (seerrReq.seasons?.map((s) => s.seasonNumber) ?? null);
 
-    const newReq = await createRequest(prisma, {
+    const newReq = await createRequest(db, {
       jellyfinUserId: user.userId, username: user.username,
       mediaType, tmdbId, title,
       posterPath: detail?.posterPath ?? null,
@@ -162,7 +162,7 @@ export function registerRequestActionRoutes(
     let ownerUsername: string | null = null;
     let seerrReq: Awaited<ReturnType<typeof fetchSeerrRequestById>> = null;
     if (parsed.kind === "local") {
-      const req = await getRequestById(prisma, parsed.id);
+      const req = await getRequestById(db, parsed.id);
       if (!req) return reply.status(404).send({ message: "Request not found" });
       seerrMediaId = req.seerrMediaId;
       ownerJellyfinUserId = req.jellyfinUserId;
@@ -177,7 +177,7 @@ export function registerRequestActionRoutes(
       seerrMediaId = seerrReq.media?.id ?? null;
       // Trouver le jellyfinUserId via le mapping seer_user_settings
       if (seerrReq.requestedBy?.id) {
-        const rows = await prisma.$queryRawUnsafe<Array<{ jellyfin_user_id: string; username: string }>>(
+        const rows = await db.query<{ jellyfin_user_id: string; username: string }>(
           `SELECT jellyfin_user_id, username FROM seer_user_settings WHERE jellyseerr_user_id = ? LIMIT 1`,
           seerrReq.requestedBy.id,
         );
@@ -216,18 +216,18 @@ export function registerRequestActionRoutes(
     const extra = target === "available" ? { completedAt: new Date() } : undefined;
 
     if (parsed.kind === "local") {
-      await updateRequestStatus(prisma, parsed.id, localStatus, extra);
+      await updateRequestStatus(db, parsed.id, localStatus, extra);
     } else if (seerrReq?.media && ownerJellyfinUserId) {
       // Demande née côté Jellyseerr : la ligne locale liée (si présente) suit
       // l'état posé — indispensable pour débrancher une épingle périmée.
-      const existing = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+      const existing = await db.query<{ id: string }>(
         `SELECT id FROM seer_requests WHERE seerr_request_id = ? LIMIT 1`,
         seerrReq.id,
       );
       if (existing.length > 0) {
-        await updateRequestStatus(prisma, existing[0].id, localStatus, extra);
+        await updateRequestStatus(db, existing[0].id, localStatus, extra);
       } else if (target === "available") {
-        await insertAvailablePin(prisma, config, seerrReq, {
+        await insertAvailablePin(db, config, seerrReq, {
           jellyfinUserId: ownerJellyfinUserId,
           username: ownerUsername ?? user.username,
         });
@@ -241,7 +241,7 @@ export function registerRequestActionRoutes(
   app.post("/requests/:id/retry-delete", async (request, reply) => {
     const { id } = request.params as { id: string };
     const user = getUser(request);
-    const req = await getRequestById(prisma, id);
+    const req = await getRequestById(db, id);
 
     if (!req) return reply.status(404).send({ message: "Request not found" });
     if (req.jellyfinUserId !== user.userId && !user.isAdmin) {
@@ -251,8 +251,8 @@ export function registerRequestActionRoutes(
       return reply.status(400).send({ message: "Request is not in a deletable state" });
     }
 
-    await updateRequestStatus(prisma, id, "deleting", { lastError: "" });
-    await enqueueCleanup(prisma, {
+    await updateRequestStatus(db, id, "deleting", { lastError: "" });
+    await enqueueCleanup(db, {
       action: "delete", mediaType: req.mediaType, tmdbId: req.tmdbId, title: req.title,
       seerrRequestId: req.seerrRequestId, seerrMediaId: req.seerrMediaId,
       deleteFiles: true, requestId: id,
@@ -269,7 +269,7 @@ export function registerRequestActionRoutes(
  * continue d'afficher « Disponible » même si l'availability-sync Jellyseerr
  * dégrade ensuite le média (UNKNOWN/DELETED quand il ne le voit nulle part). */
 async function insertAvailablePin(
-  prisma: PrismaClient,
+  db: VigieDb,
   config: WorkerCfg,
   seerrReq: SeerrSingleRequest,
   owner: { jellyfinUserId: string; username: string },
@@ -280,12 +280,13 @@ async function insertAvailablePin(
   const seasons = seerrReq.seasons
     ?.map((s) => s.seasonNumber)
     .filter((n) => typeof n === "number") ?? [];
-  await prisma.$executeRawUnsafe(
+  await db.execute(
     `INSERT INTO seer_requests
       (id, jellyfin_user_id, username, media_type, tmdb_id, title, poster_path,
        backdrop_path, overview, year, seasons, status, seerr_request_id,
-       seerr_media_id, seerr_media_status, sent_at, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?, ?, ?, NOW(), NOW())`,
+       seerr_media_id, seerr_media_status, sent_at, completed_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?, ?, ?,
+             ${db.sql.now()}, ${db.sql.now()}, ${db.sql.now()}, ${db.sql.now()})`,
     uuid(), owner.jellyfinUserId, owner.username, media.mediaType, media.tmdbId,
     detail?.title ?? detail?.name ?? `#${seerrReq.id}`,
     detail?.posterPath ?? null, detail?.backdropPath ?? null, detail?.overview ?? null,

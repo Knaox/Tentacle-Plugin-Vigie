@@ -20,7 +20,7 @@
  * une demande qu'on vient de faire se voit à la recherche suivante.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "../storage/vigie-db";
 import { cached, peek } from "../cache";
 import type { WorkerCfg } from "../seerr-unified";
 import { foldText, nameForms, onlyThroughElision, tokenize } from "./fold";
@@ -37,7 +37,7 @@ import type { Candidate, PersonCandidate } from "./present";
 export const titleIndex = new TitleIndex();
 
 export interface SearchContext {
-  prisma: PrismaClient;
+  db: VigieDb;
   cfg: WorkerCfg;
 }
 
@@ -149,9 +149,9 @@ function score(candidates: Iterable<Candidate>, parsed: ParsedQuery, fixed: read
 
 /** Charge l'index et les statuts — dès le démarrage, et à chaque recherche (sans jamais attendre). */
 export function warmSearch(ctx: SearchContext): void {
-  ensureTitleIndex(ctx.prisma, ctx.cfg, titleIndex);
+  ensureTitleIndex(ctx.db, ctx.cfg, titleIndex);
   refreshStatusMap(ctx.cfg);
-  refreshLocalPending(ctx.prisma);
+  refreshLocalPending(ctx.db);
 }
 
 const EMPTY = (parsed: ParsedQuery): Ranked => ({
@@ -213,7 +213,7 @@ async function computeFull(ctx: SearchContext, q: string, opts: SearchOptions): 
     // surfaces où le filtre s'applique sans exception.
     const learned = pages.flatMap((p) => p.media).filter((m) => m.title && !m.masked).map((m) => recordOf(m, opts.lang));
     for (const r of learned) titleIndex.upsert(r);
-    if (learned.length > 0) queueTitles(ctx.prisma, learned);
+    if (learned.length > 0) queueTitles(ctx.db, learned);
   }
 
   const fixedTokens = fixedText ? tokenize(fixedText) : null;

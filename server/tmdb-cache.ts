@@ -18,10 +18,10 @@
  * disponibilité réelle (dates de sortie typées) et calendrier (prochain épisode).
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import { chunk } from "./concurrency";
+import { readStoredDate } from "./db-helpers";
 
-export { ensureTmdbCacheTable } from "./tmdb-cache-schema";
 
 export interface TmdbRef {
   mediaType: "movie" | "tv";
@@ -133,9 +133,8 @@ function rowToMeta(row: Record<string, unknown>): TmdbMeta {
     originalLanguage: (row.original_language as string) || null,
     genreIds: asIdList(row.genre_ids),
     isAnime: row.is_anime === 1 || row.is_anime === true,
-    expiresAt: row.expires_at instanceof Date
-      ? row.expires_at.toISOString()
-      : String(row.expires_at ?? ""),
+    // Millisecondes entières, ou `Date` quand Prisma relit la colonne DATETIME.
+    expiresAt: readStoredDate(row.expires_at)?.toISOString() ?? "",
   };
 }
 
@@ -148,7 +147,7 @@ function rowToMeta(row: Record<string, unknown>): TmdbMeta {
  * sur toutes les versions de MariaDB.
  */
 export async function getTmdbMetaBulk(
-  prisma: PrismaClient,
+  db: VigieDb,
   refs: readonly TmdbRef[],
   includeExpired = true,
 ): Promise<Map<string, TmdbMeta>> {
@@ -160,14 +159,14 @@ export async function getTmdbMetaBulk(
     if (Number.isFinite(r.tmdbId) && r.tmdbId > 0) byType[r.mediaType].push(r.tmdbId);
   }
 
-  const freshOnly = includeExpired ? "" : " AND expires_at > NOW()";
+  const freshOnly = includeExpired ? "" : ` AND expires_at > ${db.sql.now()}`;
 
   for (const type of ["movie", "tv"] as const) {
     const ids = Array.from(new Set(byType[type]));
     for (const slice of chunk(ids, 500)) {
       if (slice.length === 0) continue;
       const placeholders = slice.map(() => "?").join(",");
-      const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+      const rows = await db.query(
         `SELECT * FROM seer_tmdb_cache
          WHERE media_type = ? AND tmdb_id IN (${placeholders})${freshOnly}`,
         type,
@@ -199,20 +198,24 @@ const UPSERT_COLS = [
   "expires_at",
 ];
 
-/** Écriture groupée. Syntaxe `VALUES()` : MariaDB n'a pas l'alias MySQL 8.0.20+. */
+function roundOrNull(n: number | null | undefined, digits: number): number | null {
+  if (n === null || n === undefined || !Number.isFinite(n)) return null;
+  const f = 10 ** digits;
+  return Math.round(n * f) / f;
+}
+
+/** Écriture groupée, par paquets de 100 : `fetched_at` posé à chaque écriture. */
 export async function upsertTmdbMetaBulk(
-  prisma: PrismaClient,
+  db: VigieDb,
   rows: readonly TmdbMeta[],
 ): Promise<void> {
   if (rows.length === 0) return;
 
-  const updates = UPSERT_COLS
-    .filter((c) => c !== "media_type" && c !== "tmdb_id")
-    .map((c) => `${c} = VALUES(${c})`)
-    .join(", ");
+  const columns = [...UPSERT_COLS, "fetched_at"];
+  const update = columns.filter((c) => c !== "media_type" && c !== "tmdb_id");
+  const fetchedAt = db.sql.dateParam(new Date());
 
   for (const slice of chunk(rows, 100)) {
-    const tuple = `(${UPSERT_COLS.map(() => "?").join(",")})`;
     const values: unknown[] = [];
     for (const m of slice) {
       values.push(
@@ -221,15 +224,14 @@ export async function upsertTmdbMetaBulk(
         m.releaseDate, m.tmdbStatus, m.digitalDate, m.theatricalDate, m.physicalDate,
         m.releaseRegion, m.nextAirDate, m.nextSeason, m.nextEpisode, m.lastAirDate,
         m.networks, m.providerIds.join(","),
-        m.voteAverage ?? null, m.popularity ?? null,
+        // Les arrondis que faisaient DECIMAL(3,1) et DECIMAL(8,3) sous MariaDB.
+        roundOrNull(m.voteAverage, 1), roundOrNull(m.popularity, 3),
         m.originalLanguage ?? null, (m.genreIds ?? []).join(",") || null, m.isAnime ? 1 : 0,
-        new Date(m.expiresAt),
+        db.sql.dateParam(new Date(m.expiresAt)), fetchedAt,
       );
     }
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO seer_tmdb_cache (${UPSERT_COLS.join(",")})
-       VALUES ${slice.map(() => tuple).join(",")}
-       ON DUPLICATE KEY UPDATE ${updates}, fetched_at = CURRENT_TIMESTAMP`,
+    await db.execute(
+      db.sql.upsert({ table: "seer_tmdb_cache", columns, rows: slice.length, conflict: ["media_type", "tmdb_id"], update }),
       ...values,
     );
   }
@@ -237,16 +239,16 @@ export async function upsertTmdbMetaBulk(
 
 /**
  * Amorçage gratuit : les demandes passées par le plugin portent déjà titre,
- * affiche, résumé et année en base. `expires_at = NOW()` → affichable tout de
+ * affiche, résumé et année en base. `expires_at` = maintenant → affichable tout de
  * suite, mais considéré périmé, donc enrichi par le worker (dates de sortie).
  */
-export async function seedTmdbCacheFromLocalRequests(prisma: PrismaClient): Promise<number> {
-  const affected = await prisma.$executeRawUnsafe(`
-    INSERT IGNORE INTO seer_tmdb_cache
-      (media_type, tmdb_id, title, poster_path, backdrop_path, overview, release_date, expires_at)
+export async function seedTmdbCacheFromLocalRequests(db: VigieDb): Promise<number> {
+  const affected = await db.execute(`
+    ${db.sql.insertIgnore()} INTO seer_tmdb_cache
+      (media_type, tmdb_id, title, poster_path, backdrop_path, overview, release_date, fetched_at, expires_at)
     SELECT r.media_type, r.tmdb_id,
            MAX(r.title), MAX(r.poster_path), MAX(r.backdrop_path), MAX(r.overview),
-           NULL, NOW()
+           NULL, ${db.sql.now()}, ${db.sql.now()}
     FROM seer_requests r
     WHERE r.tmdb_id > 0 AND r.title <> ''
     GROUP BY r.media_type, r.tmdb_id
@@ -256,12 +258,12 @@ export async function seedTmdbCacheFromLocalRequests(prisma: PrismaClient): Prom
 
 /** Fiches à rafraîchir en priorité (les plus anciennement expirées d'abord). */
 export async function listStaleTmdbRefs(
-  prisma: PrismaClient,
+  db: VigieDb,
   limit: number,
 ): Promise<TmdbRef[]> {
-  const rows = await prisma.$queryRawUnsafe<Array<{ media_type: string; tmdb_id: number }>>(
+  const rows = await db.query<{ media_type: string; tmdb_id: number }>(
     `SELECT media_type, tmdb_id FROM seer_tmdb_cache
-     WHERE expires_at <= NOW() ORDER BY expires_at ASC LIMIT ${Math.max(1, Math.floor(limit))}`,
+     WHERE expires_at <= ${db.sql.now()} ORDER BY expires_at ASC, tmdb_id ASC LIMIT ${Math.max(1, Math.floor(limit))}`,
   );
   return rows.map((r) => ({
     mediaType: r.media_type === "tv" ? "tv" : "movie",
@@ -271,12 +273,10 @@ export async function listStaleTmdbRefs(
 
 /** Purge des fiches non rafraîchies depuis N jours (anti-gonflement). */
 export async function pruneTmdbCache(
-  prisma: PrismaClient,
+  db: VigieDb,
   olderThanDays: number,
 ): Promise<number> {
-  const n = await prisma.$executeRawUnsafe(
-    `DELETE FROM seer_tmdb_cache WHERE fetched_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
-    Math.max(1, Math.floor(olderThanDays)),
-  );
+  const days = Math.max(1, Math.floor(olderThanDays));
+  const n = await db.execute(`DELETE FROM seer_tmdb_cache WHERE fetched_at < ${db.sql.shiftedNow(-days, "day")}`);
   return Number(n) || 0;
 }

@@ -3,7 +3,7 @@
 /* ------------------------------------------------------------------ */
 
 import type { FastifyInstance } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import {
   getRequestById,
   enqueueCleanup,
@@ -21,16 +21,16 @@ import { submitRequest } from "./request-submit";
 
 export function registerRequestRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
 ): void {
-  registerRequestReadRoutes(app, prisma, getWorkerConfig);
-  registerRequestActionRoutes(app, prisma, getWorkerConfig);
-  registerRequestForgetRoute(app, prisma, getWorkerConfig);
+  registerRequestReadRoutes(app, db, getWorkerConfig);
+  registerRequestActionRoutes(app, db, getWorkerConfig);
+  registerRequestForgetRoute(app, db, getWorkerConfig);
 
   /* ── POST /requests — les règles du compte, puis la file (request-submit.ts) ── */
   app.post("/requests", async (request, reply) => {
-    const result = await submitRequest(prisma, getWorkerConfig, getUser(request), request.body as CreateRequestBody);
+    const result = await submitRequest(db, getWorkerConfig, getUser(request), request.body as CreateRequestBody);
     return reply.status(result.status).send(result.body);
   });
 
@@ -42,7 +42,7 @@ export function registerRequestRoutes(
     const parsed = parseRequestId(id);
 
     if (parsed.kind === "local") {
-      const req = await getRequestById(prisma, parsed.id);
+      const req = await getRequestById(db, parsed.id);
       if (!req) return reply.status(404).send({ message: "Request not found" });
       if (req.jellyfinUserId !== user.userId && !user.isAdmin) {
         return reply.status(403).send({ message: "Not your request" });
@@ -64,7 +64,7 @@ export function registerRequestRoutes(
       // Partiel = on retire certaines saisons mais d'autres restent suivies.
       const partial = isSeasonSpecific && remaining.length > 0;
 
-      await enqueueCleanup(prisma, {
+      await enqueueCleanup(db, {
         action: "delete", mediaType: req.mediaType, tmdbId: req.tmdbId, title: req.title,
         // En partiel on préserve la demande Jellyseerr et la ligne locale
         // (les saisons conservées restent suivies) ; on agit uniquement sur *arr.
@@ -79,9 +79,9 @@ export function registerRequestRoutes(
       });
 
       if (partial) {
-        await addSeasonsToRequest(prisma, parsed.id, remaining);
+        await addSeasonsToRequest(db, parsed.id, remaining);
       } else {
-        await updateRequestStatus(prisma, parsed.id, "deleting");
+        await updateRequestStatus(db, parsed.id, "deleting");
       }
       invalidateRequestCaches(user.userId);
       kickWorkerNow();
@@ -97,7 +97,7 @@ export function registerRequestRoutes(
 
     // Verrou ownership : on compare via seer_user_settings.jellyseerr_user_id
     if (!user.isAdmin) {
-      const settingsRows = await prisma.$queryRawUnsafe<Array<{ jellyseerr_user_id: number | null }>>(
+      const settingsRows = await db.query<{ jellyseerr_user_id: number | null }>(
         `SELECT jellyseerr_user_id FROM seer_user_settings WHERE jellyfin_user_id = ? LIMIT 1`,
         user.userId,
       );
@@ -121,7 +121,7 @@ export function registerRequestRoutes(
     const remaining = isSeasonSpecific ? seerrSeasons.filter((s) => !removing!.includes(s)) : [];
     const partial = isSeasonSpecific && remaining.length > 0;
 
-    await enqueueCleanup(prisma, {
+    await enqueueCleanup(db, {
       action: "delete",
       mediaType: seerrMediaType,
       tmdbId: seerrReq.media?.tmdbId ?? 0,

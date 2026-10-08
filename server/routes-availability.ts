@@ -10,7 +10,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { WorkerCfg } from "./seerr-unified";
 import type { TmdbRef } from "./tmdb-cache";
 import { tmdbKey } from "./tmdb-cache";
@@ -36,7 +36,7 @@ interface Body {
 
 export function registerAvailabilityRoutes(
   app: FastifyInstance,
-  prisma: PrismaClient,
+  db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
 ): void {
 
@@ -62,13 +62,13 @@ export function registerAvailabilityRoutes(
       ? body.region.toUpperCase()
       : DEFAULT_REGION;
 
-    const { meta, missing } = await resolveTmdbMeta(prisma, config, refs, {
+    const { meta, missing } = await resolveTmdbMeta(db, config, refs, {
       maxFetch: FETCH_BUDGET,
       region,
     });
 
     // Ce qui reste sera là au prochain passage : la grille n'attend pas.
-    if (missing.length > 0) scheduleTmdbBackfill(prisma, config, missing, region);
+    if (missing.length > 0) scheduleTmdbBackfill(db, config, missing, region);
 
     const results: AvailabilityVerdict[] = [];
     for (const ref of refs) {

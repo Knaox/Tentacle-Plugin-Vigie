@@ -12,10 +12,10 @@
  * (`/requests/lookup`) et par la feuille des saisons de Tentacle.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "../storage/vigie-db";
 
-export async function localRequestedSeasons(prisma: PrismaClient, userId: string, tmdbId: number): Promise<number[]> {
-  const rows = await prisma.$queryRawUnsafe<Array<{ seasons: unknown }>>(
+export async function localRequestedSeasons(db: VigieDb, userId: string, tmdbId: number): Promise<number[]> {
+  const rows = await db.query<{ seasons: unknown }>(
     `SELECT seasons FROM seer_requests
      WHERE jellyfin_user_id = ? AND tmdb_id = ? AND media_type = 'tv'
        AND status NOT IN ('deleted', 'failed', 'available', 'deleting', 'delete_failed')`,

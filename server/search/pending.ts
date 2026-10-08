@@ -9,7 +9,7 @@
  * relit la file locale (dix secondes au plus de retard, jamais attendue).
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "../storage/vigie-db";
 
 const REFRESH_MS = 10_000;
 
@@ -22,10 +22,10 @@ export function isLocallyPending(key: string): boolean {
 }
 
 /** Relit la file si elle date — sans jamais faire attendre la recherche. */
-export function refreshLocalPending(prisma: PrismaClient): void {
+export function refreshLocalPending(db: VigieDb): void {
   if (reading || Date.now() - readAt < REFRESH_MS) return;
   reading = true;
-  prisma.$queryRawUnsafe<Array<{ media_type: string; tmdb_id: number }>>(
+  db.query<{ media_type: string; tmdb_id: number }>(
     `SELECT DISTINCT media_type, tmdb_id FROM seer_requests
      WHERE status IN ('queued', 'processing', 'retry_pending', 'sent_to_seer', 'approved')`,
   )

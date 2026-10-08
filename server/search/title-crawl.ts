@@ -18,7 +18,7 @@
  * ce qui est bloqué n'entre dans l'index. Si la liste change, on repart de zéro.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "../storage/vigie-db";
 import { mapLimit } from "../concurrency";
 import { getBlocklistedTags } from "../blocklist";
 import type { WorkerCfg } from "../seerr-unified";
@@ -95,7 +95,7 @@ async function fetchDiscover(cfg: WorkerCfg, source: Source, page: number, lang:
   return (data.results ?? []).map((r) => toRecord(r, lang, type)).filter((r): r is TitleRecord => r !== null);
 }
 
-async function crawl(prisma: PrismaClient, cfg: WorkerCfg, index: TitleIndex, mode: "full" | "light", tags: string): Promise<void> {
+async function crawl(db: VigieDb, cfg: WorkerCfg, index: TitleIndex, mode: "full" | "light", tags: string): Promise<void> {
   const jobs: Array<{ source: Source; page: number; lang: string }> = [];
   for (const lang of CRAWL_LANGS) {
     for (const source of sources(todayIso())) {
@@ -108,33 +108,33 @@ async function crawl(prisma: PrismaClient, cfg: WorkerCfg, index: TitleIndex, mo
   await mapLimit(jobs, CONCURRENCY, async ({ source, page, lang }) => {
     const records = await fetchDiscover(cfg, source, page, lang, tags);
     for (const r of records) index.upsert(r);
-    queueTitles(prisma, records);
+    queueTitles(db, records);
     learned += records.length;
   });
-  await flushTitles(prisma);
+  await flushTitles(db);
   const now = Date.now();
-  if (mode === "full") { fullAt = now; await writeMeta(prisma, "crawl_full_at", String(now)); }
+  if (mode === "full") { fullAt = now; await writeMeta(db, "crawl_full_at", String(now)); }
   lightAt = now;
-  await writeMeta(prisma, "crawl_light_at", String(now));
-  await writeMeta(prisma, "crawl_tags", tags);
+  await writeMeta(db, "crawl_light_at", String(now));
+  await writeMeta(db, "crawl_tags", tags);
   crawlTags = tags;
   console.log(`[Vigie] Index de recherche : ${learned} fiches lues (${mode}) en ${Math.round((now - started) / 1000)} s — ${index.size()} titres`);
 }
 
-function launch(prisma: PrismaClient, cfg: WorkerCfg, index: TitleIndex, mode: "full" | "light", tags: string): void {
+function launch(db: VigieDb, cfg: WorkerCfg, index: TitleIndex, mode: "full" | "light", tags: string): void {
   if (crawling) return;
   crawling = true;
-  void crawl(prisma, cfg, index, mode, tags)
+  void crawl(db, cfg, index, mode, tags)
     .catch((err) => console.warn(`[Vigie] Construction de l'index interrompue : ${err instanceof Error ? err.message : err}`))
     .finally(() => { crawling = false; });
 }
 
-async function boot(prisma: PrismaClient, cfg: WorkerCfg, index: TitleIndex): Promise<void> {
+async function boot(db: VigieDb, cfg: WorkerCfg, index: TitleIndex): Promise<void> {
   const [count, full, light, tags] = await Promise.all([
-    loadTitles(prisma, index),
-    readMeta(prisma, "crawl_full_at"),
-    readMeta(prisma, "crawl_light_at"),
-    readMeta(prisma, "crawl_tags"),
+    loadTitles(db, index),
+    readMeta(db, "crawl_full_at"),
+    readMeta(db, "crawl_light_at"),
+    readMeta(db, "crawl_tags"),
   ]);
   fullAt = Number(full) || 0;
   lightAt = Number(light) || 0;
@@ -142,40 +142,40 @@ async function boot(prisma: PrismaClient, cfg: WorkerCfg, index: TitleIndex): Pr
   if (count < MIN_BUILT) fullAt = 0;
 }
 
-async function check(prisma: PrismaClient, cfg: WorkerCfg, index: TitleIndex): Promise<void> {
+async function check(db: VigieDb, cfg: WorkerCfg, index: TitleIndex): Promise<void> {
   const tags = await getBlocklistedTags(cfg.seerrUrl, cfg.seerrApiKey);
   if (crawlTags !== null && tags !== crawlTags) {
     // Des titres désormais bloqués sont peut-être dans l'index : on le vide.
     index.clear();
-    await clearTitles(prisma);
+    await clearTitles(db);
     fullAt = 0;
   }
   const now = Date.now();
-  if (now - fullAt > FULL_EVERY_MS) launch(prisma, cfg, index, "full", tags);
-  else if (now - lightAt > LIGHT_EVERY_MS) launch(prisma, cfg, index, "light", tags);
+  if (now - fullAt > FULL_EVERY_MS) launch(db, cfg, index, "full", tags);
+  else if (now - lightAt > LIGHT_EVERY_MS) launch(db, cfg, index, "light", tags);
 }
 
 /**
  * Appelé à chaque recherche, ne fait JAMAIS attendre : relit la base au premier
  * appel, puis vérifie au plus une fois par heure s'il faut reconstruire.
  */
-export function ensureTitleIndex(prisma: PrismaClient, cfg: WorkerCfg, index: TitleIndex): void {
+export function ensureTitleIndex(db: VigieDb, cfg: WorkerCfg, index: TitleIndex): void {
   if (state === "booting") return;
   if (state === "idle") {
     state = "booting";
-    void boot(prisma, cfg, index)
+    void boot(db, cfg, index)
       .catch((err) => console.warn(`[Vigie] Index de recherche illisible : ${err instanceof Error ? err.message : err}`))
       .finally(() => {
         state = "ready";
         nextCheck = 0;
-        ensureTitleIndex(prisma, cfg, index);
+        ensureTitleIndex(db, cfg, index);
       });
     return;
   }
   const now = Date.now();
   if (crawling || now < nextCheck) return;
   nextCheck = now + CHECK_EVERY_MS;
-  void check(prisma, cfg, index).catch(() => { nextCheck = now + 60_000; });
+  void check(db, cfg, index).catch(() => { nextCheck = now + 60_000; });
 }
 
 /** Où en est l'index — pour l'interface (« index en préparation »). */

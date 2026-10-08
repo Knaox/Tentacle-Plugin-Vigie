@@ -11,7 +11,10 @@
     "desktop",
     "mobile"
   ],
-  "minTentacleVersion": "0.9.0",
+  "minTentacleVersion": "1.25.0",
+  "storage": {
+    "sqlite": true
+  },
   "navItems": [
     {
       "path": "/discover",

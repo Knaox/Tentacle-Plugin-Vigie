@@ -2,7 +2,7 @@
 /*  Seer Plugin — Notification de disponibilité (partagée)             */
 /* ------------------------------------------------------------------ */
 
-import type { PrismaClient } from "@prisma/client";
+import type { VigieDb } from "./storage/vigie-db";
 import type { SeerRequest } from "./types";
 import { evaluateSeasons, seasonNotification, releasedSuffix, goneSeasons } from "./season-availability";
 import { setNotifiedSeasons, addSeasonsToRequest, updateRequestStatus } from "./db";
@@ -16,7 +16,7 @@ import { invalidateRequestCaches } from "./cache";
  * téléchargement).
  */
 export async function notifyAvailableSeasons(
-  prisma: PrismaClient,
+  db: VigieDb,
   request: SeerRequest,
   mediaSeasons: { seasonNumber: number; status: number }[] | undefined,
 ): Promise<"available" | "partially_available" | null> {
@@ -27,7 +27,7 @@ export async function notifyAvailableSeasons(
   const newly = ev.available.filter((s) => !notified.has(s));
   if (newly.length > 0) {
     const n = seasonNotification(request, newly, ev.available.length);
-    await prisma.notification.create({
+    await db.core.notification.create({
       data: {
         jellyfinUserId: request.jellyfinUserId, type: "request_status",
         title: n.title, body: n.message, refId: request.id,
@@ -36,7 +36,7 @@ export async function notifyAvailableSeasons(
     // Union, pas remplacement : Sonarr a pu annoncer une saison que
     // Jellyseerr ne voit pas encore (arr-advance.ts) — l'oublier la
     // réannoncerait à la passe suivante.
-    await setNotifiedSeasons(prisma, request.id, [...new Set([...notified, ...ev.available])].sort((a, b) => a - b));
+    await setNotifiedSeasons(db, request.id, [...new Set([...notified, ...ev.available])].sort((a, b) => a - b));
     console.log(`[SeerWorker] "${request.title}" saisons dispo [${newly.join(",")}] → notif`);
   }
   return ev.allAvailable ? "available" : "partially_available";
@@ -44,11 +44,11 @@ export async function notifyAvailableSeasons(
 
 /** Film : notifie « est sorti » une seule fois (flag via notified_seasons non vide). */
 export async function notifyMovieAvailable(
-  prisma: PrismaClient,
+  db: VigieDb,
   request: SeerRequest,
 ): Promise<void> {
   if ((request.notifiedSeasons ?? []).length > 0) return; // déjà notifié
-  await prisma.notification.create({
+  await db.core.notification.create({
     data: {
       jellyfinUserId: request.jellyfinUserId, type: "request_status",
       title: request.title,
@@ -56,7 +56,7 @@ export async function notifyMovieAvailable(
       refId: request.id,
     },
   });
-  await setNotifiedSeasons(prisma, request.id, [0]); // flag « film notifié »
+  await setNotifiedSeasons(db, request.id, [0]); // flag « film notifié »
   console.log(`[SeerWorker] "${request.title}" (film) dispo → notif`);
 }
 
@@ -67,7 +67,7 @@ export async function notifyMovieAvailable(
  * null quand plus aucune saison ne reste — la demande est alors close.
  */
 export async function releaseGoneSeasons(
-  prisma: PrismaClient,
+  db: VigieDb,
   request: SeerRequest,
   mediaSeasons: { seasonNumber: number; status: number }[] | undefined,
 ): Promise<SeerRequest | null> {
@@ -75,14 +75,14 @@ export async function releaseGoneSeasons(
   if (gone.length === 0) return request;
   const remaining = (request.seasons ?? []).filter((s) => !gone.includes(s));
   if (remaining.length === 0) {
-    await updateRequestStatus(prisma, request.id, "deleted", {
+    await updateRequestStatus(db, request.id, "deleted", {
       lastError: "Saisons supprimées côté Jellyseerr",
     });
     invalidateRequestCaches(request.jellyfinUserId);
     console.log(`[SeerWorker] "${request.title}" : S${gone.join(", S")} supprimée(s) côté Jellyseerr → demande close`);
     return null;
   }
-  await addSeasonsToRequest(prisma, request.id, remaining);
+  await addSeasonsToRequest(db, request.id, remaining);
   invalidateRequestCaches(request.jellyfinUserId);
   console.log(`[SeerWorker] "${request.title}" : S${gone.join(", S")} supprimée(s) côté Jellyseerr → reste S${remaining.join(", S")}`);
   return { ...request, seasons: remaining };
