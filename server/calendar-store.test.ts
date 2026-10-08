@@ -91,19 +91,19 @@ test("l'horizon du store couvre le mois précédent (grille comprise) et six moi
 });
 
 test("sourceOrFallback : l'échec devient un repli marqué, le succès passe intact", async () => {
-  let marque: unknown = null;
+  const marques: unknown[] = [];
 
-  const ok = await sourceOrFallback(Promise.resolve(["a", "b"]), [], () => { marque = "non"; });
+  const ok = await sourceOrFallback(Promise.resolve(["a", "b"]), [], () => { marques.push("non"); });
   assert.deepEqual(ok, ["a", "b"]);
-  assert.equal(marque, null);
+  assert.equal(marques.length, 0);
 
   const ko = await sourceOrFallback(
     Promise.reject(new Error("guichet muet")),
     ["repli"],
-    (err) => { marque = err; },
+    (err) => { marques.push(err); },
   );
   assert.deepEqual(ko, ["repli"]);
-  assert.ok(marque instanceof Error);
+  assert.ok(marques[0] instanceof Error);
 });
 
 test("capPerSeriesFuture : le passé n'est jamais élagué, le futur reste plafonné", () => {

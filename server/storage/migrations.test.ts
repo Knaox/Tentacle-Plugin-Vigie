@@ -40,12 +40,12 @@ test("base neuve : les six tables et leurs index", async () => {
 
 test("tables copiées depuis MariaDB : reconnues, complétées, rien de recréé ni de perdu", async () => {
   copiedTables(raw);
-  const before = tables().find((t) => t.name === "seer_tmdb_cache")?.sql;
+  const columnsOf = (table: string) => raw.prepare(`SELECT name, type, "notnull", pk FROM pragma_table_info('${table}')`).all().map((c) => ({ ...c }));
+  const before = columnsOf("seer_tmdb_cache");
   assert.deepEqual(await storage.migrate(MIGRATIONS), [1]);
 
-  // Rien de recréé : la définition d'une table complète n'a pas bougé, ses lignes sont là.
-  assert.equal(tables().find((t) => t.name === "seer_tmdb_cache")?.sql?.includes('"vote_average" REAL'), true);
-  assert.notEqual(before, undefined);
+  // Rien de recréé : les colonnes de la copie restent telles quelles, à leur place ; les manquantes s'ajoutent après.
+  assert.deepEqual(columnsOf("seer_tmdb_cache").slice(0, before.length), before);
   const cached = raw.prepare("SELECT title, vote_average, expires_at FROM seer_tmdb_cache").all();
   assert.deepEqual(cached.map((r) => ({ ...r })), [{ title: "Un film", vote_average: 7.7, expires_at: NOW + 86_400_000 }]);
   // Les colonnes venues après sont ajoutées, la ligne intacte.

@@ -8467,7 +8467,7 @@ function presentHub(ranked, page, facets, indexing, startedAt, showMasked = fals
   };
 }
 function presentProvider(ranked, type, limit, lang, today) {
-  const media = visible(ranked.media);
+  const media = visible(ranked.media, false);
   const best = media.reduce((m, c) => Math.max(m, c.text), 0);
   const threshold = best >= 1e3 ? TOP_SINGLE_WORD : TEXT_ALL_WORDS;
   const libraryHasIt = media.some((c) => c.text >= TEXT_EXACT_TITLE && inLibrary(statusFor(c)));

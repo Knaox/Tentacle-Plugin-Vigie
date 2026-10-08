@@ -144,7 +144,8 @@ export function presentProvider(
   // Et si la requête nomme exactement un titre — même déjà dans la bibliothèque —,
   // les autres doivent au moins COMMENCER pareil : « the bear » ne propose pas
   // tous les ours du catalogue.
-  const media = visible(ranked.media);
+  // `false` explicite : c'est ce que valait l'argument oublié (undefined).
+  const media = visible(ranked.media, false);
   const best = media.reduce((m, c) => Math.max(m, c.text), 0);
   const threshold = best >= 1000 ? TOP_SINGLE_WORD : TEXT_ALL_WORDS;
   // La requête nomme exactement un titre que la bibliothèque a DÉJÀ : c'est lui

@@ -2,10 +2,9 @@ import { build } from "esbuild";
 import { globSync, rmSync } from "node:fs";
 
 /*
- * Le serveur du plugin n'a AUCUNE vérification de types : `tsconfig.json`
- * n'inclut que `src`, et le compiler sur `server/` échouerait de toute façon
- * puisque `fastify` et `@prisma/client` sont fournis par l'hôte, pas par nos
- * dépendances. Ces tests sont donc le seul filet du code serveur.
+ * Le serveur est vérifié par `npm run typecheck` (tsc -p server : Fastify en
+ * dépendance de développement pour ses seuls types ; la base passe par le
+ * contrat `ctx.storage`, plus par @prisma/client).
  *
  * Node lit le TypeScript nativement, mais sa résolution ESM exige des chemins
  * avec extension — que le code source n'écrit pas, esbuild s'en chargeant.

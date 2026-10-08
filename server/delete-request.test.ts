@@ -23,7 +23,7 @@ import type { TestDatabase } from "./test-support/sqlite";
  */
 
 const SEERR = "http://seerr.test";
-const config = { seerrUrl: SEERR, seerrApiKey: "k" };
+const config = { seerrUrl: SEERR, seerrApiKey: "k", interval: 60_000, syncEvery: 2 };
 const owner = { userId: "u1", username: "alice", isAdmin: false };
 
 let db: VigieDb;
