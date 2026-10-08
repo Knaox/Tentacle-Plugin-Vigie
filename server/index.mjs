@@ -369,11 +369,11 @@ async function getUserRequests(prisma, jellyfinUserId, opts) {
     where += ` AND media_type = ?`;
     params.push(opts.mediaType);
   }
-  const countRows = await prisma.$queryRawUnsafe(
+  const countRows2 = await prisma.$queryRawUnsafe(
     `SELECT COUNT(*) as cnt FROM seer_requests ${where}`,
     ...params
   );
-  const total = Number(countRows[0].cnt);
+  const total = Number(countRows2[0].cnt);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM seer_requests ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
     ...params,
@@ -397,11 +397,11 @@ async function getAllRequests(prisma, opts) {
     where += ` AND media_type = ?`;
     params.push(opts.mediaType);
   }
-  const countRows = await prisma.$queryRawUnsafe(
+  const countRows2 = await prisma.$queryRawUnsafe(
     `SELECT COUNT(*) as cnt FROM seer_requests ${where}`,
     ...params
   );
-  const total = Number(countRows[0].cnt);
+  const total = Number(countRows2[0].cnt);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM seer_requests ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
     ...params,
@@ -417,7 +417,7 @@ async function getQueueStatus(prisma, jellyfinUserId) {
     `SELECT * FROM seer_requests WHERE status = 'processing'${userFilter} LIMIT 1`,
     ...userParams
   );
-  const countRows = await prisma.$queryRawUnsafe(
+  const countRows2 = await prisma.$queryRawUnsafe(
     `SELECT
        SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
        SUM(CASE WHEN status = 'retry_pending' THEN 1 ELSE 0 END) as retry_pending,
@@ -427,9 +427,9 @@ async function getQueueStatus(prisma, jellyfinUserId) {
   );
   return {
     processing: processingRows.length > 0 ? rowToRequest(processingRows[0]) : null,
-    queued: Number(countRows[0].queued) || 0,
-    retryPending: Number(countRows[0].retry_pending) || 0,
-    deleting: Number(countRows[0].deleting) || 0
+    queued: Number(countRows2[0].queued) || 0,
+    retryPending: Number(countRows2[0].retry_pending) || 0,
+    deleting: Number(countRows2[0].deleting) || 0
   };
 }
 async function getUserStats(prisma, jellyfinUserId) {
@@ -679,19 +679,30 @@ async function countRequestsToday(prisma, jellyfinUserId) {
 }
 
 // server/db.ts
-async function ensureTables(prisma) {
-  let existingCount = 0;
+async function countRows(prisma, table) {
   try {
-    await prisma.$queryRawUnsafe(`SELECT jellyfin_user_id FROM seer_requests LIMIT 1`);
-    const rows2 = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*) as cnt FROM seer_requests`
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*) as cnt FROM ${table}`
     );
-    existingCount = Number(rows2[0].cnt);
-    console.log(`[SeerDB] Table seer_requests exists with ${existingCount} rows \u2014 preserving data`);
+    return Number(rows[0].cnt);
   } catch {
-    console.log("[SeerDB] Table seer_requests missing or incompatible \u2014 recreating");
-    await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS seer_requests`).catch(() => {
-    });
+    return null;
+  }
+}
+async function reportMissingColumn(prisma, table, column) {
+  try {
+    await prisma.$queryRawUnsafe(`SELECT ${column} FROM ${table} LIMIT 1`);
+  } catch (err) {
+    console.error(
+      `[SeerDB] ${table}.${column} illisible \u2014 sch\xE9ma inattendu ou base indisponible ; aucune donn\xE9e supprim\xE9e :`,
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+async function ensureTables(prisma) {
+  const existingCount = await countRows(prisma, "seer_requests");
+  if (existingCount !== null) {
+    console.log(`[SeerDB] Table seer_requests exists with ${existingCount} rows \u2014 preserving data`);
   }
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS seer_requests (
@@ -723,13 +734,6 @@ async function ensureTables(prisma) {
       INDEX idx_seer_req_queue (status, priority DESC, created_at ASC)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
-  try {
-    await prisma.$queryRawUnsafe(`SELECT next_retry_at FROM seer_cleanup_queue LIMIT 1`);
-  } catch {
-    console.log("[SeerDB] Table seer_cleanup_queue missing or incompatible \u2014 recreating");
-    await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS seer_cleanup_queue`).catch(() => {
-    });
-  }
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS seer_cleanup_queue (
       id               VARCHAR(36) NOT NULL PRIMARY KEY,
@@ -781,11 +785,10 @@ async function ensureTables(prisma) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   await ensureTmdbCacheTable(prisma);
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(*) as cnt FROM seer_requests`
-  );
-  const finalCount = Number(rows[0].cnt);
-  if (existingCount > 0 && finalCount === 0) {
+  await reportMissingColumn(prisma, "seer_requests", "jellyfin_user_id");
+  await reportMissingColumn(prisma, "seer_cleanup_queue", "next_retry_at");
+  const finalCount = await countRows(prisma, "seer_requests");
+  if (existingCount !== null && existingCount > 0 && finalCount === 0) {
     console.error(`[SeerDB] CRITICAL: ${existingCount} rows were lost!`);
   }
 }

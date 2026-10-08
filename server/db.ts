@@ -24,20 +24,39 @@ export { getOrCreateUserSettings, getUserSettings, updateUserSettings, countRequ
 
 /* ── Schema initialisation ─────────────────────────────────────────── */
 
-export async function ensureTables(prisma: Prisma): Promise<void> {
-  let existingCount = 0;
+/** Nombre de lignes d'une table, ou null si elle ne se lit pas (absente, base occupée…). */
+async function countRows(prisma: Prisma, table: string): Promise<number | null> {
   try {
-    // Vérifier que la table a le bon schéma (colonne jellyfin_user_id)
-    await prisma.$queryRawUnsafe(`SELECT jellyfin_user_id FROM seer_requests LIMIT 1`);
-    const rows = await prisma.$queryRawUnsafe<[{ cnt: bigint }]>(
-      `SELECT COUNT(*) as cnt FROM seer_requests`,
+    const rows = await prisma.$queryRawUnsafe<[{ cnt: bigint | number }]>(
+      `SELECT COUNT(*) as cnt FROM ${table}`,
     );
-    existingCount = Number(rows[0].cnt);
-    console.log(`[SeerDB] Table seer_requests exists with ${existingCount} rows — preserving data`);
+    return Number(rows[0].cnt);
   } catch {
-    // Table inexistante ou schéma incompatible → recréer
-    console.log("[SeerDB] Table seer_requests missing or incompatible — recreating");
-    await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS seer_requests`).catch(() => {});
+    return null;
+  }
+}
+
+/**
+ * Une colonne attendue manque-t-elle ? On le DIT, on ne supprime rien : l'ancienne
+ * sonde faisait un DROP TABLE sur n'importe quelle erreur — une base occupée au
+ * démarrage suffisait à effacer toutes les demandes.
+ */
+async function reportMissingColumn(prisma: Prisma, table: string, column: string): Promise<void> {
+  try {
+    await prisma.$queryRawUnsafe(`SELECT ${column} FROM ${table} LIMIT 1`);
+  } catch (err) {
+    console.error(
+      `[SeerDB] ${table}.${column} illisible — schéma inattendu ou base indisponible ; `
+      + `aucune donnée supprimée :`, err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+export async function ensureTables(prisma: Prisma): Promise<void> {
+  // Une table absente se crée ci-dessous ; une table présente n'est jamais supprimée.
+  const existingCount = await countRows(prisma, "seer_requests");
+  if (existingCount !== null) {
+    console.log(`[SeerDB] Table seer_requests exists with ${existingCount} rows — preserving data`);
   }
 
   await prisma.$executeRawUnsafe(`
@@ -70,14 +89,6 @@ export async function ensureTables(prisma: Prisma): Promise<void> {
       INDEX idx_seer_req_queue (status, priority DESC, created_at ASC)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
-
-  // Vérifier schéma cleanup queue
-  try {
-    await prisma.$queryRawUnsafe(`SELECT next_retry_at FROM seer_cleanup_queue LIMIT 1`);
-  } catch {
-    console.log("[SeerDB] Table seer_cleanup_queue missing or incompatible — recreating");
-    await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS seer_cleanup_queue`).catch(() => {});
-  }
 
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS seer_cleanup_queue (
@@ -140,11 +151,11 @@ export async function ensureTables(prisma: Prisma): Promise<void> {
   // Mémoire durable des fiches TMDB (titres, affiches, dates de sortie).
   await ensureTmdbCacheTable(prisma);
 
-  const rows = await prisma.$queryRawUnsafe<[{ cnt: bigint }]>(
-    `SELECT COUNT(*) as cnt FROM seer_requests`,
-  );
-  const finalCount = Number(rows[0].cnt);
-  if (existingCount > 0 && finalCount === 0) {
+  await reportMissingColumn(prisma, "seer_requests", "jellyfin_user_id");
+  await reportMissingColumn(prisma, "seer_cleanup_queue", "next_retry_at");
+
+  const finalCount = await countRows(prisma, "seer_requests");
+  if (existingCount !== null && existingCount > 0 && finalCount === 0) {
     console.error(`[SeerDB] CRITICAL: ${existingCount} rows were lost!`);
   }
 }
