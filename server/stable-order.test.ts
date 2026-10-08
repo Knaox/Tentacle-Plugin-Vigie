@@ -1,6 +1,6 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { getAllRequests, getGlobalStats, getNextQueued, getUserRequests } from "./db";
+import { getAllRequests, getGlobalStats, getNextQueued, getPendingCleanups, getUserRequests } from "./db";
 import { MIGRATIONS } from "./storage/migrations";
 import { testDb } from "./test-support/sqlite-storage";
 import type { VigieDb } from "./storage/vigie-db";
@@ -67,4 +67,20 @@ test("les pages se suivent sans trou ni doublon entre ex æquo", async () => {
 test("la file prend la même demande entre ex æquo", async () => {
   assert.equal((await getNextQueued(await seeded(false)))?.id, "r1");
   assert.equal((await getNextQueued(await seeded(true)))?.id, "r1");
+});
+
+test("la file de nettoyage sert les mêmes tâches, dans le même ordre, entre ex æquo", async () => {
+  for (const reverse of [false, true]) {
+    const db = await seeded(reverse);
+    const ids = ["c1", "c2", "c3", "c4", "c5", "c6"];
+    // Six nettoyages du même instant, échus : seule la clé les départage.
+    for (const id of reverse ? [...ids].reverse() : ids) {
+      await db.execute(
+        `INSERT INTO seer_cleanup_queue (id, action, media_type, tmdb_id, title, status, created_at, next_retry_at)
+         VALUES (?, 'delete', 'movie', 603, 'Matrix', 'pending', ?, ?)`,
+        id, AT, AT,
+      );
+    }
+    assert.deepEqual((await getPendingCleanups(db, 3)).map((c) => c.id), ["c1", "c2", "c3"]);
+  }
 });
