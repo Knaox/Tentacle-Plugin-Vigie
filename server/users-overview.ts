@@ -83,7 +83,7 @@ async function loadStats(prisma: PrismaClient): Promise<Map<string, { today: num
 /** Le dernier nom connu d'un demandeur disparu sans ligne à son nom. */
 async function lastKnownName(prisma: PrismaClient, jellyfinUserId: string): Promise<string> {
   const rows = await prisma.$queryRawUnsafe<Array<{ username: string }>>(
-    `SELECT username FROM seer_requests WHERE jellyfin_user_id = ? ORDER BY created_at DESC LIMIT 1`,
+    `SELECT username FROM seer_requests WHERE jellyfin_user_id = ? ORDER BY created_at DESC, id ASC LIMIT 1`,
     jellyfinUserId,
   ).catch(() => []);
   return rows[0]?.username || jellyfinUserId;

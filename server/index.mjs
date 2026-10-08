@@ -318,7 +318,7 @@ async function seedTmdbCacheFromLocalRequests(prisma) {
 async function listStaleTmdbRefs(prisma, limit) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT media_type, tmdb_id FROM seer_tmdb_cache
-     WHERE expires_at <= NOW() ORDER BY expires_at ASC LIMIT ${Math.max(1, Math.floor(limit))}`
+     WHERE expires_at <= NOW() ORDER BY expires_at ASC, media_type ASC, tmdb_id ASC LIMIT ${Math.max(1, Math.floor(limit))}`
   );
   return rows.map((r) => ({
     mediaType: r.media_type === "tv" ? "tv" : "movie",
@@ -375,7 +375,7 @@ async function getUserRequests(prisma, jellyfinUserId, opts) {
   );
   const total = Number(countRows2[0].cnt);
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM seer_requests ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    `SELECT * FROM seer_requests ${where} ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?`,
     ...params,
     limit,
     offset
@@ -403,7 +403,7 @@ async function getAllRequests(prisma, opts) {
   );
   const total = Number(countRows2[0].cnt);
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM seer_requests ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    `SELECT * FROM seer_requests ${where} ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?`,
     ...params,
     limit,
     offset
@@ -414,7 +414,7 @@ async function getQueueStatus(prisma, jellyfinUserId) {
   const userFilter = jellyfinUserId ? ` AND jellyfin_user_id = ?` : "";
   const userParams = jellyfinUserId ? [jellyfinUserId] : [];
   const processingRows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM seer_requests WHERE status = 'processing'${userFilter} LIMIT 1`,
+    `SELECT * FROM seer_requests WHERE status = 'processing'${userFilter} ORDER BY id ASC LIMIT 1`,
     ...userParams
   );
   const countRows2 = await prisma.$queryRawUnsafe(
@@ -463,11 +463,11 @@ async function getGlobalStats(prisma) {
   );
   const topRequested = await prisma.$queryRawUnsafe(
     `SELECT title, tmdb_id, COUNT(*) as cnt FROM seer_requests
-     WHERE status != 'deleted' GROUP BY title, tmdb_id ORDER BY cnt DESC LIMIT 10`
+     WHERE status != 'deleted' GROUP BY title, tmdb_id ORDER BY cnt DESC, title ASC, tmdb_id ASC LIMIT 10`
   );
   const topUsers = await prisma.$queryRawUnsafe(
     `SELECT username, COUNT(*) as cnt FROM seer_requests
-     WHERE status != 'deleted' GROUP BY username ORDER BY cnt DESC LIMIT 10`
+     WHERE status != 'deleted' GROUP BY username ORDER BY cnt DESC, username ASC LIMIT 10`
   );
   const total = byStatus.reduce((n, r) => n + Number(r.cnt), 0);
   const available = Number(byStatus.find((r) => r.status === "available")?.cnt || 0);
@@ -893,7 +893,7 @@ async function findExistingTvRequest(prisma, jellyfinUserId, tmdbId) {
     `SELECT * FROM seer_requests
      WHERE jellyfin_user_id = ? AND tmdb_id = ? AND media_type = 'tv'
        AND status NOT IN ('deleted', 'deleting', 'delete_failed')
-     ORDER BY created_at DESC LIMIT 1`,
+     ORDER BY created_at DESC, id ASC LIMIT 1`,
     jellyfinUserId,
     tmdbId
   );
@@ -2227,7 +2227,7 @@ async function advanceFromArr(prisma, cfg) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM seer_requests
      WHERE status IN (${CANDIDATES.map(() => "?").join(", ")}) AND tmdb_id > 0
-     ORDER BY updated_at DESC LIMIT 500`,
+     ORDER BY updated_at DESC, id ASC LIMIT 500`,
     ...CANDIDATES
   );
   const requests = rows.map(rowToRequest);
@@ -2428,7 +2428,7 @@ async function retryFailedRequests(prisma) {
     // plus recréées non plus : une suppression côté Jellyseerr est acquise.
     `SELECT id, title, retry_count, max_retries FROM seer_requests
      WHERE status = 'failed' AND retry_count < max_retries
-       AND (last_error IS NULL OR last_error != 'Request no longer exists on Seerr') LIMIT 3`
+       AND (last_error IS NULL OR last_error != 'Request no longer exists on Seerr') ORDER BY id ASC LIMIT 3`
   );
   for (const req of failed) {
     const newRetry = req.retry_count + 1;
@@ -4094,7 +4094,7 @@ async function buildMergedRows(prisma, cfg, user, log) {
     `SELECT * FROM seer_requests
      WHERE jellyfin_user_id = ?
        AND status IN (${LOCAL_PENDING_STATUSES.map(() => "?").join(",")})
-     ORDER BY created_at DESC`,
+     ORDER BY created_at DESC, id ASC`,
     user.userId,
     ...LOCAL_PENDING_STATUSES
   );
@@ -4484,7 +4484,7 @@ function registerRequestActionRoutes(app, prisma, getWorkerConfig2) {
       seerrMediaId = seerrReq.media?.id ?? null;
       if (seerrReq.requestedBy?.id) {
         const rows = await prisma.$queryRawUnsafe(
-          `SELECT jellyfin_user_id, username FROM seer_user_settings WHERE jellyseerr_user_id = ? LIMIT 1`,
+          `SELECT jellyfin_user_id, username FROM seer_user_settings WHERE jellyseerr_user_id = ? ORDER BY jellyfin_user_id ASC LIMIT 1`,
           seerrReq.requestedBy.id
         );
         ownerJellyfinUserId = rows[0]?.jellyfin_user_id ?? null;
@@ -4513,7 +4513,7 @@ function registerRequestActionRoutes(app, prisma, getWorkerConfig2) {
       await updateRequestStatus(prisma, parsed.id, localStatus, extra);
     } else if (seerrReq?.media && ownerJellyfinUserId) {
       const existing = await prisma.$queryRawUnsafe(
-        `SELECT id FROM seer_requests WHERE seerr_request_id = ? LIMIT 1`,
+        `SELECT id FROM seer_requests WHERE seerr_request_id = ? ORDER BY id ASC LIMIT 1`,
         seerrReq.id
       );
       if (existing.length > 0) {
@@ -5088,7 +5088,7 @@ async function loadStats(prisma) {
 }
 async function lastKnownName(prisma, jellyfinUserId) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT username FROM seer_requests WHERE jellyfin_user_id = ? ORDER BY created_at DESC LIMIT 1`,
+    `SELECT username FROM seer_requests WHERE jellyfin_user_id = ? ORDER BY created_at DESC, id ASC LIMIT 1`,
     jellyfinUserId
   ).catch(() => []);
   return rows[0]?.username || jellyfinUserId;
@@ -5283,7 +5283,7 @@ async function pickBestUsernameFor(prisma, jellyfinUserId, fallback) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT username FROM seer_requests
      WHERE jellyfin_user_id = ? AND username IS NOT NULL AND username <> ''
-     ORDER BY created_at DESC LIMIT 50`,
+     ORDER BY created_at DESC, id ASC LIMIT 50`,
     jellyfinUserId
   );
   for (const r of rows) {
@@ -5835,7 +5835,7 @@ async function buildEveryoneRows(prisma, cfg, log) {
   const localPendingRows = await prisma.$queryRawUnsafe(
     `SELECT * FROM seer_requests
      WHERE status IN (${LOCAL_PENDING_STATUSES2.map(() => "?").join(",")})
-     ORDER BY created_at DESC`,
+     ORDER BY created_at DESC, id ASC`,
     ...LOCAL_PENDING_STATUSES2
   );
   const localPending = localPendingRows.map(rowToRequest);

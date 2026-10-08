@@ -217,7 +217,7 @@ export async function retryFailedRequests(prisma: PrismaClient): Promise<void> {
     // plus recréées non plus : une suppression côté Jellyseerr est acquise.
     `SELECT id, title, retry_count, max_retries FROM seer_requests
      WHERE status = 'failed' AND retry_count < max_retries
-       AND (last_error IS NULL OR last_error != 'Request no longer exists on Seerr') LIMIT 3`,
+       AND (last_error IS NULL OR last_error != 'Request no longer exists on Seerr') ORDER BY id ASC LIMIT 3`,
   );
 
   for (const req of failed) {

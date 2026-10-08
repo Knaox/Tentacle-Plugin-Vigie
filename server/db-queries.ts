@@ -39,7 +39,7 @@ export async function getUserRequests(
   const total = Number(countRows[0].cnt);
 
   const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-    `SELECT * FROM seer_requests ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    `SELECT * FROM seer_requests ${where} ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?`,
     ...params,
     limit,
     offset,
@@ -76,7 +76,7 @@ export async function getAllRequests(
   const total = Number(countRows[0].cnt);
 
   const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-    `SELECT * FROM seer_requests ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    `SELECT * FROM seer_requests ${where} ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?`,
     ...params,
     limit,
     offset,
@@ -95,7 +95,7 @@ export async function getQueueStatus(
   const userParams = jellyfinUserId ? [jellyfinUserId] : [];
 
   const processingRows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-    `SELECT * FROM seer_requests WHERE status = 'processing'${userFilter} LIMIT 1`,
+    `SELECT * FROM seer_requests WHERE status = 'processing'${userFilter} ORDER BY id ASC LIMIT 1`,
     ...userParams,
   );
 
@@ -151,11 +151,11 @@ export async function getGlobalStats(prisma: Prisma) {
   );
   const topRequested = await prisma.$queryRawUnsafe<{ title: string; tmdb_id: number; cnt: bigint }[]>(
     `SELECT title, tmdb_id, COUNT(*) as cnt FROM seer_requests
-     WHERE status != 'deleted' GROUP BY title, tmdb_id ORDER BY cnt DESC LIMIT 10`,
+     WHERE status != 'deleted' GROUP BY title, tmdb_id ORDER BY cnt DESC, title ASC, tmdb_id ASC LIMIT 10`,
   );
   const topUsers = await prisma.$queryRawUnsafe<{ username: string; cnt: bigint }[]>(
     `SELECT username, COUNT(*) as cnt FROM seer_requests
-     WHERE status != 'deleted' GROUP BY username ORDER BY cnt DESC LIMIT 10`,
+     WHERE status != 'deleted' GROUP BY username ORDER BY cnt DESC, username ASC LIMIT 10`,
   );
   const total = byStatus.reduce((n, r) => n + Number(r.cnt), 0);
   const available = Number(byStatus.find((r) => r.status === "available")?.cnt || 0);

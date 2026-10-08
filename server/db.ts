@@ -258,7 +258,7 @@ export async function findExistingTvRequest(
     `SELECT * FROM seer_requests
      WHERE jellyfin_user_id = ? AND tmdb_id = ? AND media_type = 'tv'
        AND status NOT IN ('deleted', 'deleting', 'delete_failed')
-     ORDER BY created_at DESC LIMIT 1`,
+     ORDER BY created_at DESC, id ASC LIMIT 1`,
     jellyfinUserId, tmdbId,
   );
   return rows.length > 0 ? rowToRequest(rows[0]) : null;
