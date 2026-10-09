@@ -17,6 +17,7 @@
 import { cached } from "../cache";
 import type { WorkerCfg } from "../seerr-unified";
 import { MEDIA_STATUS, noteStatus, statusOf } from "./status-map";
+import { correctedStatus } from "../live/live-state";
 import { inLibraryOrBlocked, type ProviderItem, type ProviderResponse } from "./present";
 
 const PARTS_TTL_MS = 30 * 60_000;
@@ -129,7 +130,7 @@ export interface CollectionQuery {
 /** Le contrat générique : les volets de la saga que la bibliothèque n'a PAS. */
 export async function collectionProvider(cfg: WorkerCfg, q: CollectionQuery): Promise<ProviderResponse> {
   const parts = await collectionParts(cfg, q.collectionId, q.lang);
-  const items = missingParts(parts, (p) => statusOf("movie", p.id) ?? p.status)
+  const items = missingParts(parts, (p) => correctedStatus("movie", p.id, statusOf("movie", p.id) ?? p.status))
     .slice(0, q.limit)
     .map(({ part, status }) => toCollectionItem(part, status, q.lang, q.today));
   return { query: String(q.collectionId), correction: null, complete: true, items, moreHref: null };

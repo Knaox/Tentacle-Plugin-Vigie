@@ -4,7 +4,7 @@
 
 import type { FastifyRequest } from "fastify";
 import type { UnifiedRequest, SeerRequest } from "./types";
-import { resolveRequestStatus } from "./request-status";
+import { resolveLiveStatus } from "./live/request-row";
 import type { SeasonStates } from "./series-gaps";
 import { aggregateDownloads, type SeerrDownloadItem } from "./download-progress";
 
@@ -68,8 +68,9 @@ export function seerrRequestToUnified(
   seasonStates?: SeasonStates,
 ): UnifiedRequest {
   const local = localById.get(sr.id);
-  // Épingle « Disponible » et disponibilité par-saison : voir `request-status`.
-  const status = resolveRequestStatus(sr, local, seasonStates);
+  // Ce que Jellyfin a vraiment, l'épingle « Disponible », la disponibilité par
+  // saison : voir `live/request-row` et `request-status`.
+  const status = resolveLiveStatus(sr, local, seasonStates);
   const seasons = sr.seasons?.map((s) => s.seasonNumber).filter((n) => typeof n === "number") ?? null;
   const mediaType = (sr.media?.mediaType ?? "movie") as "movie" | "tv";
   const title = detail?.title ?? detail?.name ?? local?.title ?? `#${sr.id}`;

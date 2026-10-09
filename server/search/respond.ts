@@ -12,6 +12,7 @@ import { foldText, significantTokens, tokenize } from "./fold";
 import { TEXT_ALL_WORDS, TEXT_EXACT_TITLE, TEXT_KEY_WORDS, textScore } from "./rank";
 import { MEDIA_STATUS, statusMapReady, statusOf } from "./status-map";
 import { isLocallyPending } from "./pending";
+import { correctedStatus } from "../live/live-state";
 import type { Facet } from "./facets";
 import type { Ranked } from "./service";
 import {
@@ -30,8 +31,14 @@ const PEOPLE_LIMIT = 10;
 const NOTABLE_VOTES = 30;
 const NOTABLE_POPULARITY = 3;
 
+/**
+ * Le statut d'un titre tel que Vigie le montre : celui de Jellyseerr, corrigé
+ * par ce que Jellyfin a vraiment et par les demandes qui existent encore
+ * (live/title-truth.ts) — un film supprimé de Jellyfin n'est plus
+ * « Disponible » ; sa demande supprimée, il se redemande.
+ */
 export function statusFor(c: Pick<Candidate, "key" | "mediaType" | "tmdbId" | "remoteStatus">): number | undefined {
-  const known = statusOf(c.mediaType, c.tmdbId) ?? c.remoteStatus;
+  const known = correctedStatus(c.mediaType, c.tmdbId, statusOf(c.mediaType, c.tmdbId) ?? c.remoteStatus);
   const settled = known !== undefined && known !== MEDIA_STATUS.UNKNOWN && known !== MEDIA_STATUS.DELETED;
   if (!settled && isLocallyPending(c.key)) return MEDIA_STATUS.PENDING;
   return known;

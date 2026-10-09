@@ -25,6 +25,21 @@ import {
   episodeKey, sonarrSeriesFacts, sonarrWindowFacts, type EpisodeFact, type WindowFacts,
 } from "./sonarr-episodes";
 import { statusOf } from "./search/status-map";
+import { correctedStatus, goneFromJellyfin, goneSeasonsOf } from "./live/live-state";
+
+/** Le statut d'un titre pour l'agenda : celui de Jellyseerr, corrigé de ce que Jellyfin a perdu. */
+function mediaStatusOf(mediaType: "movie" | "tv", tmdbId: number): number | undefined {
+  return correctedStatus(mediaType, tmdbId, statusOf(mediaType, tmdbId));
+}
+
+/**
+ * Un épisode d'une saison supprimée de Jellyfin n'est plus là, même si
+ * Sonarr croit encore à son fichier (il ne relit le disque que de loin en loin).
+ */
+function withoutDeletedFile(fact: EpisodeFact | undefined, tmdbId: number, season: number | null | undefined): EpisodeFact | undefined {
+  if (!fact?.hasFile || season == null) return fact;
+  return goneFromJellyfin("tv", tmdbId) || goneSeasonsOf(tmdbId).has(season) ? { ...fact, hasFile: false } : fact;
+}
 
 export interface Queued {
   stalled: boolean;
@@ -119,13 +134,13 @@ export function stateOfItem(
   const request = fromRequest(item.requestStatus);
   if (item.mediaType === "movie") {
     const queued = queue.movies.get(item.tmdbId);
-    const state = movieState(statusOf("movie", item.tmdbId), queued, request);
+    const state = movieState(mediaStatusOf("movie", item.tmdbId), queued, request);
     return { state, percent: state === "downloading" ? queued?.percent ?? null : null };
   }
 
   // Sans Sonarr, une série « partielle » ne dit rien de CET épisode : seules
   // la demande et les états sans ambiguïté parlent.
-  const media = statusOf("tv", item.tmdbId);
+  const media = mediaStatusOf("tv", item.tmdbId);
   const fallback: ItemState | null = media === 5
     ? (item.date <= today ? "available" : null)
     : media === 2 || media === 3 ? "requested" : request;
@@ -143,6 +158,7 @@ export function stateOfItem(
     const sameDay = facts.byDay.get(`${item.tmdbId}:${item.date}`);
     if (sameDay?.length === 1) fact = sameDay[0];
   }
+  fact = withoutDeletedFile(fact, item.tmdbId, item.seasonNumber);
   const queued = queue.episodes.get(key);
   const state = episodeState(fact, queued, fallback);
   return { state, percent: state === "downloading" ? queued?.percent ?? null : null };
@@ -200,13 +216,14 @@ export async function seriesEpisodeStates(cfg: WorkerCfg, tmdbId: number): Promi
   const percents: Record<string, number> = {};
   const byDay = new Map<string, string[]>();
   const seasons = new Set<number>();
-  for (const [key, fact] of facts) {
+  for (const [key, raw] of facts) {
+    const season = Number(/^S(\d+)E/.exec(key)?.[1]);
+    const fact = withoutDeletedFile(raw, tmdbId, season) ?? raw;
     const queued = queue.episodes.get(`${tmdbId}:${key}`);
     const state = episodeState(fact, queued, null);
     if (state) states[key] = state;
     if (state === "downloading" && queued?.percent != null) percents[key] = Math.round(queued.percent);
     if (fact.airDate) byDay.set(fact.airDate, [...(byDay.get(fact.airDate) ?? []), key]);
-    const season = Number(/^S(\d+)E/.exec(key)?.[1]);
     if (season > 0) seasons.add(season);
   }
   const dates: Record<string, string> = {};

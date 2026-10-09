@@ -12,6 +12,9 @@ import { triggerSeerrJob } from "./arr-service";
 import { arrKnows } from "./arr-advance";
 import { isDowngrade } from "./arr-advance-plan";
 import type { SeerRequest, SeerProfile } from "./types";
+import { factsWithRequest } from "./live/live-state";
+import { mapSeerrStatus } from "./seerr-status-map";
+import { correctMediaStatus, correctSeasonStatus, type RequestFact } from "./live/title-truth";
 
 const CLAIM_TTL_SECONDS = 1800; // 30 min — anti-doublon notif biblio (TTL glissant)
 
@@ -69,13 +72,19 @@ export async function syncStatuses(prisma: PrismaClient, config: WorkerConfig): 
 
       const data = (await res.json()) as {
         id: number; status: number;
+        seasons?: Array<{ seasonNumber: number }>;
         media?: {
           id: number; status: number;
           downloadStatus?: Array<{ externalId: number; status: string }>;
         };
       };
 
-      const globalStatus = mapSeerrStatus(data.status, data.media?.status, data.media?.downloadStatus);
+      // Le média tel que Jellyfin l'a vraiment : supprimé de Jellyfin, un titre
+      // « disponible » pour Jellyseerr redevient attendu — sans annonce d'arrivée.
+      const own: RequestFact = { status: data.status, seasons: (data.seasons ?? []).map((s) => s.seasonNumber) };
+      const facts = factsWithRequest(request.mediaType, request.tmdbId, own, (data.media?.downloadStatus?.length ?? 0) > 0);
+      const mediaStatus = correctMediaStatus(request.mediaType, data.media?.status, facts);
+      const globalStatus = mapSeerrStatus(data.status, mediaStatus, data.media?.downloadStatus);
 
       // Échec → retry/suppression (commun film/série).
       if (globalStatus === "failed" && request.status !== "failed") {
@@ -87,9 +96,9 @@ export async function syncStatuses(prisma: PrismaClient, config: WorkerConfig): 
       // Séries : disponibilité PAR-SAISON (le statut global reste « partiel »
       // tant que des saisons NON demandées manquent). Films : statut global.
       if (request.mediaType === "tv" && (request.seasons?.length ?? 0) > 0) {
-        await syncTvSeasons(prisma, config, request, globalStatus, data.media?.status);
+        await syncTvSeasons(prisma, config, request, globalStatus, mediaStatus, own);
       } else {
-        await syncGlobal(prisma, request, globalStatus, data.media?.status);
+        await syncGlobal(prisma, request, globalStatus, mediaStatus);
       }
 
       // Part C : accélérer la réconciliation par-saison côté Jellyseerr
@@ -139,10 +148,14 @@ async function syncGlobal(
  */
 async function syncTvSeasons(
   prisma: PrismaClient, config: WorkerConfig, request: SeerRequest,
-  fallbackStatus: SeerRequest["status"], mediaStatus?: number,
+  fallbackStatus: SeerRequest["status"], mediaStatus: number | undefined, own: RequestFact,
 ): Promise<void> {
   const detail = await fetchMediaDetail(config.seerrUrl, config.seerrApiKey, "tv", request.tmdbId);
-  const mediaSeasons = detail?.mediaInfo?.seasons;
+  // Une saison supprimée de Jellyfin ne compte plus pour arrivée (live/title-truth.ts).
+  const facts = factsWithRequest("tv", request.tmdbId, own);
+  const mediaSeasons = detail?.mediaInfo?.seasons?.map((s) => ({
+    ...s, status: correctSeasonStatus(s.seasonNumber, s.status, facts) ?? s.status,
+  }));
 
   // Saisons demandées que Jellyseerr dit SUPPRIMÉES : libérées (null = demande close).
   const kept = await releaseGoneSeasons(prisma, request, mediaSeasons);
@@ -232,60 +245,8 @@ export async function retryFailedRequests(prisma: PrismaClient): Promise<void> {
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
 
-/**
- * Mapping Jellyseerr → status local. L'état du MÉDIA Jellyseerr (source de
- * vérité, y compris posé manuellement via « Marquer comme ») prime.
- *
- * Jellyseerr media.status :
- *   1 = UNKNOWN, 2 = PENDING, 3 = PROCESSING, 4 = PARTIALLY_AVAILABLE,
- *   5 = AVAILABLE, 6 = BLOCKLISTED, 7 = DELETED
- * Jellyseerr request.status :
- *   1 = PENDING_APPROVAL, 2 = APPROVED, 3 = DECLINED, 4 = FAILED, 5 = COMPLETED
- */
-export function mapSeerrStatus(
-  requestStatus: number, mediaStatus?: number,
-  // `status` optionnel : Jellyseerr ne garantit pas le champ sur tous les items
-  // de la file *arr (un grab tout juste envoyé peut arriver sans).
-  downloadStatus?: Array<{ status?: string }>,
-): SeerRequest["status"] {
-  if (requestStatus === 3) return "failed";
-  if (requestStatus === 4) return "failed";
-
-  // Disponible / partiellement disponible AVANT les échecs de téléchargement :
-  // un état posé (par Jellyseerr ou manuellement par l'utilisateur) ne doit
-  // jamais être re-écrasé en « échec » — et donc auto-retenté — sur la foi
-  // d'un downloadStatus périmé.
-  if (mediaStatus === 5) return "available";
-  if (mediaStatus === 4) return "partially_available";
-
-  // Média dégradé DELETED par l'availability-sync Jellyseerr (introuvable dans
-  // Jellyfin et sans fichier *arr) : badge « Supprimé » côté Jellyseerr — on
-  // affiche pareil, et surtout PAS « échec » (pas d'auto-retry destructif).
-  if (mediaStatus === 7) return "deleted";
-
-  // Média marqué « Demandée » (UNKNOWN) — posé à la main via « Marquer comme »
-  // ou par Jellyseerr. État FINAL tant que rien ne bouge : un downloadStatus
-  // périmé (warning/failed résiduel dans la file *arr) ne doit JAMAIS le
-  // requalifier « échec », sinon l'auto-retry supprime la demande Jellyseerr
-  // qu'on vient précisément de requalifier (bug « la demande se supprime »).
-  if (mediaStatus === 1) return "unavailable";
-
-  // PROCESSING = approuvé, en cours d'acquisition. Jellyseerr n'affiche « en
-  // traitement » que si un download est réellement actif — sans download
-  // actif, son badge est « Demandé », on mappe pareil.
-  //
-  // Un download qui COINCE (source morte, import refusé, client en pause…)
-  // reste un download : il est BLOQUÉ, jamais en échec. Le classer « failed »
-  // déclenchait l'auto-retry, qui supprimait la demande Jellyseerr pour la
-  // recréer — tout le contraire de ce qu'attend un titre à qui il ne manque
-  // qu'une source. Le signal « bloqué » voyage avec l'avancement (`stalled`,
-  // cf. download-progress.ts), là où l'affichage le lit.
-  if (mediaStatus === 3) {
-    return downloadStatus && downloadStatus.length > 0 ? "downloading" : "unavailable";
-  }
-  if (requestStatus === 1) return "sent_to_seer";
-  return "approved";
-}
+/** Réexporté : le mapping vit dans seerr-status-map.ts. */
+export { mapSeerrStatus };
 
 function statusNotification(
   request: SeerRequest, newStatus: string,

@@ -22,7 +22,8 @@ import { rowToRequest } from "./db-helpers";
 import { updateRequestStatus, setNotifiedSeasons, upsertContentClaim } from "./db";
 import { invalidateRequestCaches } from "./cache";
 import { queueSnapshot } from "./arr-queue";
-import { matchQueue } from "./arr-truth";
+import { deletedFromJellyfin, matchQueue } from "./arr-truth";
+import { goneFromJellyfin, goneSeasonsOf } from "./live/live-state";
 import { radarrHasFile } from "./radarr-movies";
 import { sonarrSeriesFacts } from "./sonarr-episodes";
 import { mapLimit } from "./concurrency";
@@ -100,15 +101,32 @@ export async function advanceFromArr(prisma: PrismaClient, cfg: WorkerCfg): Prom
 
 async function decide(cfg: WorkerCfg, req: SeerRequest, inQueue: boolean): Promise<AdvanceDecision> {
   const base = { status: req.status, notifiedSeasons: req.notifiedSeasons, inQueue };
+  // Supprimé de Jellyfin : Radarr et Sonarr croient à leur fichier jusqu'à leur
+  // prochaine relecture du disque — il ne prouve pas une arrivée.
+  const deleted = deletedFromJellyfin(req);
   if (req.mediaType === "movie") {
-    return decideAdvance({ ...base, mediaType: "movie", movieHasFile: await radarrHasFile(cfg, req.tmdbId) });
+    const hasFile = deleted ? false : await radarrHasFile(cfg, req.tmdbId);
+    return decideAdvance({ ...base, mediaType: "movie", movieHasFile: hasFile });
   }
-  const facts = await sonarrSeriesFacts(cfg, req.tmdbId).catch(() => null);
+  const raw = await sonarrSeriesFacts(cfg, req.tmdbId).catch(() => null);
+  const facts = raw && deleted ? withoutDeletedSeasons(raw, req.tmdbId) : raw;
   return decideAdvance({
     ...base,
     mediaType: "tv",
     seasons: facts && facts.size > 0 ? seasonFacts(facts, req.seasons) : null,
   });
+}
+
+/** Les épisodes des saisons supprimées de Jellyfin, sans leur fichier. */
+function withoutDeletedSeasons<T extends { hasFile: boolean }>(facts: ReadonlyMap<string, T>, tmdbId: number): Map<string, T> {
+  const whole = goneFromJellyfin("tv", tmdbId);
+  const gone = goneSeasonsOf(tmdbId);
+  const out = new Map<string, T>();
+  for (const [key, fact] of facts) {
+    const season = Number(/^S(\d+)E/.exec(key)?.[1]);
+    out.set(key, fact.hasFile && (whole || gone.has(season)) ? { ...fact, hasFile: false } : fact);
+  }
+  return out;
 }
 
 /**

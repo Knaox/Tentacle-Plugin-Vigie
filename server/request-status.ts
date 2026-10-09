@@ -32,7 +32,7 @@
 
 import type { RequestStatus } from "./types";
 import type { SeasonStates } from "./series-gaps";
-import { mapSeerrStatus } from "./worker-sync";
+import { mapSeerrStatus } from "./seerr-status-map";
 
 /** `media.seasons[].status` : 5 = AVAILABLE (la saison est en bibliothèque). */
 const AVAILABLE = 5;
@@ -112,11 +112,17 @@ export function allRequestedSeasonsAvailable(row: StatusRow, seasonStates?: Seas
  *      « Marquer comme » l'emporte quand Jellyseerr a PERDU le média
  *      (availability-sync → UNKNOWN/DELETED, approbation fantôme) ; un état
  *      réel plus actif reprend toujours la main.
+ *
+ * L'épingle ne vaut que si Jellyfin ne dit rien du titre (`library`
+ * « unknown ») : là ou parti, c'est lui qui fait foi — la ligne a déjà été
+ * corrigée (live/request-row.ts), et un titre supprimé de Jellyfin ne doit
+ * plus s'afficher « Disponible » parce que sa demande l'a été un jour.
  */
 export function resolveRequestStatus(
   row: StatusRow,
   local?: { status: RequestStatus } | null,
   seasonStates?: SeasonStates,
+  library: "present" | "gone" | "unknown" = "unknown",
 ): RequestStatus {
   let status = mapSeerrStatus(row.status, row.media?.status, row.media?.downloadStatus);
 
@@ -136,6 +142,7 @@ export function resolveRequestStatus(
   }
 
   if (
+    library === "unknown" &&
     local?.status === "available" &&
     (status === "approved" || status === "unavailable" || status === "deleted")
   ) {

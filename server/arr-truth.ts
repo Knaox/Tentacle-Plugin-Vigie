@@ -22,6 +22,7 @@ import { queueSnapshot, type QueueEntry, type QueueResponse } from "./arr-queue"
 import { sonarrSeriesFacts, type EpisodeFact } from "./sonarr-episodes";
 import { radarrHasFile } from "./radarr-movies";
 import { mapLimit } from "./concurrency";
+import { goneFromJellyfin, goneSeasonsOf } from "./live/live-state";
 
 /** Ce qui attend encore quelque chose de Sonarr ou de Radarr. */
 export const IN_FLIGHT: ReadonlySet<RequestStatus> = new Set([
@@ -179,11 +180,28 @@ async function filesOf(cfg: WorkerCfg, req: InFlightRequest): Promise<FilesVerdi
 }
 
 /**
+ * Le titre (ou une des saisons demandées) a-t-il été supprimé de Jellyfin ?
+ * Radarr et Sonarr gardent un fichier pour « là » jusqu'à leur prochaine
+ * relecture du disque — des heures après une suppression faite dans
+ * Jellyfin : leurs fichiers ne disent alors plus « disponible ».
+ */
+export function deletedFromJellyfin(req: Pick<InFlightRequest, "mediaType" | "tmdbId" | "seasons">): boolean {
+  if (goneFromJellyfin(req.mediaType, req.tmdbId)) return true;
+  if (req.mediaType !== "tv" || !req.seasons?.length) return false;
+  const gone = goneSeasonsOf(req.tmdbId);
+  return req.seasons.some((s) => gone.has(s));
+}
+
+/**
  * Les verdicts des demandes qui attendent encore, par identifiant de ligne.
  * Une lecture de la file pour toutes ; les fichiers seulement pour ce qui
  * n'y est pas — quelques titres, gardés en cache et partagés entre comptes.
  */
-export async function arrVerdicts(cfg: WorkerCfg, requests: readonly InFlightRequest[]): Promise<Map<string, ArrVerdict>> {
+export async function arrVerdicts(
+  cfg: WorkerCfg,
+  requests: readonly InFlightRequest[],
+  isDeleted: (req: InFlightRequest) => boolean = deletedFromJellyfin,
+): Promise<Map<string, ArrVerdict>> {
   const out = new Map<string, ArrVerdict>();
   const waiting = requests.filter((r) => IN_FLIGHT.has(r.status) && r.tmdbId > 0);
   if (waiting.length === 0) return out;
@@ -191,7 +209,9 @@ export async function arrVerdicts(cfg: WorkerCfg, requests: readonly InFlightReq
   if (!queue) return out;
 
   await mapLimit(waiting, CONCURRENCY, async (req) => {
-    const files = matchQueue(req, queue.items).length > 0 ? null : await filesOf(cfg, req);
+    let files = matchQueue(req, queue.items).length > 0 ? null : await filesOf(cfg, req);
+    // Supprimé de Jellyfin : un fichier que Radarr ou Sonarr croient encore là ne prouve rien.
+    if ((files === "all" || files === "some") && isDeleted(req)) files = null;
     const verdict = verdictFor(req, queue, files);
     if (verdict) out.set(req.id, verdict);
   });
