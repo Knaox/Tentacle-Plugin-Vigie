@@ -8,7 +8,7 @@
     "build": "vite build && npm run build:server",
     "build:server": "node build-server.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node build-tests.mjs && node --test \"test-build/**/*.test.js\"",
+    "test": "node build-tests.mjs && node --test \"test-build/**/*.test.js\" \"scripts/**/*.test.mjs\"",
     "package": "npm run build && tar -czf plugin-vigie-v$npm_package_version.tar.gz dist/ server/index.mjs plugin.json"
   },
   "devDependencies": {

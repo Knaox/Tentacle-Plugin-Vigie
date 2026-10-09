@@ -1,4 +1,12 @@
-# Plugin Seer — publication automatique.
+# Plugin Seer — publication automatique, LIGNE 1.24 (maintenance MariaDB).
+#
+# Cette branche (`release/1.24`) porte les versions 1.24.x : celles des serveurs
+# Tentacle d'avant 1.25, sur MariaDB, qui ne lisent pas `minTentacleVersion` et
+# prennent `latestVersion` du registre. Les versions 1.25+ (SQLite) partent de
+# `main`. Un push sur `release/1.24` publie ici une 1.24.x : le bump, la Release
+# et le registre — où `latestVersion` reste la plus récente version qu'un serveur
+# d'avant 1.25 peut prendre (scripts/lib/registry-entry.mjs), et où les serveurs
+# 1.25+ continuent de choisir eux-mêmes la plus récente qui leur va.
 #
 # Un `git push origin main` suffit à : auto-bumper la version (selon le message
 # du commit), builder, packager, créer la Release GitHub `vX.Y.Z` prête à
@@ -17,7 +25,7 @@ name: Publish plugin
 
 on:
   push:
-    branches: ["main"]
+    branches: ["release/1.24"]
   workflow_dispatch:
 
 # Un seul run à la fois (évite les collisions de tag/registry).
@@ -38,9 +46,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      # 22 : les tests ouvrent une vraie SQLite par `node:sqlite` (Node ≥ 22.13).
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Auto-bump version (3 fichiers)
         id: bump
@@ -55,6 +64,10 @@ jobs:
       - name: Typecheck (gate qualité)
         if: steps.bump.outputs.skip != 'true'
         run: npm run typecheck
+
+      - name: Tests (gate qualité — rien ne se publie s'ils échouent)
+        if: steps.bump.outputs.skip != 'true'
+        run: npm test
 
       - name: Build + package
         if: steps.bump.outputs.skip != 'true'
@@ -85,7 +98,8 @@ jobs:
           git add package.json plugin.json src/plugin.tsx
           git commit -m "chore(release): seer v${V} [skip release]"
           git tag "v${V}"
-          git push origin HEAD:main
+          # Le commit de version retourne sur SA branche, jamais sur `main`.
+          git push origin "HEAD:${GITHUB_REF_NAME}"
           git push origin "v${V}"
 
       - name: Create GitHub Release
@@ -119,6 +133,9 @@ jobs:
             --min "${{ steps.meta.outputs.min }}" \
             --date "${{ steps.meta.outputs.date }}" \
             --changelog-file notes.md
+          # Le registre ENTIER tel qu'il va partir, lu comme le liraient les anciens
+          # serveurs : un écart, et rien n'est poussé.
+          node scripts/verify-registry.mjs registry/registry.json
           cd registry
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
