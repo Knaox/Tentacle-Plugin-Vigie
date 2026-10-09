@@ -67,6 +67,14 @@ export function statusMapReady(): boolean {
   return lastFull > 0;
 }
 
+/**
+ * Une demande a bougé chez Jellyseerr (live-sync.ts) : la prochaine relecture
+ * n'attend pas sa minute — le statut du média a pu bouger avec elle.
+ */
+export function statusMapStale(): void {
+  lastIncremental = 0;
+}
+
 async function fetchPage(cfg: WorkerCfg, skip: number, take = PAGE_SIZE): Promise<MediaPage> {
   const res = await fetch(
     `${cfg.seerrUrl}/api/v1/media?take=${take}&skip=${skip}&filter=all&sort=modified`,
