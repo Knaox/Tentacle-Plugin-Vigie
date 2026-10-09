@@ -38,7 +38,7 @@ import { hasActiveRequest, isAnimeTitle, seasonLocks } from "../utils/season-loc
 import { mediaTitle, mediaYear } from "../utils/media-helpers";
 import { requestableSeasons } from "../utils/request-seasons";
 import { useMaskedRequests, useSpecialSeasons } from "../hooks/useIsAdmin";
-import { isInLibraryStatus } from "../utils/media-status";
+import { MEDIA_STATUS_DELETED, isInLibraryStatus } from "../utils/media-status";
 import { libraryIdOf } from "../utils/navigate-media";
 import { openTrailersViaHost } from "../utils/external";
 import { CHROME_BOTTOM } from "../utils/host-chrome";
@@ -116,11 +116,12 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
   // de dire « Demande ajoutée ».
   // Masqué (liste de blocage, mots-clés bloqués) : demandable seulement si
   // l'administrateur le permet — le blocage est alors levé à l'envoi.
+  // Supprimé (de Jellyfin, sans demande qui court encore) : il se redemande.
   const masked = mediaStatus === 6 || current.masked === true;
   const requestClosed = masked && !maskedAllowed;
   const inLibrary = isInLibraryStatus(mediaStatus);
   const movieFree = !isTv && !requestClosed && (requestSuccess
-    || ((mediaStatus < 2 || mediaStatus === 6) && !hasActiveRequest(detail?.mediaInfo ?? current.mediaInfo) && status === null));
+    || ((mediaStatus < 2 || mediaStatus === 6 || mediaStatus === MEDIA_STATUS_DELETED) && !hasActiveRequest(detail?.mediaInfo ?? current.mediaInfo) && status === null));
   const streamingIds = (providers ?? []).map((p) => p.provider_id).filter((id) => id > 0);
 
   const handleClose = useCallback(() => {

@@ -41,6 +41,7 @@ import { HubContext, type BrowsePreset, type HubApi, type HubTab, type OpenMedia
 import { HubHeader } from "./HubHeader";
 import { hostQuery, readHubEntry } from "./deepLink";
 import { useHubData } from "./useHubData";
+import { useLiveSync } from "./useLiveSync";
 import { TitleStatesProvider } from "./TitleStates";
 import { UserMarksProvider } from "./UserMarks";
 
@@ -94,6 +95,8 @@ export function VigieHub({ routePath }: { routePath: string }) {
   const [calendarFocus, setCalendarFocus] = useState<CalendarFocus | null>(null);
 
   const data = useHubData();
+  // Un titre supprimé de Jellyfin, une demande retirée de Jellyseerr : le hub le voit sans qu'on recharge.
+  useLiveSync();
   const search = useVigieSearch(query, { exact });
   const searching = query.trim().length >= MIN_SEARCH;
 

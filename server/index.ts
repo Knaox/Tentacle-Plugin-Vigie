@@ -29,6 +29,9 @@ import { registerTitleRoutes } from "./routes-titles";
 import { registerTitleSeasonRoutes } from "./routes-titles-seasons";
 import { registerTitleGapRoutes } from "./routes-titles-gaps";
 import { onTitleRequested } from "./titles/request-listener";
+import { markActivity, startLiveSync, stopLiveSync } from "./live/live-sync";
+import { coreLibraryStore } from "./live/library-store";
+import { registerLiveRoutes } from "./live/routes-live";
 
 const __pluginDir = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -81,12 +84,20 @@ export default async function seerBackend(
   onTitleRequested(ctx.recommendations?.titleRequested ?? null);
 
   startWorker(db, () => getWorkerConfig(ctx));
+  // Jellyfin et Jellyseerr en direct : suppressions, demandes retirées (live/live-sync.ts).
+  startLiveSync({
+    db,
+    store: coreLibraryStore(db),
+    getWorkerConfig: () => getWorkerConfig(ctx),
+  });
   // Les réglages de Jellyseerr lus d'avance : `GET /config` ne les attend pas.
   void getWorkerConfig(ctx)
     .then((w) => (w ? specialSeasonsEnabled(w.seerrUrl, w.seerrApiKey) : false))
     .catch(() => false);
-  app.addHook("onClose", async () => { stopWorker(); });
+  app.addHook("onClose", async () => { stopWorker(); stopLiveSync(); });
   app.addHook("preHandler", ctx.requireAuth);
+  // Quelqu'un se sert de Vigie (ou de ses cartes dans Tentacle) : la boucle en direct accélère.
+  app.addHook("onRequest", async () => { markActivity(); });
 
   /* ── Config ────────────────────────────────────────────────────── */
 
@@ -147,6 +158,7 @@ export default async function seerBackend(
   registerTitleRoutes(app, db, gwc);
   registerTitleSeasonRoutes(app, db, gwc);
   registerTitleGapRoutes(app, db, gwc);
+  registerLiveRoutes(app);
 
   console.log("[SeerBackend] Routes registered");
 }
