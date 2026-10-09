@@ -892,7 +892,7 @@ async function findExistingTvRequest(prisma, jellyfinUserId, tmdbId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM seer_requests
      WHERE jellyfin_user_id = ? AND tmdb_id = ? AND media_type = 'tv'
-       AND status NOT IN ('deleted', 'deleting', 'delete_failed')
+       AND status NOT IN ('deleted', 'deleting', 'delete_failed', 'available', 'failed')
      ORDER BY created_at DESC, id ASC LIMIT 1`,
     jellyfinUserId,
     tmdbId
@@ -913,13 +913,16 @@ async function setNotifiedSeasons(prisma, id, seasons) {
     id
   );
 }
-async function getNextQueued(prisma) {
+async function getNextQueued(prisma, exclude = []) {
+  const skip = exclude.slice(0, 500);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM seer_requests
      WHERE status IN ('queued', 'retry_pending')
        AND (pending_cleanup_id IS NULL)
+       ${skip.length > 0 ? `AND id NOT IN (${skip.map(() => "?").join(", ")})` : ""}
      ORDER BY priority DESC, created_at ASC, id ASC
-     LIMIT 1`
+     LIMIT 1`,
+    ...skip
   );
   return rows.length > 0 ? rowToRequest(rows[0]) : null;
 }
@@ -1049,8 +1052,10 @@ function readPluginConfig(pluginDir, pluginId) {
     return {};
   }
 }
-function normalizeConfig(body) {
+function normalizeConfig(body, previous = {}) {
   const input = body && typeof body === "object" ? body : {};
+  const forget = input.deleteRequestsWithMedia === true;
+  const since = Number(previous.deleteRequestsWithMediaSince);
   const limit = Math.floor(Number(input.userLimit));
   const { navLabel: legacyLabel, ...rest } = input;
   return {
@@ -1062,6 +1067,11 @@ function normalizeConfig(body) {
     // Les titres masqués (liste de blocage, mots-clés bloqués) se demandent-ils ?
     // Non par défaut : le masquage est un choix de l'administrateur.
     allowMaskedRequests: input.allowMaskedRequests === true,
+    // Un titre supprimé de Jellyfin emporte sa demande (live/auto-forget.ts) ?
+    // Non par défaut. L'instant d'activation est posé ICI, jamais par le
+    // client : seules les suppressions qui le suivent sont concernées.
+    deleteRequestsWithMedia: forget,
+    deleteRequestsWithMediaSince: forget ? previous.deleteRequestsWithMedia === true && Number.isFinite(since) && since > 0 ? since : Date.now() : null,
     userLimit: Number.isFinite(limit) && limit > 0 ? limit : 0,
     // Un nom par langue ; l'ancienne forme (un seul nom) est reprise pour les deux.
     navLabels: cleanNavLabels(input.navLabels ?? legacyLabel),
@@ -1077,7 +1087,7 @@ function writePluginConfig(pluginDir, pluginId, body) {
   const installed = JSON.parse(readFileSync2(path, "utf-8"));
   const entry = findEntry(installed, pluginId);
   if (!entry) return null;
-  const config = normalizeConfig(body);
+  const config = normalizeConfig(body, entry.config ?? {});
   entry.config = config;
   const tmp = `${path}.vigie-${process.pid}.tmp`;
   writeFileSync2(tmp, JSON.stringify(installed, null, 2));
@@ -1164,10 +1174,10 @@ setInterval(() => {
 }, 6e4).unref?.();
 
 // server/seerr-settings.ts
-function getSeerrMainSettings(seerrUrl, apiKey) {
-  return cached(`seerr:settingsMain:${seerrUrl}`, 5 * 6e4, async () => {
+function getSeerrMainSettings(seerrUrl2, apiKey) {
+  return cached(`seerr:settingsMain:${seerrUrl2}`, 5 * 6e4, async () => {
     try {
-      const res = await fetch(`${seerrUrl}/api/v1/settings/main`, {
+      const res = await fetch(`${seerrUrl2}/api/v1/settings/main`, {
         headers: { "X-Api-Key": apiKey },
         signal: AbortSignal.timeout(8e3)
       });
@@ -1178,22 +1188,22 @@ function getSeerrMainSettings(seerrUrl, apiKey) {
     }
   }, { staleMs: 24 * 36e5 });
 }
-async function specialSeasonsEnabled(seerrUrl, apiKey) {
-  return (await getSeerrMainSettings(seerrUrl, apiKey)).enableSpecialEpisodes === true;
+async function specialSeasonsEnabled(seerrUrl2, apiKey) {
+  return (await getSeerrMainSettings(seerrUrl2, apiKey)).enableSpecialEpisodes === true;
 }
-function specialSeasonsQuick(seerrUrl, apiKey, capMs = 400) {
-  let timer2;
+function specialSeasonsQuick(seerrUrl2, apiKey, capMs = 400) {
+  let timer3;
   const late = new Promise((resolve3) => {
-    timer2 = setTimeout(() => resolve3(false), capMs);
+    timer3 = setTimeout(() => resolve3(false), capMs);
   });
-  return Promise.race([specialSeasonsEnabled(seerrUrl, apiKey), late]).finally(() => clearTimeout(timer2));
+  return Promise.race([specialSeasonsEnabled(seerrUrl2, apiKey), late]).finally(() => clearTimeout(timer3));
 }
 
 // server/anime.ts
 var overridesCache = null;
-async function fetchMediaDetail(seerrUrl, apiKey, mediaType, tmdbId) {
+async function fetchMediaDetail(seerrUrl2, apiKey, mediaType, tmdbId) {
   try {
-    const res = await fetch(`${seerrUrl}/api/v1/${mediaType}/${tmdbId}`, {
+    const res = await fetch(`${seerrUrl2}/api/v1/${mediaType}/${tmdbId}`, {
       headers: { "X-Api-Key": apiKey },
       signal: AbortSignal.timeout(1e4)
     });
@@ -1207,12 +1217,12 @@ function isAnimeFromKeywords(detail) {
   if (!detail.keywords || !Array.isArray(detail.keywords)) return false;
   return detail.keywords.some((k) => k.name?.toLowerCase().includes("anime"));
 }
-async function fetchAnimeOverrides(seerrUrl, apiKey) {
+async function fetchAnimeOverrides(seerrUrl2, apiKey) {
   if (overridesCache && Date.now() < overridesCache.expires) {
     return overridesCache.data;
   }
   try {
-    const res = await fetch(`${seerrUrl}/api/v1/settings/sonarr`, {
+    const res = await fetch(`${seerrUrl2}/api/v1/settings/sonarr`, {
       headers: { "X-Api-Key": apiKey },
       signal: AbortSignal.timeout(1e4)
     });
@@ -1247,14 +1257,14 @@ function releasedSuffix(gender, plural) {
   return `${v} sur Tentacle TV`;
 }
 var DELETED = 7;
-function goneSeasons(requested, mediaSeasons) {
+function goneSeasons(requested2, mediaSeasons) {
   const deleted = new Set(
     (mediaSeasons ?? []).filter((s) => s.status === DELETED).map((s) => s.seasonNumber)
   );
-  return (requested ?? []).filter((s) => deleted.has(s)).sort((a, b) => a - b);
+  return (requested2 ?? []).filter((s) => deleted.has(s)).sort((a, b) => a - b);
 }
-function evaluateSeasons(requested, mediaSeasons) {
-  const req = requested ?? [];
+function evaluateSeasons(requested2, mediaSeasons) {
+  const req = requested2 ?? [];
   const availSet = new Set(
     (mediaSeasons ?? []).filter((s) => s.status === AVAILABLE).map((s) => s.seasonNumber)
   );
@@ -1334,11 +1344,11 @@ async function releaseGoneSeasons(prisma, request, mediaSeasons) {
 // server/arr-service.ts
 var sonarrCache = null;
 var radarrCache = null;
-async function getArrServerConfig(seerrUrl, apiKey, type) {
+async function getArrServerConfig(seerrUrl2, apiKey, type) {
   const cache = type === "sonarr" ? sonarrCache : radarrCache;
   if (cache && Date.now() < cache.expires) return cache.data;
   try {
-    const res = await fetch(`${seerrUrl}/api/v1/settings/${type}`, {
+    const res = await fetch(`${seerrUrl2}/api/v1/settings/${type}`, {
       headers: { "X-Api-Key": apiKey },
       signal: AbortSignal.timeout(1e4)
     });
@@ -1378,9 +1388,9 @@ function buildArrUrl(server) {
   const base = server.baseUrl ? `/${server.baseUrl.replace(/^\/|\/$/g, "")}` : "";
   return `${protocol}://${server.hostname}:${server.port}${base}`;
 }
-async function getMediaExternalId(seerrUrl, apiKey, mediaType, tmdbId) {
+async function getMediaExternalId(seerrUrl2, apiKey, mediaType, tmdbId) {
   try {
-    const res = await fetch(`${seerrUrl}/api/v1/${mediaType}/${tmdbId}`, {
+    const res = await fetch(`${seerrUrl2}/api/v1/${mediaType}/${tmdbId}`, {
       headers: { "X-Api-Key": apiKey },
       signal: AbortSignal.timeout(1e4)
     });
@@ -1522,9 +1532,9 @@ async function cancelRadarrQueue(server, movieId) {
     console.warn(`[ArrService] cancelRadarrQueue #${movieId} failed:`, err);
   }
 }
-async function triggerSeerrJob(seerrUrl, apiKey, jobId) {
+async function triggerSeerrJob(seerrUrl2, apiKey, jobId) {
   try {
-    await fetch(`${seerrUrl}/api/v1/settings/jobs/${jobId}/run`, {
+    await fetch(`${seerrUrl2}/api/v1/settings/jobs/${jobId}/run`, {
       method: "POST",
       headers: { "X-Api-Key": apiKey },
       signal: AbortSignal.timeout(1e4)
@@ -1562,8 +1572,8 @@ function etaFrom(item) {
   const at = item.estimatedCompletionTime ?? null;
   if (fromSpan != null) return { seconds: fromSpan, at };
   if (at) {
-    const ms = new Date(at).getTime() - Date.now();
-    if (Number.isFinite(ms) && ms > 0) return { seconds: Math.round(ms / 1e3), at };
+    const ms2 = new Date(at).getTime() - Date.now();
+    if (Number.isFinite(ms2) && ms2 > 0) return { seconds: Math.round(ms2 / 1e3), at };
   }
   return { seconds: null, at };
 }
@@ -1903,8 +1913,8 @@ function isStalledRecord(r) {
 function firstMessage(r) {
   if (r.errorMessage) return r.errorMessage;
   for (const m of r.statusMessages ?? []) {
-    const text = m.messages?.[0] ?? m.title;
-    if (text) return text;
+    const text2 = m.messages?.[0] ?? m.title;
+    if (text2) return text2;
   }
   return null;
 }
@@ -1979,6 +1989,567 @@ async function fetchServerQueue(cfg) {
   return { ...snapshot, items: snapshot.items.slice(0, MAX_ITEMS) };
 }
 
+// server/live/library-keys.ts
+var MOVIE = /^m:t:([1-9]\d{0,9})$/;
+var SEASON = /^e:t:([1-9]\d{0,9}):(\d{1,4})(?::(\d{1,5})?)?$/;
+function parseContentKey(key) {
+  if (typeof key !== "string") return null;
+  const m = MOVIE.exec(key);
+  if (m) return { kind: "movie", tmdbId: Number(m[1]) };
+  const s = SEASON.exec(key);
+  if (s) return { kind: "season", tmdbId: Number(s[1]), season: Number(s[2]) };
+  return null;
+}
+function emptySnapshot() {
+  return { moviesPresent: /* @__PURE__ */ new Set(), moviesDeparted: /* @__PURE__ */ new Map(), series: /* @__PURE__ */ new Map() };
+}
+function tally(into, id, row) {
+  const t = into.get(id) ?? { present: false, at: null };
+  t.present ||= row.present;
+  if (row.departedAt !== null) t.at = Math.max(t.at ?? 0, row.departedAt);
+  into.set(id, t);
+}
+function buildSnapshot(rows) {
+  const movies = /* @__PURE__ */ new Map();
+  const seasons = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const parsed = parseContentKey(row.key);
+    if (!parsed) continue;
+    if (parsed.kind === "movie") tally(movies, String(parsed.tmdbId), row);
+    else tally(seasons, `${parsed.tmdbId}:${parsed.season}`, row);
+  }
+  const snap = emptySnapshot();
+  for (const [id, t] of movies) {
+    if (t.present) snap.moviesPresent.add(Number(id));
+    else if (t.at !== null) snap.moviesDeparted.set(Number(id), t.at);
+  }
+  for (const [id, t] of seasons) {
+    const [tmdbId, season] = id.split(":").map(Number);
+    let facts = snap.series.get(tmdbId);
+    if (!facts) {
+      facts = { present: /* @__PURE__ */ new Set(), departed: /* @__PURE__ */ new Map() };
+      snap.series.set(tmdbId, facts);
+    }
+    if (t.present) facts.present.add(season);
+    else if (t.at !== null) facts.departed.set(season, t.at);
+  }
+  return snap;
+}
+var NONE = /* @__PURE__ */ new Set();
+function libraryStateOf(snap, mediaType, tmdbId) {
+  if (mediaType === "movie") {
+    if (snap.moviesPresent.has(tmdbId)) return { state: "present", goneSeasons: NONE, presentSeasons: NONE };
+    const since = snap.moviesDeparted.get(tmdbId);
+    return since === void 0 ? { state: "unknown" } : { state: "gone", since, goneSeasons: NONE };
+  }
+  const facts = snap.series.get(tmdbId);
+  if (!facts) return { state: "unknown" };
+  const gone = new Set(facts.departed.keys());
+  if (facts.present.size > 0) return { state: "present", goneSeasons: gone, presentSeasons: facts.present };
+  if (facts.departed.size === 0) return { state: "unknown" };
+  return { state: "gone", since: Math.max(...facts.departed.values()), goneSeasons: gone };
+}
+function departuresOf(snap) {
+  const out = [];
+  for (const [tmdbId, at] of snap.moviesDeparted) out.push({ mediaType: "movie", tmdbId, at, seasons: [], whole: true });
+  for (const [tmdbId, facts] of snap.series) {
+    if (facts.departed.size === 0) continue;
+    out.push({
+      mediaType: "tv",
+      tmdbId,
+      at: Math.max(...facts.departed.values()),
+      seasons: [...facts.departed.keys()].sort((a, b) => a - b),
+      whole: facts.present.size === 0
+    });
+  }
+  return out;
+}
+function snapshotDigest(snap) {
+  const parts = [[...snap.moviesPresent].sort((a, b) => a - b).join(",")];
+  for (const [id, at] of [...snap.moviesDeparted].sort((a, b) => a[0] - b[0])) parts.push(`d${id}@${at}`);
+  for (const [id, facts] of [...snap.series].sort((a, b) => a[0] - b[0])) {
+    const present = [...facts.present].sort((a, b) => a - b).join(".");
+    const departed = [...facts.departed].sort((a, b) => a[0] - b[0]).map(([s, at]) => `${s}@${at}`).join(".");
+    parts.push(`s${id}:${present}/${departed}`);
+  }
+  return parts.join("|");
+}
+
+// server/live/request-index-model.ts
+function sameSignature(a, b) {
+  return !!a && !!b && a.total === b.total && a.topId === b.topId && a.topUpdatedAt === b.topUpdatedAt;
+}
+function num(v) {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+function text(v) {
+  return typeof v === "string" && v !== "" ? v : null;
+}
+function toIndexed(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw;
+  const id = num(r.id);
+  const status = num(r.status);
+  const media = r.media && typeof r.media === "object" ? r.media : {};
+  const tmdbId = num(media.tmdbId);
+  const type = media.mediaType === "tv" || r.type === "tv" ? "tv" : media.mediaType === "movie" || r.type === "movie" ? "movie" : null;
+  if (id === null || status === null || tmdbId === null || tmdbId <= 0 || !type) return null;
+  const seasons = Array.isArray(r.seasons) ? r.seasons.map((s) => num(s?.seasonNumber)).filter((n) => n !== null) : [];
+  const by = r.requestedBy && typeof r.requestedBy === "object" ? r.requestedBy : {};
+  return {
+    id,
+    status,
+    is4k: r.is4k === true,
+    mediaType: type,
+    tmdbId,
+    seasons: [...new Set(seasons)].sort((a, b) => a - b),
+    requestedBy: {
+      seerrUserId: num(by.id),
+      jellyfinUserId: text(by.jellyfinUserId),
+      name: text(by.displayName) ?? text(by.jellyfinUsername) ?? text(by.username) ?? text(by.email)
+    },
+    createdAt: text(r.createdAt),
+    updatedAt: text(r.updatedAt),
+    mediaStatus: num(media.status)
+  };
+}
+function signatureOf(page) {
+  if (!page || typeof page !== "object") return null;
+  const total = num(page.pageInfo?.results);
+  if (total === null) return null;
+  const top = Array.isArray(page.results) && page.results.length > 0 ? toIndexed(page.results[0]) : null;
+  return { total, topId: top?.id ?? null, topUpdatedAt: top?.updatedAt ?? null };
+}
+function applyIncremental(byId, page, pageSize, total, hidden = 0) {
+  const changed = [];
+  for (const row of page) {
+    const known = byId.get(row.id);
+    if (!known || known.updatedAt !== row.updatedAt || known.status !== row.status || known.mediaStatus !== row.mediaStatus) {
+      changed.push(row);
+    }
+  }
+  const added = changed.filter((r) => !byId.has(r.id)).length;
+  const after = byId.size + added + hidden;
+  if (total < after) return { kind: "reload" };
+  if (page.length >= pageSize && changed.length === page.length) return { kind: "reload" };
+  if (total > after) return { kind: "reload" };
+  for (const row of changed) byId.set(row.id, row);
+  return { kind: "applied", changed };
+}
+function vanished(before, after, truncated) {
+  const seen = new Set(after.map((r) => r.id));
+  const floor = truncated && after.length > 0 ? Math.min(...after.map((r) => r.id)) : -Infinity;
+  const out = [];
+  for (const id of before.keys()) if (!seen.has(id) && id >= floor) out.push(id);
+  return out.sort((a, b) => a - b);
+}
+function byTitleOf(rows) {
+  const out = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const key = `${row.mediaType}:${row.tmdbId}`;
+    const list = out.get(key);
+    if (list) list.push(row);
+    else out.set(key, [row]);
+  }
+  return out;
+}
+
+// server/live/request-index.ts
+var PAGE = 100;
+var RECENT = 50;
+var CONCURRENCY = 4;
+var MAX_PAGES = 60;
+var FULL_EVERY_MS = 6 * 36e5;
+var BACKOFF_MS = 3e4;
+async function fetchPage(cfg, take, skip, sort) {
+  const res = await fetch(
+    `${cfg.seerrUrl}/api/v1/request?take=${take}&skip=${skip}&filter=all&sort=${sort}`,
+    { headers: { "X-Api-Key": cfg.seerrApiKey }, signal: AbortSignal.timeout(1e4) }
+  );
+  if (!res.ok) throw new Error(`Jellyseerr GET /request ${res.status}`);
+  return await res.json();
+}
+var RequestIndexState = class {
+  byId = /* @__PURE__ */ new Map();
+  titles = /* @__PURE__ */ new Map();
+  signature = null;
+  hidden = 0;
+  lastFull = 0;
+  retryAfter = 0;
+  running = null;
+  /** Vrai dès la première relecture complète réussie. */
+  ready = false;
+  /** La dernière relecture n'a pas tout lu (trop de demandes). */
+  truncated = false;
+  /** Change à chaque modification de l'index : les caches qui en dépendent se reconnaissent. */
+  generation = 0;
+  /** Les demandes d'un titre, telles que Jellyseerr les a — `null` si l'index n'est pas prêt. */
+  requestsFor(mediaType, tmdbId) {
+    if (!this.ready) return null;
+    return this.titles.get(`${mediaType}:${tmdbId}`) ?? [];
+  }
+  /** La demande existe-t-elle encore ? `null` : on ne peut pas le dire. */
+  exists(id) {
+    if (!this.ready) return null;
+    if (this.byId.has(id)) return true;
+    if (this.truncated && this.byId.size > 0 && id < Math.min(...this.byId.keys())) return null;
+    return false;
+  }
+  all() {
+    return [...this.byId.values()];
+  }
+  /**
+   * Une passe : l'empreinte, puis ce qu'elle demande. Ne rejette jamais ;
+   * rend ce qui a changé, ou `null` quand rien n'a bougé (ou Jellyseerr muet).
+   */
+  poll(cfg, now = Date.now()) {
+    if (this.running) return this.running;
+    if (now < this.retryAfter) return Promise.resolve(null);
+    this.running = this.pass(cfg, now).catch((err) => {
+      this.retryAfter = Date.now() + BACKOFF_MS;
+      console.warn(`[VigieLive] Demandes de Jellyseerr illisibles : ${err instanceof Error ? err.message : err}`);
+      return null;
+    }).finally(() => {
+      this.running = null;
+    });
+    return this.running;
+  }
+  /** Pour les tests : un index déjà lu. */
+  seed(rows) {
+    this.byId = new Map(rows.map((r) => [r.id, r]));
+    this.hidden = 0;
+    this.truncated = false;
+    this.ready = true;
+    this.lastFull = Date.now();
+    this.rebuild();
+  }
+  /** Oublie tout (changement d'instance Jellyseerr). */
+  reset() {
+    this.byId.clear();
+    this.titles.clear();
+    this.signature = null;
+    this.hidden = 0;
+    this.lastFull = 0;
+    this.ready = false;
+    this.truncated = false;
+    this.generation++;
+  }
+  async pass(cfg, now) {
+    if (!this.ready || now - this.lastFull > FULL_EVERY_MS) return this.full(cfg);
+    const sig = signatureOf(await fetchPage(cfg, 1, 0, "modified"));
+    if (!sig) throw new Error("empreinte illisible");
+    if (sameSignature(sig, this.signature)) return null;
+    const recent = await fetchPage(cfg, RECENT, 0, "modified");
+    const rows = (recent.results ?? []).map(toIndexed).filter((r) => r !== null);
+    const verdict = applyIncremental(this.byId, rows, RECENT, sig.total, this.hidden);
+    if (verdict.kind === "reload") return this.full(cfg);
+    this.signature = sig;
+    if (verdict.changed.length === 0) return null;
+    this.rebuild();
+    return { changed: verdict.changed, deleted: [] };
+  }
+  async full(cfg) {
+    const first = await fetchPage(cfg, PAGE, 0, "added");
+    const total = Number(first.pageInfo?.results ?? first.results?.length ?? 0) || 0;
+    const pages = Math.min(Math.ceil(total / PAGE), MAX_PAGES);
+    const skips = Array.from({ length: Math.max(0, pages - 1) }, (_, i) => (i + 1) * PAGE);
+    const rest = await runLimited(skips, CONCURRENCY, (skip) => fetchPage(cfg, PAGE, skip, "added"));
+    const raw = [first, ...rest].flatMap((p) => p.results ?? []);
+    const rows = raw.map(toIndexed).filter((r) => r !== null);
+    const truncated = Math.ceil(total / PAGE) > MAX_PAGES;
+    const sig = signatureOf(await fetchPage(cfg, 1, 0, "modified"));
+    const before = this.byId;
+    const wasReady = this.ready;
+    const deletedIds = wasReady ? vanished(before, rows, truncated) : [];
+    const deleted = deletedIds.map((id) => before.get(id)).filter((r) => !!r);
+    const changed = wasReady ? rows.filter((r) => {
+      const known = before.get(r.id);
+      return !known || known.updatedAt !== r.updatedAt || known.status !== r.status;
+    }) : [];
+    this.byId = new Map(rows.map((r) => [r.id, r]));
+    this.hidden = Math.max(0, total - rows.length);
+    this.truncated = truncated;
+    this.signature = sig;
+    this.lastFull = Date.now();
+    this.ready = true;
+    if (wasReady && changed.length === 0 && deleted.length === 0) return null;
+    this.rebuild();
+    return { changed, deleted };
+  }
+  rebuild() {
+    this.titles = byTitleOf(this.byId.values());
+    this.generation++;
+  }
+};
+async function runLimited(items, limit, fn) {
+  const out = new Array(items.length);
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (; ; ) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]);
+    }
+  }));
+  return out;
+}
+var requestIndex = new RequestIndexState();
+
+// server/search/pending.ts
+var REFRESH_MS = 1e4;
+var WAITING = ["queued", "processing", "retry_pending", "sent_to_seer", "approved"];
+var NOT_SENT = /* @__PURE__ */ new Set(["queued", "processing", "retry_pending"]);
+var keys = /* @__PURE__ */ new Set();
+var queued = /* @__PURE__ */ new Map();
+var readAt = 0;
+var reading = false;
+function isLocallyPending(key) {
+  return keys.has(key);
+}
+function locallyQueued(key) {
+  return queued.get(key) ?? null;
+}
+function seasonsOf(raw) {
+  if (!raw) return [];
+  try {
+    const arr = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Array.isArray(arr) ? arr.map(Number).filter((n) => Number.isFinite(n)) : [];
+  } catch {
+    return [];
+  }
+}
+function refreshLocalPending(prisma, force = false) {
+  if (reading || !force && Date.now() - readAt < REFRESH_MS) return;
+  reading = true;
+  prisma.$queryRawUnsafe(
+    `SELECT media_type, tmdb_id, status, seasons FROM seer_requests
+     WHERE status IN (${WAITING.map(() => "?").join(", ")})`,
+    ...WAITING
+  ).then((rows) => {
+    const nextKeys = /* @__PURE__ */ new Set();
+    const nextQueued = /* @__PURE__ */ new Map();
+    for (const r of rows) {
+      const key = `${r.media_type}:${Number(r.tmdb_id)}`;
+      nextKeys.add(key);
+      if (!NOT_SENT.has(r.status)) continue;
+      const set = nextQueued.get(key) ?? /* @__PURE__ */ new Set();
+      for (const s of seasonsOf(r.seasons)) set.add(s);
+      nextQueued.set(key, set);
+    }
+    keys = nextKeys;
+    queued = nextQueued;
+  }).catch(() => void 0).finally(() => {
+    readAt = Date.now();
+    reading = false;
+  });
+}
+function markLocallyPending(mediaType, tmdbId, seasons) {
+  const key = `${mediaType}:${tmdbId}`;
+  keys.add(key);
+  const set = queued.get(key) ?? /* @__PURE__ */ new Set();
+  for (const s of seasons ?? []) set.add(s);
+  queued.set(key, set);
+}
+
+// server/live/title-truth.ts
+var STATUS = {
+  UNKNOWN: 1,
+  PENDING: 2,
+  PROCESSING: 3,
+  PARTIALLY_AVAILABLE: 4,
+  AVAILABLE: 5,
+  BLOCKLISTED: 6,
+  DELETED: 7
+};
+var REQUEST = { PENDING: 1, APPROVED: 2, DECLINED: 3, FAILED: 4, COMPLETED: 5 };
+var NO_SEASONS = /* @__PURE__ */ new Set();
+var UNKNOWN_LIBRARY = { state: "unknown", goneSeasons: NO_SEASONS, presentSeasons: NO_SEASONS };
+function isLiveRequest(r) {
+  return !r.is4k && (r.status === REQUEST.PENDING || r.status === REQUEST.APPROVED || r.status === REQUEST.COMPLETED);
+}
+function requested(facts, seerr) {
+  return facts.downloading || seerr === STATUS.PROCESSING ? STATUS.PROCESSING : STATUS.PENDING;
+}
+function stillRequested(facts) {
+  if (facts.queued) return true;
+  if (facts.requests === null) return null;
+  return facts.requests.some(isLiveRequest);
+}
+function seasonStillRequested(facts, season) {
+  if (facts.queuedSeasons?.has(season)) return true;
+  if (facts.requests === null) return facts.queued ? true : null;
+  return facts.requests.some((r) => isLiveRequest(r) && r.seasons.includes(season)) || facts.queued && !facts.queuedSeasons;
+}
+function correctMediaStatus(mediaType, seerr, facts) {
+  if (seerr === STATUS.BLOCKLISTED) return seerr;
+  const { library } = facts;
+  if (library.state === "gone") {
+    const still2 = stillRequested(facts);
+    if (still2 === true) return requested(facts, seerr);
+    if (still2 === false) return STATUS.DELETED;
+    return seerr === STATUS.PENDING || seerr === STATUS.PROCESSING ? seerr : STATUS.DELETED;
+  }
+  if (library.state === "present") {
+    if (mediaType === "movie") {
+      return seerr === STATUS.AVAILABLE || seerr === STATUS.PARTIALLY_AVAILABLE ? seerr : STATUS.AVAILABLE;
+    }
+    if (seerr === STATUS.AVAILABLE) return library.goneSeasons.size > 0 ? STATUS.PARTIALLY_AVAILABLE : seerr;
+    if (seerr === STATUS.PARTIALLY_AVAILABLE) return seerr;
+    return STATUS.PARTIALLY_AVAILABLE;
+  }
+  if (seerr === STATUS.PENDING || seerr === STATUS.PROCESSING) {
+    return stillRequested(facts) === false ? STATUS.UNKNOWN : seerr;
+  }
+  if (seerr === STATUS.DELETED && stillRequested(facts) === true) return requested(facts, seerr);
+  return seerr;
+}
+function correctSeasonStatus(season, seerr, facts) {
+  if (seerr === STATUS.BLOCKLISTED) return seerr;
+  const { library } = facts;
+  const gone = library.state === "gone" || library.goneSeasons.has(season);
+  if (gone && (seerr === void 0 || seerr >= STATUS.PENDING)) {
+    const still2 = seasonStillRequested(facts, season);
+    if (still2 === true) return seerr === STATUS.PROCESSING || facts.downloading ? STATUS.PROCESSING : STATUS.PENDING;
+    if (still2 === false) return STATUS.DELETED;
+    return seerr === STATUS.PENDING || seerr === STATUS.PROCESSING ? seerr : STATUS.DELETED;
+  }
+  if (library.state === "present" && library.presentSeasons.has(season)) {
+    return seerr === STATUS.AVAILABLE || seerr === STATUS.PARTIALLY_AVAILABLE ? seerr : STATUS.PARTIALLY_AVAILABLE;
+  }
+  if (seerr === STATUS.PENDING || seerr === STATUS.PROCESSING) {
+    return seasonStillRequested(facts, season) === false ? STATUS.UNKNOWN : seerr;
+  }
+  return seerr;
+}
+
+// server/live/live-state.ts
+var SETTLE_MS = 20 * 6e4;
+var LiveState = class {
+  snapshot = emptySnapshot();
+  /** La liste du serveur a pu être lue : les départs sont connus. */
+  libraryReadable = false;
+  digest = "";
+  checks = /* @__PURE__ */ new Map();
+  gen = 0;
+  /** Change dès que l'état d'un titre a pu changer (bibliothèque, Jellyfin, demandes). */
+  get generation() {
+    return this.gen + requestIndex.generation;
+  }
+  bump() {
+    this.gen++;
+  }
+  /** Pour les tests : rien de connu. */
+  reset() {
+    this.snapshot = emptySnapshot();
+    this.libraryReadable = false;
+    this.digest = "";
+    this.checks.clear();
+    this.gen++;
+  }
+  /** Nouvelles lignes de la liste du serveur. Vrai si ce qu'elles disent a changé. */
+  setLibrary(rows) {
+    if (rows === null) {
+      const changed = this.libraryReadable;
+      this.libraryReadable = false;
+      this.snapshot = emptySnapshot();
+      this.digest = "";
+      if (changed) this.gen++;
+      return changed;
+    }
+    const snap = buildSnapshot(rows);
+    const digest = snapshotDigest(snap);
+    this.libraryReadable = true;
+    this.snapshot = snap;
+    if (digest === this.digest) return false;
+    this.digest = digest;
+    const departed = new Set(departuresOf(snap).map((d) => `${d.mediaType}:${d.tmdbId}`));
+    for (const key of this.checks.keys()) if (!departed.has(key)) this.checks.delete(key);
+    this.gen++;
+    return true;
+  }
+  /** Une réponse de Jellyfin. Vrai si elle change ce qu'on dit du titre. */
+  setCheck(key, check2) {
+    const before = this.checks.get(key);
+    this.checks.set(key, check2);
+    const same = before && before.present === check2.present && sameSet(before.presentSeasons, check2.presentSeasons);
+    if (!same) this.gen++;
+    return !same;
+  }
+  departures() {
+    return departuresOf(this.snapshot);
+  }
+  /**
+   * Un départ est acquis quand Jellyfin, interrogé APRÈS lui, n'a plus le
+   * titre — ou, sans réponse de Jellyfin, quand il est assez ancien.
+   */
+  settled(key, departedAt, now, absent) {
+    const check2 = this.checks.get(key);
+    if (check2 && check2.at >= departedAt) return absent(check2);
+    return now - departedAt >= SETTLE_MS;
+  }
+  /** Ce que Jellyfin est pour ce titre, départs confirmés seulement. */
+  libraryFact(mediaType, tmdbId, now = Date.now()) {
+    if (!this.libraryReadable) return UNKNOWN_LIBRARY;
+    const base = libraryStateOf(this.snapshot, mediaType, tmdbId);
+    if (base.state === "unknown") return UNKNOWN_LIBRARY;
+    const key = `${mediaType}:${tmdbId}`;
+    const facts = mediaType === "tv" ? this.snapshot.series.get(tmdbId) : void 0;
+    if (base.state === "present") {
+      if (base.goneSeasons.size === 0 || !facts) {
+        return { state: "present", goneSeasons: NO_SEASONS, presentSeasons: base.presentSeasons };
+      }
+      const gone = /* @__PURE__ */ new Set();
+      for (const season of base.goneSeasons) {
+        const at = facts.departed.get(season) ?? 0;
+        if (this.settled(key, at, now, (c) => !c.presentSeasons?.has(season))) gone.add(season);
+      }
+      return { state: "present", goneSeasons: gone, presentSeasons: base.presentSeasons };
+    }
+    if (this.settled(key, base.since, now, (c) => !c.present)) {
+      return { state: "gone", goneSeasons: base.goneSeasons, presentSeasons: NO_SEASONS };
+    }
+    const check2 = this.checks.get(key);
+    if (check2 && check2.at >= base.since && check2.present) {
+      const present = check2.presentSeasons ?? NO_SEASONS;
+      const gone = new Set([...base.goneSeasons].filter((s) => check2.presentSeasons && !present.has(s)));
+      return { state: "present", goneSeasons: gone, presentSeasons: present };
+    }
+    return UNKNOWN_LIBRARY;
+  }
+};
+function sameSet(a, b) {
+  if (!a || !b) return !a && !b;
+  if (a.size !== b.size) return false;
+  for (const v of a) if (!b.has(v)) return false;
+  return true;
+}
+var liveState = new LiveState();
+function factsFor(mediaType, tmdbId, opts = {}) {
+  const queuedSeasons = locallyQueued(`${mediaType}:${tmdbId}`);
+  return {
+    library: liveState.libraryFact(mediaType, tmdbId, opts.now),
+    requests: opts.requests !== void 0 ? opts.requests : requestIndex.requestsFor(mediaType, tmdbId),
+    queued: queuedSeasons !== null,
+    queuedSeasons: queuedSeasons && queuedSeasons.size > 0 ? queuedSeasons : void 0,
+    downloading: opts.downloading
+  };
+}
+function correctedStatus(mediaType, tmdbId, seerr, opts) {
+  return correctMediaStatus(mediaType, seerr, factsFor(mediaType, tmdbId, opts));
+}
+function factsWithRequest(mediaType, tmdbId, own, downloading = false) {
+  const base = factsFor(mediaType, tmdbId, { downloading });
+  return { ...base, requests: [...base.requests ?? [], own] };
+}
+function goneFromJellyfin(mediaType, tmdbId) {
+  return liveState.libraryFact(mediaType, tmdbId).state === "gone";
+}
+function goneSeasonsOf(tmdbId) {
+  const fact = liveState.libraryFact("tv", tmdbId);
+  return fact.state === "unknown" ? NO_SEASONS : fact.goneSeasons;
+}
+
 // server/arr-truth.ts
 var IN_FLIGHT = /* @__PURE__ */ new Set([
   "approved",
@@ -1987,7 +2558,7 @@ var IN_FLIGHT = /* @__PURE__ */ new Set([
   "partially_available"
 ]);
 var MAX_DETAIL = 24;
-var CONCURRENCY = 4;
+var CONCURRENCY2 = 4;
 function matchQueue(req, items) {
   const source = req.mediaType === "movie" ? "radarr" : "sonarr";
   return items.filter((e) => e.source === source && e.tmdbId === req.tmdbId && (req.mediaType === "movie" || !req.seasons?.length || e.seasonNumber != null && req.seasons.includes(e.seasonNumber)));
@@ -2079,14 +2650,21 @@ async function filesOf(cfg, req) {
   const facts = await sonarrSeriesFacts(cfg, req.tmdbId).catch(() => null);
   return facts ? seriesFiles(req.seasons, facts) : null;
 }
-async function arrVerdicts(cfg, requests) {
+function deletedFromJellyfin(req) {
+  if (goneFromJellyfin(req.mediaType, req.tmdbId)) return true;
+  if (req.mediaType !== "tv" || !req.seasons?.length) return false;
+  const gone = goneSeasonsOf(req.tmdbId);
+  return req.seasons.some((s) => gone.has(s));
+}
+async function arrVerdicts(cfg, requests, isDeleted = deletedFromJellyfin) {
   const out = /* @__PURE__ */ new Map();
   const waiting = requests.filter((r) => IN_FLIGHT.has(r.status) && r.tmdbId > 0);
   if (waiting.length === 0) return out;
   const queue = await queueSnapshot(cfg).catch(() => null);
   if (!queue) return out;
-  await mapLimit(waiting, CONCURRENCY, async (req) => {
-    const files = matchQueue(req, queue.items).length > 0 ? null : await filesOf(cfg, req);
+  await mapLimit(waiting, CONCURRENCY2, async (req) => {
+    let files = matchQueue(req, queue.items).length > 0 ? null : await filesOf(cfg, req);
+    if ((files === "all" || files === "some") && isDeleted(req)) files = null;
     const verdict = verdictFor(req, queue, files);
     if (verdict) out.set(req.id, verdict);
   });
@@ -2125,7 +2703,7 @@ function isDowngrade(from, to) {
   const b = PROGRESS_RANK[to];
   return a !== void 0 && b !== void 0 && b < a;
 }
-function seasonFacts(facts, requested) {
+function seasonFacts(facts, requested2) {
   const counts = /* @__PURE__ */ new Map();
   for (const [key, fact] of facts) {
     const season = Number(/^S(\d+)E/.exec(key)?.[1]);
@@ -2135,7 +2713,7 @@ function seasonFacts(facts, requested) {
     if (fact.hasFile) c.here++;
     counts.set(season, c);
   }
-  const considered = requested?.length ? [...requested].sort((a, b) => a - b) : [...counts.keys()].filter((s) => s > 0).sort((a, b) => a - b);
+  const considered = requested2?.length ? [...requested2].sort((a, b) => a - b) : [...counts.keys()].filter((s) => s > 0).sort((a, b) => a - b);
   const complete = [];
   const started = [];
   for (const s of considered) {
@@ -2195,7 +2773,7 @@ function decideAdvance(input) {
 
 // server/arr-advance.ts
 var CANDIDATES = ["sent_to_seer", "approved", "unavailable", "downloading", "partially_available"];
-var CONCURRENCY2 = 4;
+var CONCURRENCY3 = 4;
 var IDLE_EVERY_PASSES = 5;
 var AFTER_QUEUE_PASSES = 3;
 var CLAIM_TTL_SECONDS = 1800;
@@ -2234,7 +2812,7 @@ async function advanceFromArr(prisma, cfg) {
   const alive = new Set(requests.map((r) => r.id));
   for (const id of leftQueue.keys()) if (!alive.has(id)) leftQueue.delete(id);
   const idleTurn = passCount % IDLE_EVERY_PASSES === 1;
-  await mapLimit(requests, CONCURRENCY2, async (req) => {
+  await mapLimit(requests, CONCURRENCY3, async (req) => {
     if (!arrKnows(req.mediaType)) return;
     const inQueue = matchQueue(req, queue.items).length > 0;
     const recent = justLeft(req.id, inQueue);
@@ -2248,23 +2826,36 @@ async function advanceFromArr(prisma, cfg) {
 }
 async function decide(cfg, req, inQueue) {
   const base = { status: req.status, notifiedSeasons: req.notifiedSeasons, inQueue };
+  const deleted = deletedFromJellyfin(req);
   if (req.mediaType === "movie") {
-    return decideAdvance({ ...base, mediaType: "movie", movieHasFile: await radarrHasFile(cfg, req.tmdbId) });
+    const hasFile = deleted ? false : await radarrHasFile(cfg, req.tmdbId);
+    return decideAdvance({ ...base, mediaType: "movie", movieHasFile: hasFile });
   }
-  const facts = await sonarrSeriesFacts(cfg, req.tmdbId).catch(() => null);
+  const raw = await sonarrSeriesFacts(cfg, req.tmdbId).catch(() => null);
+  const facts = raw && deleted ? withoutDeletedSeasons(raw, req.tmdbId) : raw;
   return decideAdvance({
     ...base,
     mediaType: "tv",
     seasons: facts && facts.size > 0 ? seasonFacts(facts, req.seasons) : null
   });
 }
+function withoutDeletedSeasons(facts, tmdbId) {
+  const whole = goneFromJellyfin("tv", tmdbId);
+  const gone = goneSeasonsOf(tmdbId);
+  const out = /* @__PURE__ */ new Map();
+  for (const [key, fact] of facts) {
+    const season = Number(/^S(\d+)E/.exec(key)?.[1]);
+    out.set(key, fact.hasFile && (whole || gone.has(season)) ? { ...fact, hasFile: false } : fact);
+  }
+  return out;
+}
 function arrivalNotifications(req, d) {
   const out = [];
   if (d.notifyDownloading) out.push({ title: req.title, body: `\xAB ${req.title} \xBB est en route` });
   if (d.notifyMovie) out.push({ title: req.title, body: `\xAB ${req.title} \xBB ${releasedSuffix("m", false)}` });
   if (d.notifySeasons.length > 0) {
-    const requested = req.seasons ?? [];
-    const arrived = (d.notified ?? req.notifiedSeasons ?? []).filter((s) => requested.includes(s)).length;
+    const requested2 = req.seasons ?? [];
+    const arrived = (d.notified ?? req.notifiedSeasons ?? []).filter((s) => requested2.includes(s)).length;
     const n = seasonNotification(req, d.notifySeasons, arrived);
     out.push({ title: n.title, body: n.message });
   }
@@ -2286,6 +2877,21 @@ async function apply(prisma, req, d) {
   invalidateRequestCaches(req.jellyfinUserId);
   await upsertContentClaim(prisma, req.tmdbId, req.jellyfinUserId, req.mediaType, req.title, CLAIM_TTL_SECONDS).catch(() => {
   });
+}
+
+// server/seerr-status-map.ts
+function mapSeerrStatus(requestStatus, mediaStatus, downloadStatus) {
+  if (requestStatus === 3) return "failed";
+  if (requestStatus === 4) return "failed";
+  if (mediaStatus === 5) return "available";
+  if (mediaStatus === 4) return "partially_available";
+  if (mediaStatus === 7) return "deleted";
+  if (mediaStatus === 1) return "unavailable";
+  if (mediaStatus === 3) {
+    return downloadStatus && downloadStatus.length > 0 ? "downloading" : "unavailable";
+  }
+  if (requestStatus === 1) return "sent_to_seer";
+  return "approved";
 }
 
 // server/worker-sync.ts
@@ -2322,16 +2928,19 @@ async function syncStatuses(prisma, config) {
         continue;
       }
       const data = await res.json();
-      const globalStatus = mapSeerrStatus(data.status, data.media?.status, data.media?.downloadStatus);
+      const own = { status: data.status, seasons: (data.seasons ?? []).map((s) => s.seasonNumber) };
+      const facts = factsWithRequest(request.mediaType, request.tmdbId, own, (data.media?.downloadStatus?.length ?? 0) > 0);
+      const mediaStatus = correctMediaStatus(request.mediaType, data.media?.status, facts);
+      const globalStatus = mapSeerrStatus(data.status, mediaStatus, data.media?.downloadStatus);
       if (globalStatus === "failed" && request.status !== "failed") {
         await handleFailedSync(prisma, config, request, data);
         invalidateRequestCaches(request.jellyfinUserId);
         continue;
       }
       if (request.mediaType === "tv" && (request.seasons?.length ?? 0) > 0) {
-        await syncTvSeasons(prisma, config, request, globalStatus, data.media?.status);
+        await syncTvSeasons(prisma, config, request, globalStatus, mediaStatus, own);
       } else {
-        await syncGlobal(prisma, request, globalStatus, data.media?.status);
+        await syncGlobal(prisma, request, globalStatus, mediaStatus);
       }
       if (!availabilitySyncDone && request.mediaType === "tv" && (globalStatus === "partially_available" || globalStatus === "downloading")) {
         availabilitySyncDone = true;
@@ -2363,9 +2972,13 @@ async function syncGlobal(prisma, request, newStatus, mediaStatus) {
   }
   console.log(`[SeerWorker] "${request.title}" status: ${request.status} \u2192 ${newStatus}`);
 }
-async function syncTvSeasons(prisma, config, request, fallbackStatus, mediaStatus) {
+async function syncTvSeasons(prisma, config, request, fallbackStatus, mediaStatus, own) {
   const detail = await fetchMediaDetail(config.seerrUrl, config.seerrApiKey, "tv", request.tmdbId);
-  const mediaSeasons = detail?.mediaInfo?.seasons;
+  const facts = factsWithRequest("tv", request.tmdbId, own);
+  const mediaSeasons = detail?.mediaInfo?.seasons?.map((s) => ({
+    ...s,
+    status: correctSeasonStatus(s.seasonNumber, s.status, facts) ?? s.status
+  }));
   const kept = await releaseGoneSeasons(prisma, request, mediaSeasons);
   if (!kept) return;
   request = kept;
@@ -2440,19 +3053,6 @@ async function retryFailedRequests(prisma) {
     console.log(`[SeerWorker] Auto-retry "${req.title}" (attempt ${newRetry}/${req.max_retries})`);
   }
 }
-function mapSeerrStatus(requestStatus, mediaStatus, downloadStatus) {
-  if (requestStatus === 3) return "failed";
-  if (requestStatus === 4) return "failed";
-  if (mediaStatus === 5) return "available";
-  if (mediaStatus === 4) return "partially_available";
-  if (mediaStatus === 7) return "deleted";
-  if (mediaStatus === 1) return "unavailable";
-  if (mediaStatus === 3) {
-    return downloadStatus && downloadStatus.length > 0 ? "downloading" : "unavailable";
-  }
-  if (requestStatus === 1) return "sent_to_seer";
-  return "approved";
-}
 function statusNotification(request, newStatus) {
   switch (newStatus) {
     // « En route », jamais « téléchargement » : l'application mobile affiche
@@ -2517,9 +3117,9 @@ async function reconcileSeerrSeasons(prisma, config, tmdbId, removedSeasons) {
           `[SeerReconcile] tv#${tmdbId} : Jellyseerr ne modifie plus la demande #${req.id} (statut ${req.status}) \u2014 S${seasons.join(", S")} y restent list\xE9es`
         );
       } else if (!put2.ok && put2.status !== 404) {
-        const text = await put2.text().catch(() => "");
+        const text2 = await put2.text().catch(() => "");
         throw new Error(
-          `Jellyseerr PUT /request/${req.id} returned ${put2.status} ${text.slice(0, 200)}`
+          `Jellyseerr PUT /request/${req.id} returned ${put2.status} ${text2.slice(0, 200)}`
         );
       } else {
         console.log(
@@ -2760,8 +3360,8 @@ async function createPlaceholderJellyseerrUser(config, username) {
     signal: AbortSignal.timeout(15e3)
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Jellyseerr POST /user failed (${res.status}): ${text.slice(0, 200)}`);
+    const text2 = await res.text().catch(() => "");
+    throw new Error(`Jellyseerr POST /user failed (${res.status}): ${text2.slice(0, 200)}`);
   }
   return await res.json();
 }
@@ -2791,8 +3391,8 @@ async function relinkJellyseerrUserToJellyfin(config, jellyseerrUserId, jellyfin
     signal: AbortSignal.timeout(1e4)
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Jellyseerr PUT /user/${jellyseerrUserId} failed (${res.status}): ${text.slice(0, 200)}`);
+    const text2 = await res.text().catch(() => "");
+    throw new Error(`Jellyseerr PUT /user/${jellyseerrUserId} failed (${res.status}): ${text2.slice(0, 200)}`);
   }
 }
 async function findJellyseerrUserByJellyfinId(config, jellyfinUserId) {
@@ -2828,8 +3428,8 @@ async function deleteJellyseerrUser(config, id) {
     signal: AbortSignal.timeout(15e3)
   });
   if (!res.ok && res.status !== 404) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Jellyseerr DELETE /user/${id} a r\xE9pondu ${res.status}: ${text.slice(0, 200)}`);
+    const text2 = await res.text().catch(() => "");
+    throw new Error(`Jellyseerr DELETE /user/${id} a r\xE9pondu ${res.status}: ${text2.slice(0, 200)}`);
   }
   checkedLinks.delete(id);
 }
@@ -2841,8 +3441,8 @@ async function importJellyseerrUserFromJellyfin(config, jellyfinUserId) {
     signal: AbortSignal.timeout(15e3)
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Jellyseerr import-from-jellyfin failed (${res.status}): ${text.slice(0, 200)}`);
+    const text2 = await res.text().catch(() => "");
+    throw new Error(`Jellyseerr import-from-jellyfin failed (${res.status}): ${text2.slice(0, 200)}`);
   }
   const data = await res.json();
   if (Array.isArray(data) && data.length > 0) return data[0];
@@ -2853,8 +3453,8 @@ async function importJellyseerrUserFromJellyfin(config, jellyfinUserId) {
 // server/blocklist.ts
 var MEDIA_STATUS_BLOCKLISTED = 6;
 var KEYWORD_FETCH_CONCURRENCY = 8;
-async function getBlocklistedTags(seerrUrl, apiKey) {
-  return ((await getSeerrMainSettings(seerrUrl, apiKey)).blocklistedTags ?? "").trim();
+async function getBlocklistedTags(seerrUrl2, apiKey) {
+  return ((await getSeerrMainSettings(seerrUrl2, apiKey)).blocklistedTags ?? "").trim();
 }
 function parseTagSet(csv) {
   const set = /* @__PURE__ */ new Set();
@@ -2864,10 +3464,10 @@ function parseTagSet(csv) {
   }
   return set;
 }
-async function getItemKeywordIds(seerrUrl, apiKey, mediaType, id) {
+async function getItemKeywordIds(seerrUrl2, apiKey, mediaType, id) {
   return cached(`seerr:kw:${mediaType}:${id}`, 7 * 864e5, async () => {
     try {
-      const res = await fetch(`${seerrUrl}/api/v1/${mediaType}/${id}`, {
+      const res = await fetch(`${seerrUrl2}/api/v1/${mediaType}/${id}`, {
         headers: { "X-Api-Key": apiKey },
         signal: AbortSignal.timeout(8e3)
       });
@@ -2879,14 +3479,14 @@ async function getItemKeywordIds(seerrUrl, apiKey, mediaType, id) {
     }
   });
 }
-async function filterResultsByTags(seerrUrl, apiKey, results, blockedSet) {
+async function filterResultsByTags(seerrUrl2, apiKey, results, blockedSet) {
   const afterStatus = results.filter((r) => r?.mediaInfo?.status !== MEDIA_STATUS_BLOCKLISTED);
   let blockedCount = results.length - afterStatus.length;
   const blockedFlags = new Array(afterStatus.length).fill(false);
   const checkable = afterStatus.map((item, idx) => ({ item, idx })).filter(({ item }) => (item.mediaType === "movie" || item.mediaType === "tv") && typeof item.id === "number");
   await mapLimit(checkable, KEYWORD_FETCH_CONCURRENCY, async ({ item, idx }) => {
     const kwIds = await getItemKeywordIds(
-      seerrUrl,
+      seerrUrl2,
       apiKey,
       item.mediaType,
       item.id
@@ -2901,10 +3501,10 @@ function isMaskedTitle(detail, blockedTags) {
   if (detail.mediaInfo?.status === MEDIA_STATUS_BLOCKLISTED) return true;
   return (detail.keywords ?? []).some((k) => typeof k?.id === "number" && blockedTags.has(k.id));
 }
-async function liftBlocklist(seerrUrl, apiKey, mediaType, tmdbId) {
+async function liftBlocklist(seerrUrl2, apiKey, mediaType, tmdbId) {
   for (const route of ["blocklist", "blacklist"]) {
     try {
-      const res = await fetch(`${seerrUrl}/api/v1/${route}/${tmdbId}?mediaType=${mediaType}`, {
+      const res = await fetch(`${seerrUrl2}/api/v1/${route}/${tmdbId}?mediaType=${mediaType}`, {
         method: "DELETE",
         headers: { "X-Api-Key": apiKey },
         signal: AbortSignal.timeout(1e4)
@@ -2918,9 +3518,69 @@ async function liftBlocklist(seerrUrl, apiKey, mediaType, tmdbId) {
   return false;
 }
 
+// server/live/seerr-unblock.ts
+var DEFER_MS = 2 * 6e4;
+var MAX_WAIT_MS = 30 * 6e4;
+var SYNC_EVERY_MS = 15 * 6e4;
+var deferred = /* @__PURE__ */ new Map();
+var lastSync = 0;
+function deferredRequestIds(now = Date.now()) {
+  const out = [];
+  for (const [id, d] of deferred) {
+    if (now - d.since > MAX_WAIT_MS + DEFER_MS) deferred.delete(id);
+    else if (d.until > now) out.push(id);
+  }
+  return out;
+}
+function staleSeasons(request, detail) {
+  if (request.mediaType !== "tv" || !request.seasons?.length) return [];
+  const whole = goneFromJellyfin("tv", request.tmdbId);
+  const gone = goneSeasonsOf(request.tmdbId);
+  const held = new Map((detail?.mediaInfo?.seasons ?? []).map((s) => [s.seasonNumber, s.status]));
+  return request.seasons.filter((s) => {
+    if (!whole && !gone.has(s)) return false;
+    const status = held.get(s);
+    return status !== void 0 && status !== STATUS.UNKNOWN && status !== STATUS.DELETED;
+  });
+}
+function syncSoon(cfg, now) {
+  if (now - lastSync < SYNC_EVERY_MS) return;
+  lastSync = now;
+  void triggerSeerrJob(cfg.seerrUrl, cfg.seerrApiKey, "availability-sync");
+  console.log("[VigieLive] Jellyseerr croit encore l\xE0 des saisons supprim\xE9es de Jellyfin : v\xE9rification relanc\xE9e (availability-sync)");
+}
+async function unblockSeasons(cfg, request, detail, now = Date.now()) {
+  const mediaId = detail?.mediaInfo?.id;
+  const live = (detail?.mediaInfo?.requests ?? []).some((r) => isLiveRequest({ status: r.status, seasons: [] }));
+  if (mediaId && goneFromJellyfin("tv", request.tmdbId) && !live) {
+    const res = await fetch(`${cfg.seerrUrl}/api/v1/media/${mediaId}`, {
+      method: "DELETE",
+      headers: { "X-Api-Key": cfg.seerrApiKey },
+      signal: AbortSignal.timeout(1e4)
+    }).catch(() => null);
+    if (res && (res.ok || res.status === 404)) {
+      deferred.delete(request.id);
+      console.log(`[VigieLive] \xAB ${request.title} \xBB : fiche p\xE9rim\xE9e de Jellyseerr retir\xE9e (s\xE9rie supprim\xE9e de Jellyfin) \u2014 la demande part`);
+      return "send";
+    }
+  }
+  const prior = deferred.get(request.id);
+  const since = prior?.since ?? now;
+  if (now - since >= MAX_WAIT_MS) {
+    deferred.delete(request.id);
+    return "send";
+  }
+  syncSoon(cfg, now);
+  deferred.set(request.id, { until: now + DEFER_MS, since });
+  return "wait";
+}
+function refusedForStaleSeasons(request, detail) {
+  return staleSeasons(request, detail).length > 0;
+}
+
 // server/worker-send.ts
 async function processNextRequest(prisma, config, skipIds) {
-  const request = await getNextQueued(prisma);
+  const request = await getNextQueued(prisma, [...skipIds]);
   if (!request || skipIds.has(request.id)) return null;
   const fresh = await getRequestById(prisma, request.id);
   if (!fresh || fresh.status !== "queued" && fresh.status !== "retry_pending") return request.id;
@@ -2944,6 +3604,14 @@ async function processNextRequest(prisma, config, skipIds) {
           }).catch(() => {
           });
         }
+      }
+    }
+    if (staleSeasons(request, detail).length > 0) {
+      const ready = await unblockSeasons(config, request, detail);
+      if (ready === "wait") {
+        await updateRequestStatus(prisma, request.id, fresh.status);
+        console.log(`[SeerWorker] "${request.title}" : Jellyseerr ne voit pas encore la suppression des saisons \u2014 la demande repassera`);
+        return request.id;
       }
     }
     if (config.allowMaskedRequests && detail?.mediaInfo?.status === MEDIA_STATUS_BLOCKLISTED) {
@@ -3000,8 +3668,12 @@ async function processNextRequest(prisma, config, skipIds) {
       signal: AbortSignal.timeout(15e3)
     });
     if (!res.ok || res.status === 202) {
-      const text = await res.text().catch(() => "");
-      if (text.includes("No seasons available to request")) {
+      const text2 = await res.text().catch(() => "");
+      if (text2.includes("No seasons available to request") && refusedForStaleSeasons(request, detail)) {
+        await triggerSeerrJob(config.seerrUrl, config.seerrApiKey, "availability-sync");
+        throw new Error("Jellyseerr croit encore pr\xE9sentes des saisons supprim\xE9es de Jellyfin");
+      }
+      if (text2.includes("No seasons available to request")) {
         const mediaStatus = detail?.mediaInfo?.status;
         const localStatus = mediaStatus === 5 ? "available" : mediaStatus === 4 ? "partially_available" : "sent_to_seer";
         await updateRequestStatus(prisma, request.id, localStatus, {
@@ -3018,7 +3690,7 @@ async function processNextRequest(prisma, config, skipIds) {
         console.log(`[SeerWorker] "${request.title}" : saisons d\xE9j\xE0 pr\xE9sentes c\xF4t\xE9 Jellyseerr \u2014 marqu\xE9 ${localStatus}`);
         return request.id;
       }
-      throw new Error(`Seerr returned ${res.status}: ${text.slice(0, 200)}`);
+      throw new Error(`Seerr returned ${res.status}: ${text2.slice(0, 200)}`);
     }
     const data = await res.json();
     if (config.autoApprove && data.status === 1) await approveSeerrRequest(config, data.id, request.title);
@@ -3773,7 +4445,7 @@ async function runRequestQueue(prisma, config) {
   if (requestQueueBusy) return;
   requestQueueBusy = true;
   try {
-    const seen = /* @__PURE__ */ new Set();
+    const seen = new Set(deferredRequestIds());
     for (let i = 0; i < 10; i++) {
       const processedId = await processNextRequest(prisma, config, seen);
       if (!processedId) return;
@@ -3796,7 +4468,7 @@ function startWorker(prisma, getConfig) {
   if (timer) return;
   prismaRef = prisma;
   getConfigRef = getConfig;
-  async function tick() {
+  async function tick2() {
     const config = await getConfig();
     if (!config || !config.seerrUrl || !config.seerrApiKey) return;
     cycleCount++;
@@ -3852,10 +4524,10 @@ function startWorker(prisma, getConfig) {
   }
   setTimeout(() => {
     void seedTmdbCacheOnce(prisma);
-    tick();
+    tick2();
   }, 5e3);
   timer = setInterval(() => {
-    tick();
+    tick2();
   }, 6e4);
   console.log("[SeerWorker] Started");
 }
@@ -3892,8 +4564,8 @@ var AVAILABLE2 = 5;
 var COMPLETED = 5;
 var PARTIAL = 4;
 function requestedSeasonsHere(row, seasonStates) {
-  const requested = (row.seasons ?? []).filter((s) => typeof s.seasonNumber === "number");
-  if (requested.length === 0) return "unknown";
+  const requested2 = (row.seasons ?? []).filter((s) => typeof s.seasonNumber === "number");
+  if (requested2.length === 0) return "unknown";
   const states = new Map(seasonStates ?? []);
   for (const s of row.media?.seasons ?? []) {
     if (typeof s.status === "number") states.set(s.seasonNumber, s.status);
@@ -3901,17 +4573,17 @@ function requestedSeasonsHere(row, seasonStates) {
   let here = 0;
   let some = 0;
   let known = 0;
-  for (const s of requested) {
+  for (const s of requested2) {
     const state2 = states.get(s.seasonNumber);
     if (state2 === AVAILABLE2 || s.status === COMPLETED) here++;
     else if (state2 === PARTIAL) some++;
     if (state2 !== void 0 || s.status === COMPLETED) known++;
   }
-  if (here === requested.length) return "all";
+  if (here === requested2.length) return "all";
   if (here + some > 0) return "some";
-  return known === requested.length ? "none" : "unknown";
+  return known === requested2.length ? "none" : "unknown";
 }
-function resolveRequestStatus(row, local, seasonStates) {
+function resolveRequestStatus(row, local, seasonStates, library = "unknown") {
   let status = mapSeerrStatus(row.status, row.media?.status, row.media?.downloadStatus);
   if (status === "partially_available") {
     const here = requestedSeasonsHere(row, seasonStates);
@@ -3921,10 +4593,61 @@ function resolveRequestStatus(row, local, seasonStates) {
       status = mapSeerrStatus(row.status, downloads && downloads.length > 0 ? 3 : 2, downloads);
     }
   }
-  if (local?.status === "available" && (status === "approved" || status === "unavailable" || status === "deleted")) {
+  if (library === "unknown" && local?.status === "available" && (status === "approved" || status === "unavailable" || status === "deleted")) {
     status = "available";
   }
   return status;
+}
+
+// server/live/request-row.ts
+function factsOfRow(row) {
+  const type = row.media?.mediaType === "tv" ? "tv" : row.media?.mediaType === "movie" ? "movie" : null;
+  const tmdbId = Number(row.media?.tmdbId);
+  if (!type || !Number.isSafeInteger(tmdbId) || tmdbId <= 0) return null;
+  const downloading = (row.media?.downloadStatus?.length ?? 0) > 0;
+  const own = {
+    status: row.status,
+    is4k: row.is4k === true,
+    seasons: (row.seasons ?? []).map((s) => s.seasonNumber).filter((n) => typeof n === "number")
+  };
+  const base = factsFor(type, tmdbId, { downloading });
+  return { type, facts: { ...base, requests: [...base.requests ?? [], own] } };
+}
+function correctRequestRow(row, seasonStates) {
+  const read = factsOfRow(row);
+  if (!read) return { row, seasonStates, library: "unknown" };
+  const { facts, type } = read;
+  const library = facts.library.state;
+  const mediaStatus = correctMediaStatus(type, row.media?.status, facts);
+  let mediaSeasons = row.media?.seasons;
+  let states = seasonStates;
+  let requestSeasons2 = row.seasons;
+  if (type === "tv") {
+    const gone = (s) => library === "gone" || facts.library.goneSeasons.has(s);
+    mediaSeasons = mediaSeasons?.map((s) => ({ ...s, status: correctSeasonStatus(s.seasonNumber, s.status, facts) }));
+    if (states) {
+      const next = /* @__PURE__ */ new Map();
+      for (const [season, status] of states) next.set(season, correctSeasonStatus(season, status, facts) ?? status);
+      states = next;
+    }
+    requestSeasons2 = requestSeasons2?.map((s) => gone(s.seasonNumber) && s.status === REQUEST.COMPLETED ? { ...s, status: REQUEST.APPROVED } : s);
+  }
+  if (mediaStatus === row.media?.status && mediaSeasons === row.media?.seasons && requestSeasons2 === row.seasons && states === seasonStates) {
+    return { row, seasonStates, library };
+  }
+  return {
+    row: {
+      ...row,
+      seasons: requestSeasons2,
+      media: row.media ? { ...row.media, status: mediaStatus, seasons: mediaSeasons } : row.media
+    },
+    seasonStates: states,
+    library
+  };
+}
+function resolveLiveStatus(row, local, seasonStates) {
+  const fixed = correctRequestRow(row, seasonStates);
+  return resolveRequestStatus(fixed.row, local, fixed.seasonStates, fixed.library);
 }
 
 // server/seerr-unified.ts
@@ -3933,7 +4656,7 @@ function getUser(request) {
 }
 function seerrRequestToUnified(sr, detail, localById, fallbackUser, seasonStates) {
   const local = localById.get(sr.id);
-  const status = resolveRequestStatus(sr, local, seasonStates);
+  const status = resolveLiveStatus(sr, local, seasonStates);
   const seasons = sr.seasons?.map((s) => s.seasonNumber).filter((n) => typeof n === "number") ?? null;
   const mediaType = sr.media?.mediaType ?? "movie";
   const title = detail?.title ?? detail?.name ?? local?.title ?? `#${sr.id}`;
@@ -4037,12 +4760,12 @@ function parseRequestId(id) {
 // server/series-gaps.ts
 var AVAILABLE3 = 5;
 var PARTIAL2 = 4;
-var PAGE = 100;
-var MAX_PAGES = 10;
+var PAGE2 = 100;
+var MAX_PAGES2 = 10;
 async function loadIndex(cfg) {
   const out = /* @__PURE__ */ new Map();
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const url = `${cfg.seerrUrl}/api/v1/media?filter=partial&take=${PAGE}&skip=${page * PAGE}&sort=mediaAdded`;
+  for (let page = 0; page < MAX_PAGES2; page++) {
+    const url = `${cfg.seerrUrl}/api/v1/media?filter=partial&take=${PAGE2}&skip=${page * PAGE2}&sort=mediaAdded`;
     const res = await fetch(url, { headers: { "X-Api-Key": cfg.seerrApiKey }, signal: AbortSignal.timeout(1e4) });
     if (!res.ok) throw new Error(`Jellyseerr GET /media?filter=partial : ${res.status}`);
     const body = await res.json();
@@ -4162,7 +4885,7 @@ function computeStats(seerrRows, localOnly, localBySeerrId, deletingIds, seasonS
 }
 function effectiveStatus(sr, localBySeerrId, deletingIds, seasonStates) {
   if (deletingIds.has(sr.id)) return "deleting";
-  return resolveRequestStatus(sr, localBySeerrId.get(sr.id), seasonStates.get(sr.media?.tmdbId ?? 0));
+  return resolveLiveStatus(sr, localBySeerrId.get(sr.id), seasonStates.get(sr.media?.tmdbId ?? 0));
 }
 function collectTmdbRefs(rows) {
   const out = [];
@@ -4502,9 +5225,9 @@ function registerRequestActionRoutes(app, prisma, getWorkerConfig2) {
       signal: AbortSignal.timeout(15e3)
     });
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
+      const text2 = await res.text().catch(() => "");
       return reply.status(502).send({
-        message: `Jellyseerr mark ${target} failed: ${res.status} ${text.slice(0, 200)}`
+        message: `Jellyseerr mark ${target} failed: ${res.status} ${text2.slice(0, 200)}`
       });
     }
     const localStatus = target === "available" ? "available" : target === "partial" ? "partially_available" : "unavailable";
@@ -4635,31 +5358,6 @@ function registerRequestForgetRoute(app, prisma, getWorkerConfig2) {
     invalidateRequestCaches(user.userId);
     return { success: true };
   });
-}
-
-// server/search/pending.ts
-var REFRESH_MS = 1e4;
-var keys = /* @__PURE__ */ new Set();
-var readAt = 0;
-var reading = false;
-function isLocallyPending(key) {
-  return keys.has(key);
-}
-function refreshLocalPending(prisma) {
-  if (reading || Date.now() - readAt < REFRESH_MS) return;
-  reading = true;
-  prisma.$queryRawUnsafe(
-    `SELECT DISTINCT media_type, tmdb_id FROM seer_requests
-     WHERE status IN ('queued', 'processing', 'retry_pending', 'sent_to_seer', 'approved')`
-  ).then((rows) => {
-    keys = new Set(rows.map((r) => `${r.media_type}:${Number(r.tmdb_id)}`));
-  }).catch(() => void 0).finally(() => {
-    readAt = Date.now();
-    reading = false;
-  });
-}
-function markLocallyPending(mediaType, tmdbId) {
-  keys.add(`${mediaType}:${tmdbId}`);
 }
 
 // server/titles/request-listener.ts
@@ -5321,8 +6019,8 @@ async function reassignSeerrRequestOwnership(config, seerrRequestId, targetUserI
       signal: AbortSignal.timeout(15e3)
     });
     if (!postRes2.ok || postRes2.status === 202) {
-      const text = await postRes2.text().catch(() => "");
-      throw new Error(`re-create missing failed (${postRes2.status}): ${text.slice(0, 200)}`);
+      const text2 = await postRes2.text().catch(() => "");
+      throw new Error(`re-create missing failed (${postRes2.status}): ${text2.slice(0, 200)}`);
     }
     const created2 = await postRes2.json();
     return { method: "create-missing", newRequestId: created2.id };
@@ -5383,8 +6081,8 @@ async function reassignSeerrRequestOwnership(config, seerrRequestId, targetUserI
     signal: AbortSignal.timeout(15e3)
   });
   if (!postRes.ok || postRes.status === 202) {
-    const text = await postRes.text().catch(() => "");
-    throw new Error(`recreate failed (${postRes.status}): ${text.slice(0, 200)}`);
+    const text2 = await postRes.text().catch(() => "");
+    throw new Error(`recreate failed (${postRes.status}): ${text2.slice(0, 200)}`);
   }
   const created = await postRes.json();
   return { method: "recreate", newRequestId: created.id };
@@ -5528,9 +6226,9 @@ function cleanUrl(raw) {
     return null;
   }
 }
-async function probeArr(seerrUrl, apiKey, type) {
+async function probeArr(seerrUrl2, apiKey, type) {
   try {
-    const res = await fetch(`${seerrUrl}/api/v1/settings/${type}`, {
+    const res = await fetch(`${seerrUrl2}/api/v1/settings/${type}`, {
       headers: { "X-Api-Key": apiKey },
       signal: AbortSignal.timeout(TIMEOUT_MS)
     });
@@ -5554,9 +6252,9 @@ async function probeArr(seerrUrl, apiKey, type) {
     return "unreachable";
   }
 }
-async function probeJellyfin(seerrUrl, apiKey) {
+async function probeJellyfin(seerrUrl2, apiKey) {
   try {
-    const res = await fetch(`${seerrUrl}/api/v1/settings/jellyfin/users`, {
+    const res = await fetch(`${seerrUrl2}/api/v1/settings/jellyfin/users`, {
       headers: { "X-Api-Key": apiKey },
       signal: AbortSignal.timeout(TIMEOUT_MS)
     });
@@ -5900,7 +6598,7 @@ function collectRequestRefs(rows, includeSettled) {
     if (!statusByKey.has(key)) {
       const local = rows.localBySeerrId.get(sr.id);
       statusByKey.set(key, {
-        status: resolveRequestStatus(sr, local, rows.seasonStates?.get(sr.media.tmdbId)),
+        status: resolveLiveStatus(sr, local, rows.seasonStates?.get(sr.media.tmdbId)),
         requestId: local?.id ?? `seerr-${sr.id}`
       });
     }
@@ -6404,15 +7102,15 @@ function initCalendarStoreMaintenance(prisma, getCfg, warn) {
   const boot2 = setTimeout(() => {
     void warm();
   }, 15e3);
-  const tick = setInterval(() => {
+  const tick2 = setInterval(() => {
     void warm();
   }, 30 * 6e4);
   boot2.unref?.();
-  tick.unref?.();
+  tick2.unref?.();
   return () => {
     stopped = true;
     clearTimeout(boot2);
-    clearInterval(tick);
+    clearInterval(tick2);
   };
 }
 
@@ -6536,7 +7234,7 @@ var MEDIA_STATUS = {
 };
 var PAGE_SIZE2 = 100;
 var INCREMENTAL_EVERY_MS = 6e4;
-var FULL_EVERY_MS = 6 * 36e5;
+var FULL_EVERY_MS2 = 6 * 36e5;
 var FULL_CONCURRENCY = 3;
 var statuses = /* @__PURE__ */ new Map();
 var lastFull = 0;
@@ -6554,7 +7252,10 @@ function noteStatus(mediaType, tmdbId, status) {
 function statusMapReady() {
   return lastFull > 0;
 }
-async function fetchPage(cfg, skip, take = PAGE_SIZE2) {
+function statusMapStale() {
+  lastIncremental = 0;
+}
+async function fetchPage2(cfg, skip, take = PAGE_SIZE2) {
   const res = await fetch(
     `${cfg.seerrUrl}/api/v1/media?take=${take}&skip=${skip}&filter=all&sort=modified`,
     { headers: { "X-Api-Key": cfg.seerrApiKey }, signal: AbortSignal.timeout(1e4) }
@@ -6570,13 +7271,13 @@ function absorb(rows, into) {
   }
 }
 async function fullReload(cfg) {
-  const first = await fetchPage(cfg, 0);
+  const first = await fetchPage2(cfg, 0);
   const fresh = /* @__PURE__ */ new Map();
   absorb(first.results, fresh);
   const total = first.pageInfo?.results ?? 0;
   const skips = [];
   for (let skip = PAGE_SIZE2; skip < total; skip += PAGE_SIZE2) skips.push(skip);
-  const pages = await mapLimit(skips, FULL_CONCURRENCY, (skip) => fetchPage(cfg, skip));
+  const pages = await mapLimit(skips, FULL_CONCURRENCY, (skip) => fetchPage2(cfg, skip));
   for (const page of pages) absorb(page?.results, fresh);
   statuses.clear();
   for (const [k, v] of fresh) statuses.set(k, v);
@@ -6585,7 +7286,7 @@ async function fullReload(cfg) {
 }
 async function incremental(cfg) {
   const since = newestSeen;
-  const page = await fetchPage(cfg, 0, 50);
+  const page = await fetchPage2(cfg, 0, 50);
   absorb(page.results, statuses);
   lastIncremental = Date.now();
   const rows = page.results ?? [];
@@ -6595,7 +7296,7 @@ function refreshStatusMap(cfg) {
   if (running) return;
   const now = Date.now();
   if (now < retryAfter) return;
-  const needFull = now - lastFull > FULL_EVERY_MS;
+  const needFull = now - lastFull > FULL_EVERY_MS2;
   if (!needFull && now - lastIncremental < INCREMENTAL_EVERY_MS) return;
   running = (needFull ? fullReload(cfg) : incremental(cfg)).catch((err) => {
     console.warn(`[Vigie] Statuts des m\xE9dias indisponibles : ${err instanceof Error ? err.message : err}`);
@@ -6606,6 +7307,13 @@ function refreshStatusMap(cfg) {
 }
 
 // server/item-states.ts
+function mediaStatusOf(mediaType, tmdbId) {
+  return correctedStatus(mediaType, tmdbId, statusOf(mediaType, tmdbId));
+}
+function withoutDeletedFile(fact, tmdbId, season) {
+  if (!fact?.hasFile || season == null) return fact;
+  return goneFromJellyfin("tv", tmdbId) || goneSeasonsOf(tmdbId).has(season) ? { ...fact, hasFile: false } : fact;
+}
 var NO_FACTS = { byEpisode: /* @__PURE__ */ new Map(), byDay: /* @__PURE__ */ new Map() };
 var NO_QUEUE = { episodes: /* @__PURE__ */ new Map(), movies: /* @__PURE__ */ new Map() };
 function merge(prev, next) {
@@ -6625,7 +7333,7 @@ function indexQueue(entries) {
   }
   return index;
 }
-var WAITING = /* @__PURE__ */ new Set([
+var WAITING2 = /* @__PURE__ */ new Set([
   "queued",
   "processing",
   "sent_to_seer",
@@ -6640,19 +7348,19 @@ function fromQueue(q) {
   return q.stalled ? "stalled" : q.validating ? "importing" : "downloading";
 }
 function fromRequest(status, seriesLevel = false) {
-  if (!status || !WAITING.has(status)) return null;
+  if (!status || !WAITING2.has(status)) return null;
   return seriesLevel && status === "partially_available" ? "partial" : "requested";
 }
-function episodeState(fact, queued, fallback) {
+function episodeState(fact, queued2, fallback) {
   if (fact?.hasFile) return "available";
-  const inQueue = fromQueue(queued);
+  const inQueue = fromQueue(queued2);
   if (inQueue) return inQueue;
   if (fact) return fact.monitored ? "requested" : null;
   return fallback;
 }
-function movieState(mediaStatus, queued, fallback) {
+function movieState(mediaStatus, queued2, fallback) {
   if (mediaStatus === 5) return "available";
-  const inQueue = fromQueue(queued);
+  const inQueue = fromQueue(queued2);
   if (inQueue) return inQueue;
   if (mediaStatus === 2 || mediaStatus === 3) return "requested";
   return fallback;
@@ -6660,11 +7368,11 @@ function movieState(mediaStatus, queued, fallback) {
 function stateOfItem(item, facts, queue, today) {
   const request = fromRequest(item.requestStatus);
   if (item.mediaType === "movie") {
-    const queued2 = queue.movies.get(item.tmdbId);
-    const state3 = movieState(statusOf("movie", item.tmdbId), queued2, request);
-    return { state: state3, percent: state3 === "downloading" ? queued2?.percent ?? null : null };
+    const queued3 = queue.movies.get(item.tmdbId);
+    const state3 = movieState(mediaStatusOf("movie", item.tmdbId), queued3, request);
+    return { state: state3, percent: state3 === "downloading" ? queued3?.percent ?? null : null };
   }
-  const media = statusOf("tv", item.tmdbId);
+  const media = mediaStatusOf("tv", item.tmdbId);
   const fallback = media === 5 ? item.date <= today ? "available" : null : media === 2 || media === 3 ? "requested" : request;
   if (item.kind !== "episode" || item.seasonNumber == null || item.episodeNumber == null) {
     const series = media === 4 ? "partial" : fallback === "requested" ? fromRequest(item.requestStatus, true) ?? fallback : fallback;
@@ -6676,9 +7384,10 @@ function stateOfItem(item, facts, queue, today) {
     const sameDay = facts.byDay.get(`${item.tmdbId}:${item.date}`);
     if (sameDay?.length === 1) fact = sameDay[0];
   }
-  const queued = queue.episodes.get(key);
-  const state2 = episodeState(fact, queued, fallback);
-  return { state: state2, percent: state2 === "downloading" ? queued?.percent ?? null : null };
+  fact = withoutDeletedFile(fact, item.tmdbId, item.seasonNumber);
+  const queued2 = queue.episodes.get(key);
+  const state2 = episodeState(fact, queued2, fallback);
+  return { state: state2, percent: state2 === "downloading" ? queued2?.percent ?? null : null };
 }
 async function attachItemStates(cfg, res, today) {
   if (res.items.length === 0) return res;
@@ -6701,13 +7410,14 @@ async function seriesEpisodeStates(cfg, tmdbId) {
   const percents = {};
   const byDay = /* @__PURE__ */ new Map();
   const seasons = /* @__PURE__ */ new Set();
-  for (const [key, fact] of facts) {
-    const queued = queue.episodes.get(`${tmdbId}:${key}`);
-    const state2 = episodeState(fact, queued, null);
-    if (state2) states[key] = state2;
-    if (state2 === "downloading" && queued?.percent != null) percents[key] = Math.round(queued.percent);
-    if (fact.airDate) byDay.set(fact.airDate, [...byDay.get(fact.airDate) ?? [], key]);
+  for (const [key, raw] of facts) {
     const season = Number(/^S(\d+)E/.exec(key)?.[1]);
+    const fact = withoutDeletedFile(raw, tmdbId, season) ?? raw;
+    const queued2 = queue.episodes.get(`${tmdbId}:${key}`);
+    const state2 = episodeState(fact, queued2, null);
+    if (state2) states[key] = state2;
+    if (state2 === "downloading" && queued2?.percent != null) percents[key] = Math.round(queued2.percent);
+    if (fact.airDate) byDay.set(fact.airDate, [...byDay.get(fact.airDate) ?? [], key]);
     if (season > 0) seasons.add(season);
   }
   const dates = {};
@@ -6949,12 +7659,12 @@ async function userMarks(prisma, userId) {
         userId
       )
     ]);
-    const num4 = (v) => Number(v);
+    const num5 = (v) => Number(v);
     return {
       items: buildMarks(
         library,
-        likes.map((l) => ({ mediaType: l.mediaType, tmdbId: num4(l.tmdbId) })),
-        ratings.map((r) => ({ mediaType: r.mediaType, tmdbId: num4(r.tmdbId), score: num4(r.score) }))
+        likes.map((l) => ({ mediaType: l.mediaType, tmdbId: num5(l.tmdbId) })),
+        ratings.map((r) => ({ mediaType: r.mediaType, tmdbId: num5(r.tmdbId), score: num5(r.score) }))
       )
     };
   });
@@ -6973,7 +7683,7 @@ function registerMiscRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
     if (!body.items || !Array.isArray(body.items)) return reply.status(400).send({ message: "items array required" });
     const config = await getWorkerConfig2();
     if (!config) return reply.status(503).send({ message: "Seerr not configured" });
-    const seerrUrl = config.seerrUrl;
+    const seerrUrl2 = config.seerrUrl;
     const apiKey = config.seerrApiKey;
     const result = {};
     const toFetch = [];
@@ -6991,7 +7701,7 @@ function registerMiscRoutes(app, prisma, getWorkerConfig2, requireAdmin) {
       const batch = toFetch.slice(i, i + BATCH2);
       const responses = await Promise.allSettled(
         batch.map(async (item) => {
-          const res = await fetch(`${seerrUrl}/api/v1/${item.mediaType}/${item.tmdbId}`, {
+          const res = await fetch(`${seerrUrl2}/api/v1/${item.mediaType}/${item.tmdbId}`, {
             headers: { "X-Api-Key": apiKey },
             signal: AbortSignal.timeout(8e3)
           });
@@ -7050,6 +7760,99 @@ function isReadableSeerrPath(method, path) {
   return (method === "GET" || method === "HEAD") && READABLE.some((re) => re.test(path));
 }
 
+// server/live/media-info.ts
+function requestFacts(info) {
+  if (!info || !Array.isArray(info.requests)) return void 0;
+  return info.requests.filter((r) => typeof r?.status === "number").map((r) => ({
+    status: r.status,
+    is4k: r.is4k === true,
+    seasons: (r.seasons ?? []).map((s) => s?.seasonNumber).filter((n) => typeof n === "number")
+  }));
+}
+function correctMediaInfo(mediaType, tmdbId, info) {
+  const source = info ?? void 0;
+  const facts = factsFor(mediaType, tmdbId, {
+    requests: requestFacts(source),
+    downloading: Array.isArray(source?.downloadStatus) && source.downloadStatus.length > 0
+  });
+  const status = correctMediaStatus(mediaType, source?.status, facts);
+  let seasons = source?.seasons;
+  if (mediaType === "tv" && Array.isArray(seasons)) {
+    let touched = false;
+    const next = seasons.map((s) => {
+      if (typeof s?.seasonNumber !== "number") return s;
+      const corrected = correctSeasonStatus(s.seasonNumber, s.status, facts);
+      if (corrected === s.status) return s;
+      touched = true;
+      return { ...s, status: corrected };
+    });
+    if (touched) seasons = next;
+  }
+  const gone = facts.library.state === "gone";
+  const dropItem = gone && source?.jellyfinMediaId != null;
+  if (status === source?.status && seasons === source?.seasons && !dropItem) return source;
+  if (!source) return status === void 0 ? void 0 : { status };
+  return {
+    ...source,
+    status,
+    ...seasons !== source.seasons ? { seasons } : {},
+    ...dropItem ? { jellyfinMediaId: null } : {}
+  };
+}
+function withCorrectedInfo(mediaType, tmdbId, detail) {
+  const info = correctMediaInfo(mediaType, tmdbId, detail.mediaInfo ?? void 0);
+  return info === detail.mediaInfo ? detail : { ...detail, mediaInfo: info };
+}
+function correctListItem(item, fallbackType) {
+  const type = item?.mediaType === "movie" || item?.mediaType === "tv" ? item.mediaType : fallbackType;
+  const id = Number(item?.id);
+  if (!type || !Number.isSafeInteger(id) || id <= 0) return item;
+  const info = correctMediaInfo(type, id, item.mediaInfo);
+  return info === item.mediaInfo ? item : { ...item, mediaInfo: info };
+}
+
+// server/live/catalog-correct.ts
+var DETAIL = /^api\/v1\/(movie|tv)\/(\d+)$/;
+var SIMILAR = /^api\/v1\/(movie|tv)\/\d+\/similar$/;
+var DISCOVER = /^api\/v1\/discover\/(movies|tv)(\/|$)/;
+function carriesTitles(path) {
+  return DETAIL.test(path) || SIMILAR.test(path) || DISCOVER.test(path) || /^api\/v1\/discover\/trending$/.test(path) || /^api\/v1\/search$/.test(path) || /^api\/v1\/collection\/\d+$/.test(path) || /^api\/v1\/person\/\d+\/combined_credits$/.test(path);
+}
+function mapList(list, fallback) {
+  if (!Array.isArray(list)) return { list, changed: false };
+  let changed = false;
+  const next = list.map((item) => {
+    if (!item || typeof item !== "object") return item;
+    const fixed = correctListItem(item, fallback);
+    if (fixed !== item) changed = true;
+    return fixed;
+  });
+  return { list: changed ? next : list, changed };
+}
+function correctCatalog(path, data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+  const page = data;
+  const detail = DETAIL.exec(path);
+  if (detail) {
+    const type = detail[1];
+    const info = correctMediaInfo(type, Number(detail[2]), page.mediaInfo);
+    return info === page.mediaInfo ? data : { ...page, mediaInfo: info };
+  }
+  const similar = SIMILAR.exec(path);
+  const discover2 = DISCOVER.exec(path);
+  const fallback = similar ? similar[1] : discover2 ? discover2[1] === "movies" ? "movie" : "tv" : void 0;
+  const out = { ...page };
+  let changed = false;
+  for (const [field, type] of [["results", fallback], ["parts", "movie"], ["cast", void 0], ["crew", void 0]]) {
+    const r = mapList(page[field], type);
+    if (r.changed) {
+      out[field] = r.list;
+      changed = true;
+    }
+  }
+  return changed ? out : data;
+}
+
 // server/routes-proxy.ts
 var PROXY_TTL_MS = 5 * 6e4;
 function registerProxyRoutes(app, getConfig) {
@@ -7059,9 +7862,9 @@ function registerProxyRoutes(app, getConfig) {
       return reply.status(403).send({ message: "Only catalogue reads are proxied" });
     }
     const config = getConfig();
-    const seerrUrl = config.url?.replace(/\/$/, "");
+    const seerrUrl2 = config.url?.replace(/\/$/, "");
     const apiKey = config.apiKey;
-    if (!seerrUrl || !apiKey) return reply.status(503).send({ message: "Seerr not configured" });
+    if (!seerrUrl2 || !apiKey) return reply.status(503).send({ message: "Seerr not configured" });
     const query = request.query;
     const isDiscoverMovies = /^api\/v1\/discover\/movies(\/|$)/.test(wildcard);
     const isDiscoverTv = /^api\/v1\/discover\/tv(\/|$)/.test(wildcard);
@@ -7069,7 +7872,7 @@ function registerProxyRoutes(app, getConfig) {
     const isSearchLike = /^api\/v1\/discover\/trending/.test(wildcard) || /^api\/v1\/search/.test(wildcard);
     const isFilterable = isDiscover || isSearchLike;
     const showBlocked = query._showBlocked === "1" || query._showBlocked === "true";
-    const blocklistedTags = isFilterable && request.method === "GET" ? await getBlocklistedTags(seerrUrl, apiKey) : "";
+    const blocklistedTags = isFilterable && request.method === "GET" ? await getBlocklistedTags(seerrUrl2, apiKey) : "";
     const blockedSet = parseTagSet(blocklistedTags);
     const blockedActive = blockedSet.size > 0;
     const qsParts = [];
@@ -7083,7 +7886,7 @@ function registerProxyRoutes(app, getConfig) {
       qsParts.push(`excludeKeywords=${encodeURIComponent(blocklistedTags)}`);
     }
     const qs = qsParts.join("&");
-    const targetUrl = `${seerrUrl}/${wildcard}${qs ? `?${qs}` : ""}`;
+    const targetUrl = `${seerrUrl2}/${wildcard}${qs ? `?${qs}` : ""}`;
     const headers = { "X-Api-Key": apiKey };
     if (query._lang) headers["Accept-Language"] = query._lang;
     const cacheable = request.method === "GET" && isFilterable;
@@ -7092,7 +7895,7 @@ function registerProxyRoutes(app, getConfig) {
       const hit = peek(cacheKey);
       if (hit) {
         reply.header("content-type", "application/json");
-        return reply.send(hit);
+        return reply.send(correctCatalog(wildcard, hit));
       }
     }
     try {
@@ -7108,7 +7911,7 @@ function registerProxyRoutes(app, getConfig) {
         if (data && Array.isArray(data.results)) {
           if (showBlocked) {
             const { blockedCount } = await filterResultsByTags(
-              seerrUrl,
+              seerrUrl2,
               apiKey,
               isDiscover ? [] : data.results,
               // discover déjà non-filtré ici → compteur via search-like
@@ -7117,7 +7920,7 @@ function registerProxyRoutes(app, getConfig) {
             data.blockedCount = isDiscover ? 0 : blockedCount;
           } else if (isSearchLike) {
             const { kept, blockedCount } = await filterResultsByTags(
-              seerrUrl,
+              seerrUrl2,
               apiKey,
               data.results,
               blockedSet
@@ -7136,14 +7939,15 @@ function registerProxyRoutes(app, getConfig) {
         if (cacheKey && response.ok && data) put(cacheKey, data, PROXY_TTL_MS);
         reply.status(response.status);
         reply.header("content-type", "application/json");
-        return reply.send(data ?? {});
+        return reply.send(data ? correctCatalog(wildcard, data) : {});
       }
-      if (cacheKey && response.ok && (ct ?? "").includes("application/json")) {
+      const json = (ct ?? "").includes("application/json");
+      if (response.ok && json && (cacheKey || carriesTitles(wildcard))) {
         const data = await response.json().catch(() => null);
-        if (data) put(cacheKey, data, PROXY_TTL_MS);
+        if (data && cacheKey) put(cacheKey, data, PROXY_TTL_MS);
         reply.status(response.status);
         reply.header("content-type", "application/json");
-        return reply.send(data ?? {});
+        return reply.send(data ? correctCatalog(wildcard, data) : {});
       }
       reply.status(response.status);
       if (ct) reply.header("content-type", ct);
@@ -7294,8 +8098,8 @@ function parseQuery(input, now = /* @__PURE__ */ new Date()) {
     }
     changed = true;
   }
-  const text = words2.join(" ");
-  return { raw, text, tokens: tokenize(text), year, type, anime };
+  const text2 = words2.join(" ");
+  return { raw, text: text2, tokens: tokenize(text2), year, type, anime };
 }
 
 // server/search/title-index.ts
@@ -7535,10 +8339,10 @@ var TitleIndex = class {
 var TTL_MS2 = 10 * 6e4;
 var STALE_MS = 60 * 6e4;
 var str = (v) => typeof v === "string" && v !== "" ? v : null;
-var num = (v) => typeof v === "number" && Number.isFinite(v) ? v : 0;
+var num2 = (v) => typeof v === "number" && Number.isFinite(v) ? v : 0;
 function toRemoteMedia(r, rank = 0) {
   const mediaType = r.mediaType === "movie" || r.mediaType === "tv" ? r.mediaType : null;
-  const id = num(r.id);
+  const id = num2(r.id);
   if (!mediaType || id <= 0) return null;
   const info = r.mediaInfo;
   return {
@@ -7550,9 +8354,9 @@ function toRemoteMedia(r, rank = 0) {
     posterPath: str(r.posterPath),
     backdropPath: str(r.backdropPath),
     overview: str(r.overview),
-    voteAverage: num(r.voteAverage),
-    voteCount: num(r.voteCount),
-    popularity: num(r.popularity),
+    voteAverage: num2(r.voteAverage),
+    voteCount: num2(r.voteCount),
+    popularity: num2(r.popularity),
     genreIds: Array.isArray(r.genreIds) ? r.genreIds.filter((g) => typeof g === "number") : [],
     originalLanguage: str(r.originalLanguage),
     status: typeof info?.status === "number" ? info.status : void 0,
@@ -7560,7 +8364,7 @@ function toRemoteMedia(r, rank = 0) {
   };
 }
 function toRemotePerson(r, rank) {
-  const id = num(r.id);
+  const id = num2(r.id);
   const name = str(r.name);
   if (id <= 0 || !name) return null;
   const knownFor = Array.isArray(r.knownFor) ? r.knownFor.map((m) => toRemoteMedia(m)).filter((m) => m !== null) : [];
@@ -7568,14 +8372,14 @@ function toRemotePerson(r, rank) {
     id,
     name,
     profilePath: str(r.profilePath),
-    popularity: num(r.popularity),
+    popularity: num2(r.popularity),
     department: str(r.knownForDepartment),
     knownFor,
     rank
   };
 }
-async function fetchSearchPage(cfg, text, page, lang) {
-  const url = `${cfg.seerrUrl}/api/v1/search?query=${encodeURIComponent(text)}&page=${page}&language=${encodeURIComponent(lang)}`;
+async function fetchSearchPage(cfg, text2, page, lang) {
+  const url = `${cfg.seerrUrl}/api/v1/search?query=${encodeURIComponent(text2)}&page=${page}&language=${encodeURIComponent(lang)}`;
   const res = await fetch(url, {
     headers: { "X-Api-Key": cfg.seerrApiKey, "Accept-Language": lang },
     signal: AbortSignal.timeout(8e3)
@@ -7583,10 +8387,10 @@ async function fetchSearchPage(cfg, text, page, lang) {
   if (!res.ok) throw new Error(`Jellyseerr /search ${res.status}`);
   return await res.json();
 }
-async function remoteSearch(cfg, text, page, lang, showBlocked, knownSafe = () => false) {
-  const key = `vigie:remote:${lang}:${showBlocked ? 1 : 0}:${page}:${foldText(text)}`;
+async function remoteSearch(cfg, text2, page, lang, showBlocked, knownSafe = () => false) {
+  const key = `vigie:remote:${lang}:${showBlocked ? 1 : 0}:${page}:${foldText(text2)}`;
   const result = await cached(key, TTL_MS2, async () => {
-    const raw = await fetchSearchPage(cfg, text, page, lang);
+    const raw = await fetchSearchPage(cfg, text2, page, lang);
     const results = (Array.isArray(raw.results) ? raw.results : []).map((r, rank) => ({ r, rank }));
     const tags = await getBlocklistedTags(cfg.seerrUrl, cfg.seerrApiKey);
     const blocked = parseTagSet(tags);
@@ -7614,7 +8418,7 @@ async function remoteSearch(cfg, text, page, lang, showBlocked, knownSafe = () =
       }
     }
     for (const m of media) noteStatus(m.mediaType, m.id, m.status);
-    return { media, people, totalPages: num(raw.totalPages), blockedCount, blockedActive: blocked.size > 0 };
+    return { media, people, totalPages: num2(raw.totalPages), blockedCount, blockedActive: blocked.size > 0 };
   }, { staleMs: STALE_MS });
   return result;
 }
@@ -7653,21 +8457,21 @@ async function ensureSearchTables(prisma) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 }
-function num2(v) {
+function num3(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
 function rowToRecord(row) {
   return {
     mediaType: row.media_type === "tv" ? "tv" : "movie",
-    tmdbId: num2(row.tmdb_id),
+    tmdbId: num3(row.tmdb_id),
     lang: String(row.lang ?? "en"),
     title: String(row.title ?? ""),
     originalTitle: row.original_title ?? null,
     releaseDate: row.release_date ?? null,
-    popularity: num2(row.popularity),
-    voteCount: num2(row.vote_count),
-    voteAverage: num2(row.vote_average),
+    popularity: num3(row.popularity),
+    voteCount: num3(row.vote_count),
+    voteAverage: num3(row.vote_average),
     posterPath: row.poster_path ?? null,
     backdropPath: row.backdrop_path ?? null,
     originalLanguage: row.original_language ?? null,
@@ -7769,10 +8573,10 @@ function sources(today) {
   ];
 }
 var CRAWL_LANGS = ["fr", "en"];
-var FULL_EVERY_MS2 = 3 * 864e5;
+var FULL_EVERY_MS3 = 3 * 864e5;
 var LIGHT_EVERY_MS = 864e5;
 var CHECK_EVERY_MS = 36e5;
-var CONCURRENCY3 = 2;
+var CONCURRENCY4 = 2;
 var MIN_BUILT = 1e3;
 var state = "idle";
 var crawling = false;
@@ -7824,7 +8628,7 @@ async function crawl(prisma, cfg, index, mode, tags) {
   }
   const started = Date.now();
   let learned = 0;
-  await mapLimit(jobs, CONCURRENCY3, async ({ source, page, lang }) => {
+  await mapLimit(jobs, CONCURRENCY4, async ({ source, page, lang }) => {
     const records = await fetchDiscover(cfg, source, page, lang, tags);
     for (const r of records) index.upsert(r);
     queueTitles(prisma, records);
@@ -7869,7 +8673,7 @@ async function check(prisma, cfg, index) {
     fullAt = 0;
   }
   const now = Date.now();
-  if (now - fullAt > FULL_EVERY_MS2) launch(prisma, cfg, index, "full", tags);
+  if (now - fullAt > FULL_EVERY_MS3) launch(prisma, cfg, index, "full", tags);
   else if (now - lightAt > LIGHT_EVERY_MS) launch(prisma, cfg, index, "light", tags);
 }
 function ensureTitleIndex(prisma, cfg, index) {
@@ -7938,8 +8742,8 @@ function popularityScore(voteCount, popularity) {
 function remoteRankScore(rank) {
   return rank === null || rank === void 0 ? 0 : Math.max(0, 80 - 4 * rank);
 }
-function scoreMediaWithText(item, text, query) {
-  let score2 = text === 0 && item.remoteRank !== null && item.remoteRank !== void 0 ? 150 : text;
+function scoreMediaWithText(item, text2, query) {
+  let score2 = text2 === 0 && item.remoteRank !== null && item.remoteRank !== void 0 ? 150 : text2;
   score2 += popularityScore(item.voteCount, item.popularity) + remoteRankScore(item.remoteRank);
   if (query.year !== null && item.year !== null) {
     const gap = Math.abs(query.year - item.year);
@@ -7947,12 +8751,12 @@ function scoreMediaWithText(item, text, query) {
   }
   if (query.type !== null) score2 += query.type === item.mediaType ? 300 : -400;
   if (query.anime && item.isAnime) score2 += 300;
-  if (item.voteCount < 5 && text < 1e3) score2 -= 100;
+  if (item.voteCount < 5 && text2 < 1e3) score2 -= 100;
   return score2;
 }
 function scorePerson(name, popularity, tokens, remoteRank) {
-  const text = textScore([name], tokens);
-  const normalized = text >= TEXT_KEY_WORDS ? 800 : text;
+  const text2 = textScore([name], tokens);
+  const normalized = text2 >= TEXT_KEY_WORDS ? 800 : text2;
   return normalized + Math.round(150 * Math.log10(1 + popularity * 10)) + remoteRankScore(remoteRank) * 2;
 }
 
@@ -8058,8 +8862,8 @@ function score(candidates, parsed, fixed) {
   const scored = [...candidates].map((c) => {
     const typed = textScore(c.names, parsed.tokens);
     const viaFix = fixed ? textScore(c.names, fixed) - FIX_PENALTY : -1;
-    const text = Math.max(typed, viaFix);
-    return { c: { ...c, text, score: scoreMediaWithText(c, text, parsed) }, viaFix: viaFix > typed };
+    const text2 = Math.max(typed, viaFix);
+    return { c: { ...c, text: text2, score: scoreMediaWithText(c, text2, parsed) }, viaFix: viaFix > typed };
   });
   scored.sort((a, b) => b.c.score - a.c.score);
   if (scored.length > 0) fixWon = scored[0].viaFix;
@@ -8093,12 +8897,12 @@ function instantSearch(ctx, q, opts) {
   const correction = fixWon ? fixedText : null;
   return { ...EMPTY2(parsed), searched: correction ?? parsed.text, correction, media, complete: false };
 }
-async function tryRemote(ctx, text, opts) {
-  if (text.trim() === "") return null;
+async function tryRemote(ctx, text2, opts) {
+  if (text2.trim() === "") return null;
   try {
     return await remoteSearch(
       ctx.cfg,
-      text,
+      text2,
       opts.page,
       opts.lang,
       opts.showBlocked,
@@ -8320,7 +9124,7 @@ var PEOPLE_LIMIT = 10;
 var NOTABLE_VOTES = 30;
 var NOTABLE_POPULARITY = 3;
 function statusFor(c) {
-  const known = statusOf(c.mediaType, c.tmdbId) ?? c.remoteStatus;
+  const known = correctedStatus(c.mediaType, c.tmdbId, statusOf(c.mediaType, c.tmdbId) ?? c.remoteStatus);
   const settled = known !== void 0 && known !== MEDIA_STATUS.UNKNOWN && known !== MEDIA_STATUS.DELETED;
   if (!settled && isLocallyPending(c.key)) return MEDIA_STATUS.PENDING;
   return known;
@@ -8508,10 +9312,10 @@ function readRole(raw) {
 }
 var TALK_OR_NEWS = /* @__PURE__ */ new Set([10767, 10763]);
 var str2 = (v) => typeof v === "string" && v.trim() !== "" ? v : null;
-var num3 = (v) => typeof v === "number" && Number.isFinite(v) ? v : 0;
+var num4 = (v) => typeof v === "number" && Number.isFinite(v) ? v : 0;
 function toCredit(r, crew) {
   const mediaType = r.mediaType === "movie" || r.mediaType === "tv" ? r.mediaType : null;
-  const id = num3(r.id);
+  const id = num4(r.id);
   if (!mediaType || id <= 0) return null;
   const role = crew ? str2(r.job) : str2(r.character);
   if (!crew && role && SELF.test(role)) return null;
@@ -8525,8 +9329,8 @@ function toCredit(r, crew) {
     title: str2(r.title) ?? str2(r.name) ?? "",
     releaseDate: str2(r.releaseDate) ?? str2(r.firstAirDate),
     posterPath: str2(r.posterPath),
-    voteCount: num3(r.voteCount),
-    popularity: num3(r.popularity),
+    voteCount: num4(r.voteCount),
+    popularity: num4(r.popularity),
     role,
     crew,
     status: typeof info?.status === "number" ? info.status : void 0
@@ -8641,7 +9445,7 @@ async function personProvider(cfg, q) {
   const personId = await resolvePerson(cfg, q.name, q.tmdbId, q.lang);
   if (personId === null) return empty;
   const credits = await personCredits(cfg, personId, q.lang);
-  const items = pickCredits(credits, q.role).filter(({ credit: c }) => q.type === null || q.type === "movie" === (c.mediaType === "movie")).map(({ credit: c, matches: matches2 }) => ({ c, matches: matches2, status: statusOf(c.mediaType, c.id) ?? c.status })).filter(({ status }) => !inLibraryOrBlocked(status)).sort((a, b) => Number(b.matches) - Number(a.matches) || b.c.voteCount - a.c.voteCount || b.c.popularity - a.c.popularity).slice(0, q.limit).map(({ c, status }) => toItem(c, status, q.lang));
+  const items = pickCredits(credits, q.role).filter(({ credit: c }) => q.type === null || q.type === "movie" === (c.mediaType === "movie")).map(({ credit: c, matches: matches2 }) => ({ c, matches: matches2, status: correctedStatus(c.mediaType, c.id, statusOf(c.mediaType, c.id) ?? c.status) })).filter(({ status }) => !inLibraryOrBlocked(status)).sort((a, b) => Number(b.matches) - Number(a.matches) || b.c.voteCount - a.c.voteCount || b.c.popularity - a.c.popularity).slice(0, q.limit).map(({ c, status }) => toItem(c, status, q.lang));
   return { ...empty, items, moreHref: `/discover?person=${personId}` };
 }
 
@@ -8711,7 +9515,7 @@ async function collectionParts(cfg, collectionId, lang) {
 }
 async function collectionProvider(cfg, q) {
   const parts = await collectionParts(cfg, q.collectionId, q.lang);
-  const items = missingParts(parts, (p) => statusOf("movie", p.id) ?? p.status).slice(0, q.limit).map(({ part, status }) => toCollectionItem(part, status, q.lang, q.today));
+  const items = missingParts(parts, (p) => correctedStatus("movie", p.id, statusOf("movie", p.id) ?? p.status)).slice(0, q.limit).map(({ part, status }) => toCollectionItem(part, status, q.lang, q.today));
   return { query: String(q.collectionId), correction: null, complete: true, items, moreHref: null };
 }
 
@@ -8943,8 +9747,9 @@ function refusalMessage(status, body, lang) {
 // server/routes-titles-seasons.ts
 var TV_KEY = /^tv:([1-9]\d{0,9})$/;
 async function readSeasons(prisma, cfg, user, tmdbId, lang) {
-  const detail = await fetchMediaDetail(cfg.seerrUrl, cfg.seerrApiKey, "tv", tmdbId);
-  if (!detail?.name) return null;
+  const raw = await fetchMediaDetail(cfg.seerrUrl, cfg.seerrApiKey, "tv", tmdbId);
+  if (!raw?.name) return null;
+  const detail = withCorrectedInfo("tv", tmdbId, raw);
   const [local, rights, specials] = await Promise.all([
     localRequestedSeasons(prisma, user.userId, tmdbId).catch(() => []),
     rightsOf(prisma, user.userId, cfg),
@@ -8993,7 +9798,7 @@ async function requestSeasons(prisma, getWorkerConfig2, user, tmdbId, chosen, la
 
 // server/titles/my-titles.ts
 var MAX_MY_TITLES = 50;
-var WAITING2 = /* @__PURE__ */ new Set([
+var WAITING3 = /* @__PURE__ */ new Set([
   "queued",
   "processing",
   "sent_to_seer",
@@ -9022,7 +9827,7 @@ function verdictOf(request, arr) {
   const download = arr ? arr.download : request.download ?? null;
   if (status === "downloading") return download ? arriving(download) : still("arriving");
   if (status === "partially_available") return download ? arriving(download) : null;
-  return WAITING2.has(status) ? still("pending") : null;
+  return WAITING3.has(status) ? still("pending") : null;
 }
 function yearOf2(raw) {
   const year = raw && /^\d{4}/.test(raw) ? Number(raw.slice(0, 4)) : NaN;
@@ -9098,7 +9903,7 @@ function registerTitleRoutes(app, prisma, getWorkerConfig2) {
     const rights = await rightsOf(prisma, user.userId, cfg);
     const detail = await fetchMediaDetail(cfg.seerrUrl, cfg.seerrApiKey, "movie", tmdbId);
     if (!detail?.title) return { ok: false, message: unreachableMessage(lang) };
-    const known = detail.mediaInfo?.status;
+    const known = correctMediaInfo("movie", tmdbId, detail.mediaInfo)?.status;
     const liftable = known === MEDIA_STATUS.BLOCKLISTED && cfg.allowMaskedRequests === true;
     if (known !== void 0 && known >= MEDIA_STATUS.PENDING && known <= MEDIA_STATUS.BLOCKLISTED && !liftable) {
       noteStatus("movie", tmdbId, known);
@@ -9198,11 +10003,473 @@ function registerTitleGapRoutes(app, prisma, getWorkerConfig2) {
         tvDetail(cfg, k.tmdbId),
         localRequestedSeasons(prisma, user.userId, k.tmdbId).catch(() => [])
       ]);
-      const seasons = seriesGaps(detail, local, rights, { specials, lang });
+      const seasons = seriesGaps(withCorrectedInfo("tv", k.tmdbId, detail), local, rights, { specials, lang });
       if (seasons.length > 0) items[k.key] = { seasons };
     });
     return { items };
   });
+}
+
+// server/live/jellyfin-check.ts
+var LIMIT = 50;
+function tmdbOf2(ids) {
+  if (!ids) return null;
+  for (const [key, value] of Object.entries(ids)) if (key.toLowerCase() === "tmdb" && value) return value;
+  return null;
+}
+var typeOf = (t) => t.mediaType === "movie" ? "Movie" : "Series";
+async function session(db) {
+  const creds = await jellyfinCredentials(db);
+  if (!creds) return null;
+  const accounts = await fetchJellyfinAccounts(db);
+  const admin = accounts.find((a) => a.isAdmin && !a.isDisabled);
+  if (!admin) return null;
+  return { base: creds.url, headers: jellyfinAuthHeaders(creds.apiKey), userId: admin.id };
+}
+async function getItems(s, query, timeoutMs) {
+  const res = await fetch(`${s.base}/Users/${encodeURIComponent(s.userId)}/Items?${query}`, {
+    headers: s.headers,
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  if (!res.ok) throw new Error(`Jellyfin GET /Items ${res.status}`);
+  const data = await res.json();
+  const items = Array.isArray(data.Items) ? data.Items : [];
+  return { items, total: typeof data.TotalRecordCount === "number" ? data.TotalRecordCount : items.length };
+}
+async function findByTmdb(s, t) {
+  const params = new URLSearchParams({
+    Recursive: "true",
+    IncludeItemTypes: typeOf(t),
+    AnyProviderIdEquals: `Tmdb.${t.tmdbId}`,
+    Fields: "ProviderIds",
+    EnableImages: "false",
+    EnableUserData: "false",
+    Limit: String(LIMIT)
+  });
+  const { items, total } = await getItems(s, params.toString(), 8e3);
+  const match = items.find((it) => tmdbOf2(it.ProviderIds) === String(t.tmdbId));
+  if (match) return match;
+  const filtered = items.every((it) => tmdbOf2(it.ProviderIds) === String(t.tmdbId));
+  return filtered && total <= LIMIT ? null : void 0;
+}
+async function wholeIndex(s) {
+  const params = new URLSearchParams({
+    Recursive: "true",
+    IncludeItemTypes: "Movie,Series",
+    HasTmdbId: "true",
+    Fields: "ProviderIds",
+    EnableImages: "false",
+    EnableUserData: "false"
+  });
+  const { items } = await getItems(s, params.toString(), 3e4);
+  const out = /* @__PURE__ */ new Map();
+  for (const it of items) {
+    const tmdb = tmdbOf2(it.ProviderIds);
+    const type = it.Type === "Movie" ? "movie" : it.Type === "Series" ? "tv" : null;
+    if (tmdb && type && !out.has(`${type}:${tmdb}`)) out.set(`${type}:${tmdb}`, it);
+  }
+  return out;
+}
+async function seasonsOf2(s, seriesId) {
+  const params = new URLSearchParams({
+    userId: s.userId,
+    Fields: "",
+    EnableImages: "false",
+    EnableUserData: "false"
+  });
+  const res = await fetch(`${s.base}/Shows/${encodeURIComponent(seriesId)}/Episodes?${params}`, {
+    headers: s.headers,
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res.ok) throw new Error(`Jellyfin GET /Shows/{id}/Episodes ${res.status}`);
+  const data = await res.json();
+  const out = /* @__PURE__ */ new Set();
+  for (const ep of data.Items ?? []) if (typeof ep.ParentIndexNumber === "number") out.add(ep.ParentIndexNumber);
+  return out;
+}
+async function checkInJellyfin(db, targets) {
+  const out = /* @__PURE__ */ new Map();
+  const keyOf = (t) => `${t.mediaType}:${t.tmdbId}`;
+  let s = null;
+  try {
+    s = await session(db);
+  } catch {
+    s = null;
+  }
+  if (!s) {
+    for (const t of targets) out.set(keyOf(t), null);
+    return out;
+  }
+  let index = null;
+  for (const t of targets) {
+    try {
+      let item = await findByTmdb(s, t);
+      if (item === void 0) {
+        index ??= await wholeIndex(s);
+        item = index.get(keyOf(t)) ?? null;
+      }
+      if (!item?.Id) {
+        out.set(keyOf(t), { present: false, presentSeasons: t.mediaType === "tv" ? /* @__PURE__ */ new Set() : void 0 });
+        continue;
+      }
+      if (t.mediaType === "tv" && t.seasons && t.seasons.length > 0) {
+        out.set(keyOf(t), { present: true, presentSeasons: await seasonsOf2(s, item.Id) });
+      } else {
+        out.set(keyOf(t), { present: true });
+      }
+    } catch {
+      out.set(keyOf(t), null);
+    }
+  }
+  return out;
+}
+
+// server/live/library-store.ts
+function sameLibrarySignature(a, b) {
+  return !!a && !!b && a.total === b.total && a.departed === b.departed && a.last === b.last;
+}
+function ms(v) {
+  if (v === null || v === void 0) return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.getTime();
+  if (typeof v === "number" || typeof v === "bigint") return Number(v);
+  const d = new Date(String(v));
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+var ROWS_SQL = `
+  SELECT CASE WHEN contentKey LIKE 'e:t:%' THEN SUBSTRING_INDEX(contentKey, ':', 4) ELSE contentKey END AS k,
+         MAX(CASE WHEN removedAt IS NULL THEN 1 ELSE 0 END) AS present,
+         MAX(removedAt) AS departedAt
+  FROM library_known_id
+  WHERE contentKey LIKE 'm:t:%' OR contentKey LIKE 'e:t:%'
+  GROUP BY k`;
+function coreLibraryStore(prisma) {
+  let warned2 = false;
+  const unusable = (err) => {
+    if (!warned2) {
+      warned2 = true;
+      console.warn(
+        `[VigieLive] Liste des items de Jellyfin du serveur illisible \u2014 les suppressions ne seront vues que par Jellyseerr : ${err instanceof Error ? err.message : err}`
+      );
+    }
+    return null;
+  };
+  return {
+    async signature() {
+      try {
+        const [row] = await prisma.$queryRawUnsafe(
+          "SELECT COUNT(*) AS total, COUNT(removedAt) AS departed, MAX(removedAt) AS last FROM library_known_id"
+        );
+        warned2 = false;
+        return { total: Number(row?.total ?? 0), departed: Number(row?.departed ?? 0), last: ms(row?.last) };
+      } catch (err) {
+        return unusable(err);
+      }
+    },
+    async rows() {
+      try {
+        const rows = await prisma.$queryRawUnsafe(ROWS_SQL);
+        return rows.filter((r) => typeof r.k === "string").map((r) => ({ key: r.k, present: Number(r.present) === 1, departedAt: ms(r.departedAt) }));
+      } catch (err) {
+        return unusable(err);
+      }
+    }
+  };
+}
+
+// server/live/local-requests.ts
+var CLOSED = ["deleted", "deleting", "delete_failed"];
+async function forgetLocalRequests(prisma, seerrRequestIds, reason) {
+  const ids = [...new Set(seerrRequestIds.filter((n) => Number.isSafeInteger(n) && n > 0))];
+  if (ids.length === 0) return 0;
+  let closed = 0;
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk2 = ids.slice(i, i + 200);
+    closed += await prisma.$executeRawUnsafe(
+      `UPDATE seer_requests SET status = 'deleted', last_error = ?
+       WHERE seerr_request_id IN (${chunk2.map(() => "?").join(", ")})
+         AND status NOT IN (${CLOSED.map(() => "?").join(", ")})`,
+      reason,
+      ...chunk2,
+      ...CLOSED
+    );
+  }
+  return closed;
+}
+async function openLocalRequestsFor(prisma, mediaType, tmdbId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM seer_requests WHERE media_type = ? AND tmdb_id = ?
+       AND status NOT IN (${CLOSED.map(() => "?").join(", ")})
+     ORDER BY created_at ASC, id ASC`,
+    mediaType,
+    tmdbId,
+    ...CLOSED
+  );
+  return rows.map(rowToRequest);
+}
+
+// server/live/live-sync.ts
+var TICK_MS = 5e3;
+var ACTIVE_EVERY_MS = 1e4;
+var IDLE_EVERY_MS = 6e4;
+var ACTIVE_WINDOW_MS = 5 * 6e4;
+var RECHECK_MS = 2 * 6e4;
+var CHECKS_PER_PASS = 8;
+var timer2 = null;
+var deps = null;
+var lastActivity = 0;
+var lastRun = 0;
+var busy = false;
+var librarySig = null;
+var seerrUrl = null;
+function markActivity(now = Date.now()) {
+  const idle = now - lastActivity >= ACTIVE_WINDOW_MS;
+  lastActivity = now;
+  if (idle && deps && !busy) lastRun = 0;
+}
+function liveGeneration() {
+  return liveState.generation;
+}
+function startLiveSync(d) {
+  if (timer2) return;
+  deps = d;
+  timer2 = setInterval(() => {
+    void tick();
+  }, TICK_MS);
+  timer2.unref?.();
+  setTimeout(() => {
+    void tick(true);
+  }, 3e3).unref?.();
+}
+function stopLiveSync() {
+  if (timer2) clearInterval(timer2);
+  timer2 = null;
+  deps = null;
+}
+async function tick(force = false) {
+  const d = deps;
+  if (!d || busy) return;
+  const now = Date.now();
+  const every = now - lastActivity < ACTIVE_WINDOW_MS ? ACTIVE_EVERY_MS : IDLE_EVERY_MS;
+  if (!force && now - lastRun < every) return;
+  busy = true;
+  lastRun = now;
+  try {
+    await runPass(d, now);
+  } catch (err) {
+    console.warn("[VigieLive] Passe interrompue :", err);
+  } finally {
+    busy = false;
+  }
+}
+async function runPass(d, now = Date.now()) {
+  const libraryChanged = await refreshLibrary(d.store);
+  const checked = await confirmDepartures(d.db, now);
+  const cfg = await d.getWorkerConfig();
+  if (!cfg) return;
+  if (cfg.seerrUrl !== seerrUrl) {
+    if (seerrUrl !== null) requestIndex.reset();
+    seerrUrl = cfg.seerrUrl;
+  }
+  const change = await requestIndex.poll(cfg, now);
+  if (change) await applyIndexChange(d.db, cfg, change);
+  if (libraryChanged || checked) {
+    invalidate("vigie:marks");
+    if (!change) invalidateRequestCaches();
+  }
+  if (d.afterPass) await d.afterPass(cfg, now);
+}
+async function refreshLibrary(store2) {
+  const sig = await store2.signature();
+  if (sig === null) return liveState.setLibrary(null);
+  if (sameLibrarySignature(sig, librarySig) && liveState.libraryReadable) return false;
+  const rows = await store2.rows();
+  if (rows === null) return liveState.setLibrary(null);
+  librarySig = sig;
+  return liveState.setLibrary(rows);
+}
+function departuresToCheck(now) {
+  const out = [];
+  for (const dep of liveState.departures()) {
+    if (now - dep.at >= SETTLE_MS) continue;
+    const key = `${dep.mediaType}:${dep.tmdbId}`;
+    const check2 = liveState.checks.get(key);
+    if (check2 && check2.at >= dep.at && now - check2.at < RECHECK_MS) continue;
+    out.push({ mediaType: dep.mediaType, tmdbId: dep.tmdbId, seasons: dep.mediaType === "tv" ? dep.seasons : void 0 });
+  }
+  return out.slice(0, CHECKS_PER_PASS);
+}
+async function confirmDepartures(db, now) {
+  const targets = departuresToCheck(now);
+  if (targets.length === 0) return false;
+  const results = await checkInJellyfin(db, targets);
+  let changed = false;
+  for (const [key, result] of results) {
+    if (!result) continue;
+    changed = liveState.setCheck(key, { at: Date.now(), present: result.present, presentSeasons: result.presentSeasons }) || changed;
+  }
+  return changed;
+}
+async function applyIndexChange(db, cfg, change) {
+  if (change.deleted.length > 0) {
+    const forgotten = await forgetLocalRequests(db, change.deleted.map((r) => r.id), "Demande supprim\xE9e c\xF4t\xE9 Jellyseerr");
+    if (forgotten > 0) refreshLocalPending(db, true);
+    const titles = change.deleted.map((r) => `${r.mediaType}:${r.tmdbId}#${r.id}`).join(", ");
+    console.log(`[VigieLive] Demande(s) supprim\xE9e(s) dans Jellyseerr : ${titles} \u2014 ${forgotten} ligne(s) de la file close(s)`);
+  }
+  invalidateRequestCaches();
+  statusMapStale();
+  refreshStatusMap(cfg);
+}
+
+// server/live/auto-forget-plan.ts
+var FORGET_GRACE_MS = 10 * 6e4;
+var MASS_WINDOW_MS = 60 * 6e4;
+var MASS_TITLES = 20;
+function forgetCandidates({ departures, options, now, graceMs = FORGET_GRACE_MS }) {
+  if (!options.enabled || options.since === null) return { kind: "none" };
+  const since = options.since;
+  const recent = departures.filter((d) => d.at >= since && now - d.at <= MASS_WINDOW_MS);
+  if (recent.length > MASS_TITLES) return { kind: "mass", count: recent.length };
+  const ready = departures.filter((d) => d.at >= since && now - d.at >= graceMs);
+  return ready.length > 0 ? { kind: "ready", departures: ready } : { kind: "none" };
+}
+function planJobs(dep, requests) {
+  const jobs = [];
+  for (const r of requests) {
+    if (!isLiveRequest(r)) continue;
+    const base = { localId: r.localId, jellyfinUserId: r.jellyfinUserId };
+    if (dep.mediaType === "movie") {
+      jobs.push({ ...base, seerrRequestId: r.seerrRequestId, seasons: null, whole: true });
+      continue;
+    }
+    if (dep.whole) {
+      jobs.push({ ...base, seerrRequestId: r.seerrRequestId, seasons: r.seasons.length > 0 ? [...r.seasons] : null, whole: true });
+      continue;
+    }
+    const gone = r.seasons.filter((s) => dep.seasons.includes(s));
+    if (gone.length === 0) continue;
+    const whole = gone.length === r.seasons.length || r.status === REQUEST.COMPLETED;
+    jobs.push({ ...base, seerrRequestId: whole ? r.seerrRequestId : null, seasons: gone, whole });
+  }
+  return jobs;
+}
+
+// server/live/auto-forget.ts
+var COOLDOWN_MS = 15 * 6e4;
+var MASS_WARN_EVERY_MS = 60 * 6e4;
+var TITLES_PER_PASS = 5;
+function forgetOptionsOf(config) {
+  const since = Number(config.deleteRequestsWithMediaSince);
+  return {
+    enabled: config.deleteRequestsWithMedia === true,
+    since: Number.isFinite(since) && since > 0 ? since : null
+  };
+}
+async function titleOf(db, dep, fallback) {
+  if (fallback) return fallback;
+  const meta = await getTmdbMetaBulk(db, [{ mediaType: dep.mediaType, tmdbId: dep.tmdbId }]).catch(() => null);
+  return meta?.get(`${dep.mediaType}:${dep.tmdbId}`)?.title || `${dep.mediaType === "movie" ? "Film" : "S\xE9rie"} #${dep.tmdbId}`;
+}
+async function hasPendingCleanup(db, seerrRequestId) {
+  const rows = await db.$queryRawUnsafe(
+    "SELECT COUNT(*) AS n FROM seer_cleanup_queue WHERE status = 'pending' AND seerr_request_id = ?",
+    seerrRequestId
+  );
+  return Number(rows[0]?.n ?? 0) > 0;
+}
+function createAutoForget(db, readConfig) {
+  const handled = /* @__PURE__ */ new Map();
+  let lastMassWarn = 0;
+  return async function autoForget(_cfg, now) {
+    const options = forgetOptionsOf(readConfig());
+    if (!options.enabled || !requestIndex.ready || !liveState.libraryReadable) return;
+    for (const [key, at] of handled) if (now - at > COOLDOWN_MS) handled.delete(key);
+    const plan = forgetCandidates({ departures: liveState.departures(), options, now });
+    if (plan.kind === "mass") {
+      if (now - lastMassWarn > MASS_WARN_EVERY_MS) {
+        lastMassWarn = now;
+        console.warn(
+          `[VigieLive] ${plan.count} titres partis de Jellyfin en moins d'une heure : trop pour \xEAtre une suppression voulue (disque ou partage d\xE9branch\xE9 ?). Aucune demande n'est supprim\xE9e automatiquement.`
+        );
+      }
+      return;
+    }
+    if (plan.kind !== "ready") return;
+    const targets = plan.departures.filter((d) => !handled.has(`${d.mediaType}:${d.tmdbId}`)).filter((d) => (requestIndex.requestsFor(d.mediaType, d.tmdbId) ?? []).some(isLiveRequest)).slice(0, TITLES_PER_PASS);
+    if (targets.length === 0) return;
+    const checks = await checkInJellyfin(db, targets.map((d) => ({ mediaType: d.mediaType, tmdbId: d.tmdbId, seasons: d.seasons })));
+    let enqueued = 0;
+    for (const dep of targets) {
+      const key = `${dep.mediaType}:${dep.tmdbId}`;
+      const check2 = checks.get(key);
+      if (!check2) continue;
+      handled.set(key, now);
+      let effective = dep;
+      if (dep.mediaType === "movie" || dep.whole) {
+        if (check2.present) continue;
+      } else {
+        const gone = dep.seasons.filter((s) => !check2.presentSeasons?.has(s));
+        if (gone.length === 0) continue;
+        effective = { ...dep, seasons: gone };
+      }
+      enqueued += await forgetTitle(db, effective);
+    }
+    if (enqueued > 0) {
+      invalidateRequestCaches();
+      kickWorkerNow();
+    }
+  };
+}
+async function forgetTitle(db, dep) {
+  const indexed = requestIndex.requestsFor(dep.mediaType, dep.tmdbId) ?? [];
+  const locals = await openLocalRequestsFor(db, dep.mediaType, dep.tmdbId);
+  const localBySeerr = new Map(locals.filter((l) => l.seerrRequestId).map((l) => [l.seerrRequestId, l]));
+  const requests = indexed.map((r) => {
+    const local = localBySeerr.get(r.id) ?? null;
+    return {
+      seerrRequestId: r.id,
+      status: r.status,
+      seasons: r.seasons,
+      is4k: r.is4k,
+      localId: local?.id ?? null,
+      jellyfinUserId: local?.jellyfinUserId ?? r.requestedBy.jellyfinUserId
+    };
+  });
+  const jobs = planJobs(dep, requests);
+  if (jobs.length === 0) return 0;
+  const title = await titleOf(db, dep, locals[0]?.title ?? null);
+  let count = 0;
+  for (const job of jobs) {
+    if (job.seerrRequestId !== null && await hasPendingCleanup(db, job.seerrRequestId)) continue;
+    await enqueueCleanup(db, {
+      action: "delete",
+      mediaType: dep.mediaType,
+      tmdbId: dep.tmdbId,
+      title,
+      seerrRequestId: job.seerrRequestId,
+      deleteFiles: false,
+      seasons: job.seasons,
+      requestId: job.whole ? job.localId : null,
+      jellyfinUserId: job.jellyfinUserId
+    });
+    if (job.localId) {
+      if (job.whole) await updateRequestStatus(db, job.localId, "deleting");
+      else {
+        const local = locals.find((l) => l.id === job.localId);
+        const remaining = (local?.seasons ?? []).filter((s) => !(job.seasons ?? []).includes(s));
+        if (remaining.length > 0) await addSeasonsToRequest(db, job.localId, remaining);
+      }
+    }
+    count++;
+  }
+  const what = dep.mediaType === "movie" || dep.whole ? "supprim\xE9" : `saison(s) ${dep.seasons.join(", ")} supprim\xE9e(s)`;
+  console.log(`[VigieLive] \xAB ${title} \xBB ${what} de Jellyfin \u2014 ${count} demande(s) retir\xE9e(s) de Jellyseerr et de Vigie (option \xAB avec le titre \xBB)`);
+  return count;
+}
+
+// server/live/routes-live.ts
+function registerLiveRoutes(app) {
+  app.get("/sync/state", async () => ({ generation: liveGeneration() }));
 }
 
 // server/index.ts
@@ -9234,11 +10501,21 @@ async function seerBackend(app, ctx) {
   applyNavLabel(__pluginDir, ctx.pluginId, navLabelsOf(getPluginConfig(ctx)));
   onTitleRequested(ctx.recommendations?.titleRequested ?? null);
   startWorker(prisma, () => getWorkerConfig(ctx));
+  startLiveSync({
+    db: prisma,
+    store: coreLibraryStore(prisma),
+    getWorkerConfig: () => getWorkerConfig(ctx),
+    afterPass: createAutoForget(prisma, () => getPluginConfig(ctx))
+  });
   void getWorkerConfig(ctx).then((w) => w ? specialSeasonsEnabled(w.seerrUrl, w.seerrApiKey) : false).catch(() => false);
   app.addHook("onClose", async () => {
     stopWorker();
+    stopLiveSync();
   });
   app.addHook("preHandler", ctx.requireAuth);
+  app.addHook("onRequest", async () => {
+    markActivity();
+  });
   app.get("/config", async (request) => {
     const config = getPluginConfig(ctx);
     const user = request.user;
@@ -9287,6 +10564,7 @@ async function seerBackend(app, ctx) {
   registerTitleRoutes(app, prisma, gwc);
   registerTitleSeasonRoutes(app, prisma, gwc);
   registerTitleGapRoutes(app, prisma, gwc);
+  registerLiveRoutes(app);
   console.log("[SeerBackend] Routes registered");
 }
 export {
