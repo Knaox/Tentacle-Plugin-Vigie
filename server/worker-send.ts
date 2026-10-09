@@ -15,6 +15,8 @@ import { resolveJellyseerrUserId } from "./jellyseerr-user";
 import { invalidateRequestCaches } from "./cache";
 import type { SeerProfile } from "./types";
 import { MEDIA_STATUS_BLOCKLISTED, liftBlocklist } from "./blocklist";
+import { refusedForStaleSeasons, staleSeasons, unblockSeasons } from "./live/seerr-unblock";
+import { triggerSeerrJob } from "./arr-service";
 
 /* ── Process next queued request ───────────────────────────────────── */
 
@@ -24,7 +26,7 @@ export async function processNextRequest(
   config: WorkerConfig,
   skipIds: ReadonlySet<string>,
 ): Promise<string | null> {
-  const request = await getNextQueued(db);
+  const request = await getNextQueued(db, [...skipIds]);
   if (!request || skipIds.has(request.id)) return null;
 
   const fresh = await getRequestById(db, request.id);
@@ -53,6 +55,18 @@ export async function processNextRequest(
             signal: AbortSignal.timeout(10_000),
           }).catch(() => {});
         }
+      }
+    }
+
+    // Des saisons supprimées de Jellyfin que Jellyseerr croit encore là : il
+    // refuserait la demande. On le débloque d'abord (live/seerr-unblock.ts) ;
+    // s'il lui faut quelques minutes, la demande repasse sans bloquer la file.
+    if (staleSeasons(request, detail).length > 0) {
+      const ready = await unblockSeasons(config, request, detail);
+      if (ready === "wait") {
+        await updateRequestStatus(db, request.id, fresh.status);
+        console.log(`[SeerWorker] "${request.title}" : Jellyseerr ne voit pas encore la suppression des saisons — la demande repassera`);
+        return request.id;
       }
     }
 
@@ -131,6 +145,12 @@ export async function processNextRequest(
       // Jellyseerr a déjà toutes les saisons demandées (local désynchronisé) :
       // ce n'est pas un échec, la demande est déjà satisfaite. On reflète l'état
       // du média plutôt que d'échouer + retry en boucle.
+      if (text.includes("No seasons available to request") && refusedForStaleSeasons(request, detail)) {
+        // Jellyseerr croit encore là ce que Jellyfin a perdu : rien n'est
+        // arrivé, rien ne s'annonce. La demande retente après sa vérification.
+        await triggerSeerrJob(config.seerrUrl, config.seerrApiKey, "availability-sync");
+        throw new Error("Jellyseerr croit encore présentes des saisons supprimées de Jellyfin");
+      }
       if (text.includes("No seasons available to request")) {
         const mediaStatus = detail?.mediaInfo?.status;
         const localStatus =
