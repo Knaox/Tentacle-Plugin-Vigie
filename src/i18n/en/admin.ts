@@ -27,6 +27,8 @@ export default {
   toggleAutoApproveDesc: "A request from an account without approval rights in Jellyseerr is approved as soon as it is sent",
   toggleMaskedRequests: "Allow requesting hidden content",
   toggleMaskedRequestsDesc: "A title Jellyseerr hides (blocklist, blocked keywords) can be requested: Vigie removes it from the blocklist right before sending the request",
+  toggleDeleteWithMedia: "Delete the request with the title",
+  toggleDeleteWithMediaDesc: "When a title is deleted from Jellyfin, its request also disappears from Vigie and Jellyseerr, and Sonarr or Radarr stop monitoring it so it doesn't come back on its own. Only titles deleted after you turn this on are affected; a sudden wave of deletions (unplugged disk) removes nothing",
   admSpecialSeasons: "Special episodes",
   admSpecialSeasonsDesc: "Season 0 can be requested when Jellyseerr allows it (Settings › General › allow special episodes requests)",
   admSpecialSeasonsOn: "Allowed",

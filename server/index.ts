@@ -31,6 +31,7 @@ import { registerTitleGapRoutes } from "./routes-titles-gaps";
 import { onTitleRequested } from "./titles/request-listener";
 import { markActivity, startLiveSync, stopLiveSync } from "./live/live-sync";
 import { coreLibraryStore } from "./live/library-store";
+import { createAutoForget } from "./live/auto-forget";
 import { registerLiveRoutes } from "./live/routes-live";
 
 const __pluginDir = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -89,6 +90,7 @@ export default async function seerBackend(
     db,
     store: coreLibraryStore(db),
     getWorkerConfig: () => getWorkerConfig(ctx),
+    afterPass: createAutoForget(db, () => getPluginConfig(ctx)),
   });
   // Les réglages de Jellyseerr lus d'avance : `GET /config` ne les attend pas.
   void getWorkerConfig(ctx)
