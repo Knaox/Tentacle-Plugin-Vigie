@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useToast } from "../../hooks/useToast";
 import { labelFor } from "../../utils/nav-labels";
-import { AlertIcon, CheckIcon, ClockIcon, CompassIcon, EyeIcon, EyeOffIcon, FilmIcon, LinkIcon, TvIcon, UsersIcon } from "../ui/icons";
+import { AlertIcon, CheckIcon, ClockIcon, CompassIcon, EyeIcon, EyeOffIcon, FilmIcon, LinkIcon, TrashIcon, TvIcon, UsersIcon } from "../ui/icons";
 import { useSpecialSeasons } from "../../hooks/useIsAdmin";
 import { Chip, Stepper, Switch } from "./adminKit";
 import { Group, NavLabelPill, Row } from "./adminRows";
@@ -127,6 +127,12 @@ export function SettingsTab({ state }: { state: SeerAdminState }) {
           title={t("seer:toggleMaskedRequests")}
           description={t("seer:toggleMaskedRequestsDesc")}
           trailing={<Switch checked={config.allowMaskedRequests} label={t("seer:toggleMaskedRequests")} disabled={state.saving} onChange={(allowMaskedRequests) => void commit({ allowMaskedRequests })} />}
+        />
+        <Row
+          icon={<TrashIcon className="h-[18px] w-[18px]" />}
+          title={t("seer:toggleDeleteWithMedia")}
+          description={t("seer:toggleDeleteWithMediaDesc")}
+          trailing={<Switch checked={config.deleteRequestsWithMedia} label={t("seer:toggleDeleteWithMedia")} disabled={state.saving} onChange={(deleteRequestsWithMedia) => void commit({ deleteRequestsWithMedia })} />}
         />
         {/* Réglé dans Jellyseerr, pas ici : on dit seulement ce qu'il en est. */}
         <Row

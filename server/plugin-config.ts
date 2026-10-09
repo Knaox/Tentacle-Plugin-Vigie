@@ -47,8 +47,10 @@ export function readPluginConfig(pluginDir: string, pluginId: string): PluginCon
  * Ce qu'on enregistre, remis en forme. Le formulaire envoyait l'objet tel
  * quel : une limite saisie « 3.5 » ou négative partait en l'état.
  */
-export function normalizeConfig(body: unknown): PluginConfig {
+export function normalizeConfig(body: unknown, previous: PluginConfig = {}): PluginConfig {
   const input = (body && typeof body === "object" ? body : {}) as PluginConfig;
+  const forget = input.deleteRequestsWithMedia === true;
+  const since = Number(previous.deleteRequestsWithMediaSince);
   const limit = Math.floor(Number(input.userLimit));
   const { navLabel: legacyLabel, ...rest } = input;
   return {
@@ -60,6 +62,13 @@ export function normalizeConfig(body: unknown): PluginConfig {
     // Les titres masqués (liste de blocage, mots-clés bloqués) se demandent-ils ?
     // Non par défaut : le masquage est un choix de l'administrateur.
     allowMaskedRequests: input.allowMaskedRequests === true,
+    // Un titre supprimé de Jellyfin emporte sa demande (live/auto-forget.ts) ?
+    // Non par défaut. L'instant d'activation est posé ICI, jamais par le
+    // client : seules les suppressions qui le suivent sont concernées.
+    deleteRequestsWithMedia: forget,
+    deleteRequestsWithMediaSince: forget
+      ? (previous.deleteRequestsWithMedia === true && Number.isFinite(since) && since > 0 ? since : Date.now())
+      : null,
     userLimit: Number.isFinite(limit) && limit > 0 ? limit : 0,
     // Un nom par langue ; l'ancienne forme (un seul nom) est reprise pour les deux.
     navLabels: cleanNavLabels(input.navLabels ?? legacyLabel),
@@ -79,7 +88,7 @@ export function writePluginConfig(pluginDir: string, pluginId: string, body: unk
   const installed = JSON.parse(readFileSync(path, "utf-8"));
   const entry = findEntry(installed, pluginId);
   if (!entry) return null;
-  const config = normalizeConfig(body);
+  const config = normalizeConfig(body, (entry.config as PluginConfig | undefined) ?? {});
   entry.config = config;
   const tmp = `${path}.vigie-${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(installed, null, 2));

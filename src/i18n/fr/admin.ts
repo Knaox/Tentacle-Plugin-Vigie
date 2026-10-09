@@ -27,6 +27,8 @@ export default {
   toggleAutoApproveDesc: "La demande d'un compte sans droit d'approbation dans Jellyseerr est validée dès son envoi",
   toggleMaskedRequests: "Autoriser la demande de contenu masqué",
   toggleMaskedRequestsDesc: "Un titre que Jellyseerr masque (liste de blocage, mots-clés bloqués) peut être demandé : Vigie le retire de la liste de blocage juste avant d'envoyer la demande",
+  toggleDeleteWithMedia: "Supprimer la demande avec le titre",
+  toggleDeleteWithMediaDesc: "Quand un titre est supprimé de Jellyfin, sa demande disparaît aussi de Vigie et de Jellyseerr, et Sonarr ou Radarr cessent de le surveiller pour qu'il ne revienne pas tout seul. Seuls les titres supprimés après l'activation sont concernés ; une vague de suppressions d'un coup (disque débranché) n'emporte rien",
   admSpecialSeasons: "Épisodes spéciaux",
   admSpecialSeasonsDesc: "La saison 0 se demande si Jellyseerr l'autorise (Paramètres › Général › autoriser les demandes d'épisodes spéciaux)",
   admSpecialSeasonsOn: "Autorisés",
