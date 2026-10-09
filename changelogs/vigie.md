@@ -19,6 +19,22 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.24.3]
+### FR
+- **Un titre supprimé de Jellyfin n'est plus « Disponible »** : Vigie le voit dès que Jellyfin l'a perdu, sans attendre la synchronisation de Jellyseerr, et le dit « Demandé » tant que sa demande existe — partout : recherche, cartes de Tentacle, catalogue, fiche, Mes demandes
+- **Une demande supprimée dans Jellyseerr disparaît de Vigie en quelques secondes**, et le titre se redemande aussitôt, y compris depuis la barre de recherche de Tentacle
+- **Redemander un titre ou une saison supprimés fonctionne du premier coup** : plus de « déjà demandé » ni de « disponible » à tort
+- **Nouvelle option — « Supprimer la demande avec le titre »** (désactivée par défaut) : quand un titre est supprimé de Jellyfin, sa demande disparaît aussi de Vigie et de Jellyseerr, et Sonarr ou Radarr cessent de le surveiller. Une vague de suppressions d'un coup (disque débranché) n'emporte rien
+- Le hub se met à jour tout seul quand un titre ou une demande change, sans recharger la page
+- Version pour les serveurs Tentacle d'avant 1.25 ; voir une suppression dans Jellyfin demande Tentacle 1.19.1 ou plus récent
+### EN
+- **A title deleted from Jellyfin is no longer "Available"**: Vigie sees it as soon as Jellyfin loses it, without waiting for Jellyseerr's sync, and shows it "Requested" while its request exists — everywhere: search, Tentacle cards, catalog, details, My requests
+- **A request deleted in Jellyseerr leaves Vigie within seconds**, and the title can be requested again right away, including from Tentacle's search bar
+- **Requesting a deleted title or season again works the first time**: no more wrong "already requested" or "available"
+- **New option — "Delete the request with the title"** (off by default): when a title is deleted from Jellyfin, its request also leaves Vigie and Jellyseerr, and Sonarr or Radarr stop monitoring it. A sudden wave of deletions (unplugged disk) removes nothing
+- The hub updates on its own when a title or a request changes, no reload needed
+- For Tentacle servers older than 1.25; seeing a deletion in Jellyfin needs Tentacle 1.19.1 or later
+
 ## [1.24.2]
 ### FR
 - **Vos demandes ne peuvent plus disparaître au démarrage** : une base de données momentanément occupée ou lente ne provoque plus la suppression de la liste des demandes ; un souci se signale dans le journal du serveur, sans rien effacer
