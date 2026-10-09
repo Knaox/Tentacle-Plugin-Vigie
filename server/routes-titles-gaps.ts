@@ -35,6 +35,7 @@ import { readLang, rightsOf } from "./titles/title-rights";
 import { parseTitleKeys } from "./titles/title-state";
 import { hasGapsToTell, MAX_GAP_KEYS, MAX_GAP_LOOKUPS, seriesGaps } from "./titles/title-gaps";
 import type { SeasonOut } from "./titles/title-seasons";
+import { withCorrectedInfo } from "./live/media-info";
 
 /** La fiche d'une série bouge peu : une page de résultats retapée ne la relit pas. */
 const DETAIL_TTL_MS = 60_000;
@@ -81,7 +82,8 @@ export function registerTitleGapRoutes(
         tvDetail(cfg, k.tmdbId),
         localRequestedSeasons(db, user.userId, k.tmdbId).catch(() => [] as number[]),
       ]);
-      const seasons = seriesGaps(detail, local, rights, { specials, lang });
+      // La fiche gardée une minute est celle de Jellyseerr ; ce que Jellyfin a perdu se corrige ici.
+      const seasons = seriesGaps(withCorrectedInfo("tv", k.tmdbId, detail), local, rights, { specials, lang });
       if (seasons.length > 0) items[k.key] = { seasons };
     });
     return { items };

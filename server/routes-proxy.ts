@@ -19,6 +19,7 @@ import {
   filterResultsByTags, type ResultItem,
 } from "./blocklist";
 import { isReadableSeerrPath } from "./proxy-allowlist";
+import { carriesTitles, correctCatalog } from "./live/catalog-correct";
 
 /** Durée de vie du cache des pages de catalogue, partagé par tous. */
 const PROXY_TTL_MS = 5 * 60_000;
@@ -99,7 +100,8 @@ export function registerProxyRoutes(
       const hit = peek<Record<string, unknown>>(cacheKey);
       if (hit) {
         reply.header("content-type", "application/json");
-        return reply.send(hit);
+        // Le cache garde la page de Jellyseerr ; l'état de ses titres se corrige au service.
+        return reply.send(correctCatalog(wildcard, hit));
       }
     }
 
@@ -158,18 +160,20 @@ export function registerProxyRoutes(
         if (cacheKey && response.ok && data) put(cacheKey, data, PROXY_TTL_MS);
         reply.status(response.status);
         reply.header("content-type", "application/json");
-        return reply.send(data ?? {});
+        return reply.send(data ? correctCatalog(wildcard, data) : {});
       }
 
-      /* Réponse cachable : on la lit pour pouvoir la garder. Le flux direct
-         reste la règle partout ailleurs — ces réponses-là sont de simples
-         pages de résultats, pas des médias. */
-      if (cacheKey && response.ok && (ct ?? "").includes("application/json")) {
+      /* Réponse cachable, ou page qui dit l'état de ses titres (fiche, saga,
+         filmographie) : on la lit — pour la garder, pour corriger ce qu'elle
+         dit de titres supprimés de Jellyfin (live/catalog-correct.ts). Le
+         flux direct reste la règle partout ailleurs. */
+      const json = (ct ?? "").includes("application/json");
+      if (response.ok && json && (cacheKey || carriesTitles(wildcard))) {
         const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-        if (data) put(cacheKey, data, PROXY_TTL_MS);
+        if (data && cacheKey) put(cacheKey, data, PROXY_TTL_MS);
         reply.status(response.status);
         reply.header("content-type", "application/json");
-        return reply.send(data ?? {});
+        return reply.send(data ? correctCatalog(wildcard, data) : {});
       }
 
       reply.status(response.status);

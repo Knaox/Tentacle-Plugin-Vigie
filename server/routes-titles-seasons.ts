@@ -32,6 +32,7 @@ import { freeSeasons, titleSeasons, type SeasonOut } from "./titles/title-season
 import { titleStateFor } from "./titles/title-state";
 import { refusalMessage, requestedMessage, unreachableMessage } from "./titles/title-messages";
 import type { RequestOrigin } from "./titles/request-origin";
+import { withCorrectedInfo } from "./live/media-info";
 
 const TV_KEY = /^tv:([1-9]\d{0,9})$/;
 
@@ -48,8 +49,10 @@ async function readSeasons(
   tmdbId: number,
   lang: string,
 ): Promise<SeasonsRead | null> {
-  const detail = (await fetchMediaDetail(cfg.seerrUrl, cfg.seerrApiKey, "tv", tmdbId)) as SeerrTvDetail | null;
-  if (!detail?.name) return null;
+  const raw = (await fetchMediaDetail(cfg.seerrUrl, cfg.seerrApiKey, "tv", tmdbId)) as SeerrTvDetail | null;
+  if (!raw?.name) return null;
+  // Une saison supprimée de Jellyfin n'est plus « Disponible », même si Jellyseerr ne l'a pas vu.
+  const detail = withCorrectedInfo("tv", tmdbId, raw);
   const [local, rights, specials] = await Promise.all([
     localRequestedSeasons(db, user.userId, tmdbId).catch(() => [] as number[]),
     rightsOf(db, user.userId, cfg),

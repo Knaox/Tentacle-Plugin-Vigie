@@ -17,6 +17,7 @@ import { cached } from "../cache";
 import type { WorkerCfg } from "../seerr-unified";
 import { foldText } from "./fold";
 import { MEDIA_STATUS, noteStatus, statusOf } from "./status-map";
+import { correctedStatus } from "../live/live-state";
 import { inLibraryOrBlocked, type ProviderItem, type ProviderResponse } from "./present";
 import { titleBadge } from "../titles/title-state";
 import { remoteSearch } from "./remote";
@@ -225,7 +226,7 @@ export async function personProvider(cfg: WorkerCfg, q: PersonQuery): Promise<Pr
   const credits = await personCredits(cfg, personId, q.lang);
   const items = pickCredits(credits, q.role)
     .filter(({ credit: c }) => q.type === null || (q.type === "movie") === (c.mediaType === "movie"))
-    .map(({ credit: c, matches }) => ({ c, matches, status: statusOf(c.mediaType, c.id) ?? c.status }))
+    .map(({ credit: c, matches }) => ({ c, matches, status: correctedStatus(c.mediaType, c.id, statusOf(c.mediaType, c.id) ?? c.status) }))
     .filter(({ status }) => !inLibraryOrBlocked(status))
     // Le métier d'arrivée d'abord, puis les œuvres qu'on connaît : c'est
     // d'elles qu'on se souvient.

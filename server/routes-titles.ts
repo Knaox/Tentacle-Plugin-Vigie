@@ -55,6 +55,7 @@ import { collectTmdbRefs, hydrateRows } from "./requests-list";
 import { resolveTmdbMeta } from "./tmdb-resolver";
 import { tmdbKey } from "./tmdb-cache";
 import { arrVerdicts, type ArrVerdict } from "./arr-truth";
+import { correctMediaInfo } from "./live/media-info";
 
 /** Les titres attendus se relisent souvent (une TV les suit) : la liste et la file *arr ont leur cache. */
 const MINE_TTL_MS = 10_000;
@@ -121,8 +122,9 @@ export function registerTitleRoutes(
     if (!detail?.title) return { ok: false, message: unreachableMessage(lang) };
 
     // Déjà demandé, en route ou là — par quelqu'un d'autre peut-être : la carte se met à jour.
-    // Masqué aussi, sauf si l'administrateur laisse demander les titres masqués.
-    const known = detail.mediaInfo?.status;
+    // Masqué aussi, sauf si l'administrateur laisse demander les titres masqués. Un film
+    // supprimé de Jellyfin dont la demande est partie se redemande (live/title-truth.ts).
+    const known = correctMediaInfo("movie", tmdbId, detail.mediaInfo)?.status;
     const liftable = known === MEDIA_STATUS.BLOCKLISTED && cfg.allowMaskedRequests === true;
     if (known !== undefined && known >= MEDIA_STATUS.PENDING && known <= MEDIA_STATUS.BLOCKLISTED && !liftable) {
       noteStatus("movie", tmdbId, known);

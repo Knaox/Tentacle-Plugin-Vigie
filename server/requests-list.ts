@@ -23,7 +23,7 @@ import {
 } from "./seerr-unified";
 import { fetchAllSeerrRequests } from "./seerr-requests-fetch";
 import { resolveJellyseerrUserId } from "./jellyseerr-user";
-import { resolveRequestStatus } from "./request-status";
+import { resolveLiveStatus } from "./live/request-row";
 import { partialSeriesSeasons, type SeasonStates } from "./series-gaps";
 import { rowToRequest } from "./db-helpers";
 
@@ -157,7 +157,7 @@ function effectiveStatus(
   if (deletingIds.has(sr.id)) return "deleting";
   /* Le MÊME verdict que la liste, sans quoi les compteurs du bandeau et les
    * badges des cartes raconteraient deux histoires différentes. */
-  return resolveRequestStatus(sr, localBySeerrId.get(sr.id), seasonStates.get(sr.media?.tmdbId ?? 0));
+  return resolveLiveStatus(sr, localBySeerrId.get(sr.id), seasonStates.get(sr.media?.tmdbId ?? 0));
 }
 
 export function collectTmdbRefs(rows: MergedRows): TmdbRef[] {
