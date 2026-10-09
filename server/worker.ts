@@ -9,6 +9,7 @@ import { processNextRequest } from "./worker-send";
 import { warmTmdbCache, seedTmdbCacheOnce, discoverSeerrRefs } from "./worker-tmdb";
 import { runUserSync, AUTO_SYNC_EVERY_MINUTES } from "./user-sync";
 import { advanceFromArr } from "./arr-advance";
+import { deferredRequestIds } from "./live/seerr-unblock";
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let cycleCount = 0;
@@ -24,7 +25,8 @@ async function runRequestQueue(prisma: PrismaClient, config: WorkerConfig): Prom
   try {
     // `seen` : une demande repassée en retry_pending pendant la passe n'est pas
     // re-traitée immédiatement (elle garde son rythme d'un retry par tick).
-    const seen = new Set<string>();
+    // Celles qui attendent Jellyseerr (live/seerr-unblock.ts) repasseront plus tard.
+    const seen = new Set<string>(deferredRequestIds());
     for (let i = 0; i < 10; i++) {
       const processedId = await processNextRequest(prisma, config, seen);
       if (!processedId) return;

@@ -250,14 +250,20 @@ export async function findDuplicate(
   return null;
 }
 
-/** Trouver une demande TV active existante pour le même tmdbId (pour fusion de saisons) */
+/**
+ * Trouver une demande TV active existante pour le même tmdbId (pour fusion de
+ * saisons). Ni une demande arrivée (« disponible ») ni une demande en échec :
+ * leurs saisons ne se fusionnent plus — une saison supprimée de Jellyfin puis
+ * redemandée était refusée (« toutes les saisons déjà demandées ») par la
+ * ligne de sa première arrivée, pour toujours.
+ */
 export async function findExistingTvRequest(
   prisma: Prisma, jellyfinUserId: string, tmdbId: number,
 ): Promise<SeerRequest | null> {
   const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
     `SELECT * FROM seer_requests
      WHERE jellyfin_user_id = ? AND tmdb_id = ? AND media_type = 'tv'
-       AND status NOT IN ('deleted', 'deleting', 'delete_failed')
+       AND status NOT IN ('deleted', 'deleting', 'delete_failed', 'available', 'failed')
      ORDER BY created_at DESC, id ASC LIMIT 1`,
     jellyfinUserId, tmdbId,
   );
@@ -284,13 +290,22 @@ export async function setNotifiedSeasons(
   );
 }
 
-export async function getNextQueued(prisma: Prisma): Promise<SeerRequest | null> {
+/**
+ * La prochaine demande à envoyer. `exclude` : celles déjà vues à cette passe,
+ * ou qui attendent Jellyseerr (live/seerr-unblock.ts) — sans quoi la plus
+ * ancienne, si elle doit repasser, bloquait toute la file jusqu'à la passe
+ * suivante.
+ */
+export async function getNextQueued(prisma: Prisma, exclude: readonly string[] = []): Promise<SeerRequest | null> {
+  const skip = exclude.slice(0, 500);
   const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
     `SELECT * FROM seer_requests
      WHERE status IN ('queued', 'retry_pending')
        AND (pending_cleanup_id IS NULL)
+       ${skip.length > 0 ? `AND id NOT IN (${skip.map(() => "?").join(", ")})` : ""}
      ORDER BY priority DESC, created_at ASC, id ASC
      LIMIT 1`,
+    ...skip,
   );
   return rows.length > 0 ? rowToRequest(rows[0]) : null;
 }
