@@ -13,7 +13,8 @@ import { requestIndex } from "./request-index";
 import type { IndexedRequest } from "./request-index-model";
 import type { Departure } from "./library-keys";
 import { createAutoForget, forgetSpentNow } from "./auto-forget";
-import { FORGET_GRACE_MS, MASS_TITLES, forgetCandidates, planJobs } from "./auto-forget-plan";
+import type { WatchDeps } from "./departure-watch";
+import { FORGET_GRACE_MS, MASS_TITLES, planJobs } from "./auto-forget-plan";
 import { REQUEST } from "./title-truth";
 
 /*
@@ -31,36 +32,14 @@ const indexed = (id: number, tmdbId: number, status: number, seasons: number[] =
 });
 const movieDeparture = (tmdbId: number, at: number): Departure => ({ mediaType: "movie", tmdbId, at, seasons: [], whole: true });
 const noConfig = () => ({});
+/** Les dossiers de Jellyfin répondent ; aucune analyse connue (departure-watch.test.ts joue le reste). */
+const healthy: WatchDeps = { storage: async () => ({ state: "ok", down: [] }), scanState: async () => null, startScan: async () => false };
 
 test("plus de réglage : une configuration d'avant ne garde rien de l'interrupteur", () => {
   const saved = normalizeConfig({ deleteRequestsWithMedia: false, deleteRequestsWithMediaSince: 5, autoApprove: true });
   assert.equal("deleteRequestsWithMedia" in saved, false);
   assert.equal("deleteRequestsWithMediaSince" in saved, false);
   assert.equal(saved.autoApprove, true);
-});
-
-test("les candidats : après la grâce, le passé compris, jamais en vague — même l'heure passée", () => {
-  const now = 100_000_000_000;
-  const old = movieDeparture(1, now - 21 * 86_400_000); // trois semaines : avant cette règle
-  const fresh = movieDeparture(2, now - 60_000); // dans la grâce
-  const ready = movieDeparture(3, now - FORGET_GRACE_MS - 1);
-  const plain = forgetCandidates({ departures: [old, fresh, ready], now });
-  assert.deepEqual([plain.ready, plain.held, plain.waves], [[old, ready], 0, []]);
-
-  // Vingt et un départs en vingt minutes, il y a cinq heures : toujours tenus à l'écart.
-  const waveAt = now - 5 * 3_600_000;
-  const wave = Array.from({ length: MASS_TITLES + 1 }, (_, i) => movieDeparture(100 + i, waveAt + i * 60_000));
-  const held = forgetCandidates({ departures: [...wave, ready], now });
-  assert.deepEqual([held.ready, held.held], [[ready], MASS_TITLES + 1]);
-  assert.deepEqual(held.waves, [{ start: waveAt, end: waveAt + MASS_TITLES * 60_000 }]);
-  // La plupart sont revenus (disque rebranché) : les derniers absents restent à l'écart.
-  const left = wave.slice(0, 3);
-  assert.deepEqual(forgetCandidates({ departures: left, now }).ready, left, "sans mémoire, ils partiraient");
-  assert.deepEqual(forgetCandidates({ departures: left, now, knownWaves: held.waves }).ready, []);
-  // Au seuil, ce n'est pas une vague ; étalés sur plus d'une heure non plus.
-  assert.equal(forgetCandidates({ departures: wave.slice(1), now }).held, 0);
-  const spread = Array.from({ length: MASS_TITLES + 1 }, (_, i) => movieDeparture(200 + i, waveAt + i * 4 * 60_000));
-  assert.equal(forgetCandidates({ departures: spread, now }).held, 0);
 });
 
 test("chaque saison à sa date : une redemande d'une saison partie plus tôt n'est jamais retirée", () => {
@@ -178,14 +157,14 @@ test("parti depuis plus de dix minutes, absent de Jellyfin : la demande part, sa
   liveState.setLibrary(buildSnapshotRows([["m:t:603", false, at]]));
   requestIndex.seed([indexed(1, 603, REQUEST.COMPLETED)]);
   await insertLocal("r1", 1);
-  const autoForget = createAutoForget(db, noConfig);
+  const autoForget = createAutoForget(db, noConfig, healthy);
   await autoForget(cfg, Date.now());
   assert.deepEqual((await cleanupJobs()).map((j) => [j.seerr_request_id, j.request_id, j.delete_files]), [[1, "r1", 0]]);
   const [{ status }] = await db.query<{ status: string }>("SELECT status FROM seer_requests WHERE id = 'r1'");
   assert.equal(status, "deleting");
   // Une seconde passe ne remet rien en file.
   await autoForget(cfg, Date.now());
-  await createAutoForget(db, noConfig)(cfg, Date.now());
+  await createAutoForget(db, noConfig, healthy)(cfg, Date.now());
   assert.equal((await cleanupJobs()).length, 1);
 });
 
@@ -193,7 +172,7 @@ test("supprimé il y a trois semaines, avant cette règle : sa demande part auss
   const at = Date.now() - 21 * 86_400_000;
   liveState.setLibrary(buildSnapshotRows([["m:t:603", false, at]]));
   requestIndex.seed([{ ...indexed(1, 603, REQUEST.COMPLETED), createdAt: new Date(at - 86_400_000).toISOString() }]);
-  await createAutoForget(db, noConfig)(cfg, Date.now());
+  await createAutoForget(db, noConfig, healthy)(cfg, Date.now());
   assert.deepEqual((await cleanupJobs()).map((j) => j.seerr_request_id), [1]);
 });
 
@@ -202,14 +181,14 @@ test("Jellyfin l'a de nouveau (remplacé), ou ne répond pas : rien ne part", as
   liveState.setLibrary(buildSnapshotRows([["m:t:603", false, at]]));
   requestIndex.seed([indexed(1, 603, REQUEST.COMPLETED)]);
   jellyfinHas.add(603);
-  await createAutoForget(db, noConfig)(cfg, Date.now());
+  await createAutoForget(db, noConfig, healthy)(cfg, Date.now());
   assert.deepEqual(await cleanupJobs(), []);
 
   jellyfinHas.delete(603);
   net.restore();
   net = stubFetch([() => { throw new TypeError("fetch failed"); }]);
   forgetJellyfinAccounts();
-  await createAutoForget(db, noConfig)(cfg, Date.now());
+  await createAutoForget(db, noConfig, healthy)(cfg, Date.now());
   assert.deepEqual(await cleanupJobs(), []);
 });
 
@@ -218,7 +197,7 @@ test("Radarr le fait redescendre : on attend, puis la demande part une fois la f
   liveState.setLibrary(buildSnapshotRows([["m:t:603", false, at]]));
   requestIndex.seed([indexed(1, 603, REQUEST.APPROVED)]);
   radarrQueue = [{ id: 9, title: "Matrix.1999.2160p", size: 100, sizeleft: 40, movie: { title: "Matrix", tmdbId: 603 } }];
-  const autoForget = createAutoForget(db, noConfig);
+  const autoForget = createAutoForget(db, noConfig, healthy);
   await autoForget(cfg, Date.now());
   assert.deepEqual(await cleanupJobs(), []);
   // Le téléchargement abandonné, le titre toujours absent : elle part à la passe suivante.
@@ -235,24 +214,24 @@ test("une redemande, faite APRÈS le départ du titre, n'est jamais retirée", a
   const after = { ...indexed(2, 603, REQUEST.APPROVED), createdAt: new Date(at + 60_000).toISOString() };
   // La demande d'avant part ; la redemande reste.
   requestIndex.seed([before, after]);
-  await createAutoForget(db, noConfig)(cfg, Date.now());
+  await createAutoForget(db, noConfig, healthy)(cfg, Date.now());
   assert.deepEqual((await cleanupJobs()).map((j) => j.seerr_request_id), [1]);
   // Seule la redemande reste : rien ne la touche, même plus tard.
   requestIndex.seed([after]);
-  await createAutoForget(db, noConfig)(cfg, Date.now() + 3_600_000);
+  await createAutoForget(db, noConfig, healthy)(cfg, Date.now() + 3_600_000);
   assert.deepEqual((await cleanupJobs()).map((j) => j.seerr_request_id), [1]);
   assert.deepEqual(planJobs(movieDeparture(603, at), [
     { seerrRequestId: 2, status: REQUEST.APPROVED, seasons: [], localId: null, jellyfinUserId: "u1", createdAt: at + 60_000 },
   ]), []);
 });
 
-test("une vague de départs (disque débranché) : rien ne part, ni tout de suite ni des heures après", async () => {
+test("une vague de départs, sans analyse de Jellyfin après elle : rien ne part, même des heures après", async () => {
   const at = Date.now() - FORGET_GRACE_MS - 5_000;
   const rows = Array.from({ length: MASS_TITLES + 5 }, (_, i) => [`m:t:${1000 + i}`, false, at] as [string, boolean, number]);
   liveState.setLibrary(buildSnapshotRows(rows));
   requestIndex.seed(rows.map((_, i) => indexed(i + 1, 1000 + i, REQUEST.COMPLETED)));
-  await createAutoForget(db, noConfig)(cfg, Date.now());
-  await createAutoForget(db, noConfig)(cfg, Date.now() + 5 * 3_600_000);
+  await createAutoForget(db, noConfig, healthy)(cfg, Date.now());
+  await createAutoForget(db, noConfig, healthy)(cfg, Date.now() + 5 * 3_600_000);
   assert.deepEqual(await cleanupJobs(), []);
 });
 
@@ -265,7 +244,7 @@ test("redemander : la demande d'avant part tout de suite — pendant la grâce, 
   requestIndex.seed([{ ...indexed(1, 603, REQUEST.COMPLETED), createdAt: new Date(at - 86_400_000).toISOString() }]);
   await insertLocal("r1", 1);
   // La boucle, elle, n'y touche pas (grâce, vague).
-  await createAutoForget(db, noConfig)(cfg, Date.now());
+  await createAutoForget(db, noConfig, healthy)(cfg, Date.now());
   assert.deepEqual(await cleanupJobs(), []);
   // Le geste de l'utilisateur, si.
   const jobs = await forgetSpentNow(db, "movie", 603);
