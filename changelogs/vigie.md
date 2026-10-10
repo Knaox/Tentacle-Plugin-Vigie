@@ -19,6 +19,16 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.25.5]
+### FR
+- **Une panne n'est pas une suppression** : avant de retirer la demande d'un titre parti, Vigie demande à Jellyfin si les dossiers de ses bibliothèques répondent. Un NAS débranché, un partage perdu, un disque en panne : rien n'est retiré, et les titres restent « Demandé »
+- **Ce qui est parti pendant une panne attend que Jellyfin ait relu sa médiathèque** une fois les dossiers revenus — Vigie lance lui-même l'analyse ; ce qui n'en revient pas a bien été supprimé, et sa demande part
+- **Plus de limite à vingt titres** : supprimer beaucoup de titres d'un coup retire toutes leurs demandes, après la même vérification par Jellyfin
+### EN
+- **An outage is not a deletion**: before removing the request of a title that left, Vigie asks Jellyfin whether its library folders respond. An unplugged NAS, a lost share, a failed disk: nothing is removed, and the titles stay "Requested"
+- **What left during an outage waits for Jellyfin to rescan its library** once the folders are back — Vigie starts the scan itself; what doesn't come back was really deleted, and its request goes
+- **No more twenty-title limit**: deleting many titles at once removes all their requests, after the same check by Jellyfin
+
 ## [1.25.4]
 ### FR
 - **Nouveau réglage — « Une série supprimée part en entier »** (désactivé par défaut) : quand une série est supprimée de Jellyfin, sa demande part entièrement, même pour les saisons et épisodes encore attendus — Sonarr cesse de la surveiller, ses prochaines sorties n'arrivent pas. Elle se redemande aussitôt, en entier ou saison par saison. Une redemande faite depuis n'est jamais touchée
