@@ -13,7 +13,8 @@ import {
 import type { CreateRequestBody } from "./types";
 import { invalidateRequestCaches } from "./cache";
 import { kickWorkerNow } from "./worker";
-import { getUser, type WorkerCfg, parseRequestId, fetchSeerrRequestById } from "./seerr-unified";
+import { getUser, type WorkerCfg, parseRequestId } from "./seerr-unified";
+import { deleteSeerrOnlyRequest } from "./request-delete-seerr";
 import { registerRequestReadRoutes } from "./routes-requests-read";
 import { registerRequestActionRoutes } from "./routes-requests-actions";
 import { registerRequestForgetRoute } from "./routes-requests-forget";
@@ -92,51 +93,11 @@ export function registerRequestRoutes(
     const config = await getWorkerConfig();
     if (!config) return reply.status(503).send({ message: "Seerr not configured" });
 
-    const seerrReq = await fetchSeerrRequestById(config, parsed.seerrId);
-    if (!seerrReq) return reply.status(404).send({ message: "Seerr request not found" });
-
-    // Verrou ownership : on compare via seer_user_settings.jellyseerr_user_id
-    if (!user.isAdmin) {
-      const settingsRows = await db.query<{ jellyseerr_user_id: number | null }>(
-        `SELECT jellyseerr_user_id FROM seer_user_settings WHERE jellyfin_user_id = ? LIMIT 1`,
-        user.userId,
-      );
-      const myId = settingsRows[0]?.jellyseerr_user_id ?? null;
-      if (!myId || seerrReq.requestedBy?.id !== myId) {
-        return reply.status(403).send({ message: "Not your request" });
-      }
-    }
-
-    // Même logique de partiel que la branche locale : retirer certaines
-    // saisons d'une demande Jellyseerr n'efface PAS la demande entière —
-    // la réconciliation du worker l'édite (PUT saisons restantes).
-    const seerrMediaType = seerrReq.media?.mediaType ?? "movie";
-    const seerrSeasons = (seerrReq.seasons ?? [])
-      .map((s) => s.seasonNumber)
-      .filter((n) => typeof n === "number");
-    const isSeasonSpecific = seerrMediaType === "tv" && !!body.seasons && body.seasons.length > 0;
-    const removing = isSeasonSpecific
-      ? body.seasons!
-      : (seerrMediaType === "tv" && seerrSeasons.length > 0 ? seerrSeasons : null);
-    const remaining = isSeasonSpecific ? seerrSeasons.filter((s) => !removing!.includes(s)) : [];
-    const partial = isSeasonSpecific && remaining.length > 0;
-
-    await enqueueCleanup(db, {
-      action: "delete",
-      mediaType: seerrMediaType,
-      tmdbId: seerrReq.media?.tmdbId ?? 0,
-      title: `#${seerrReq.id}`,
-      seerrRequestId: partial ? null : seerrReq.id,
-      seerrMediaId: seerrReq.media?.id ?? null,
-      deleteFiles,
-      seasons: removing,
-      requestId: null,
-      jellyfinUserId: user.userId,
-    });
-
+    const done = await deleteSeerrOnlyRequest(db, config, user, parsed.seerrId, { seasons: body.seasons, deleteFiles });
+    if (!done.ok) return reply.status(done.code).send({ message: done.message });
     invalidateRequestCaches(user.userId);
     kickWorkerNow();
-    return { success: true, status: partial ? "updated" : "deleting" };
+    return { success: true, status: done.status };
   });
 
 }

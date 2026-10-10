@@ -10,6 +10,8 @@ import {
 } from "./db";
 import { kickWorkerNow } from "./worker";
 import { originOf } from "./titles/request-origin";
+import { parseRequestId } from "./seerr-unified";
+import { deleteSeerrOnlyRequest } from "./request-delete-seerr";
 
 interface JellyfinUser { userId: string; username: string; isAdmin: boolean; }
 
@@ -35,6 +37,16 @@ export function registerBulkRoutes(
 
     for (const id of body.ids.slice(0, 50)) {
       try {
+        const parsed = parseRequestId(id);
+        if (parsed.kind === "seerr") {
+          // Née dans Jellyseerr, sans ligne locale : comme la suppression d'une demande.
+          const config = await getWorkerConfig();
+          const done = config
+            ? await deleteSeerrOnlyRequest(db, config, user, parsed.seerrId, { deleteFiles: false })
+            : null;
+          if (done?.ok) deleted++; else errors++;
+          continue;
+        }
         const req = await getRequestById(db, id);
         if (!req) { errors++; continue; }
         if (req.jellyfinUserId !== user.userId && !user.isAdmin) { errors++; continue; }
