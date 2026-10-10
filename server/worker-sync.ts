@@ -71,7 +71,7 @@ export async function syncStatuses(db: VigieDb, config: WorkerConfig): Promise<v
       }
 
       const data = (await res.json()) as {
-        id: number; status: number;
+        id: number; status: number; createdAt?: string;
         seasons?: Array<{ seasonNumber: number }>;
         media?: {
           id: number; status: number;
@@ -79,9 +79,14 @@ export async function syncStatuses(db: VigieDb, config: WorkerConfig): Promise<v
         };
       };
 
-      // Le média tel que Jellyfin l'a vraiment : supprimé de Jellyfin, un titre
-      // « disponible » pour Jellyseerr redevient attendu — sans annonce d'arrivée.
-      const own: RequestFact = { status: data.status, seasons: (data.seasons ?? []).map((s) => s.seasonNumber) };
+      // Le média tel que Jellyfin l'a vraiment : supprimé de Jellyfin, la demande
+      // d'avant est consommée (« supprimée ») ; une redemande l'attend de nouveau
+      // — sans annonce d'arrivée.
+      const own: RequestFact = {
+        status: data.status,
+        seasons: (data.seasons ?? []).map((s) => s.seasonNumber),
+        createdAt: data.createdAt ?? null,
+      };
       const facts = factsWithRequest(request.mediaType, request.tmdbId, own, (data.media?.downloadStatus?.length ?? 0) > 0);
       const mediaStatus = correctMediaStatus(request.mediaType, data.media?.status, facts);
       const globalStatus = mapSeerrStatus(data.status, mediaStatus, data.media?.downloadStatus);

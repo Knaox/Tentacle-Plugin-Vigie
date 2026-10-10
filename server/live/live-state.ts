@@ -131,22 +131,40 @@ class LiveState {
         const at = facts.departed.get(season) ?? 0;
         if (this.settled(key, at, now, (c) => !c.presentSeasons?.has(season))) gone.add(season);
       }
-      return { state: "present", goneSeasons: gone, presentSeasons: base.presentSeasons };
+      return { state: "present", goneSeasons: gone, presentSeasons: base.presentSeasons, seasonDepartedAt: departuresOfSeasons(facts.departed, gone) };
     }
 
     if (this.settled(key, base.since, now, (c) => !c.present)) {
-      return { state: "gone", goneSeasons: base.goneSeasons, presentSeasons: NO_SEASONS };
+      return {
+        state: "gone", goneSeasons: base.goneSeasons, presentSeasons: NO_SEASONS,
+        departedAt: base.since, seasonDepartedAt: facts?.departed,
+      };
     }
     const check = this.checks.get(key);
     if (check && check.at >= base.since && check.present) {
       // Jellyfin l'a encore (fichier remplacé) : il est là, ses saisons sont celles que Jellyfin a.
       const present = check.presentSeasons ?? NO_SEASONS;
       const gone = new Set([...base.goneSeasons].filter((s) => check.presentSeasons && !present.has(s)));
-      return { state: "present", goneSeasons: gone, presentSeasons: present };
+      return { state: "present", goneSeasons: gone, presentSeasons: present, seasonDepartedAt: departuresOfSeasons(facts?.departed, gone) };
     }
     // Départ tout récent, pas encore confirmé : Jellyseerr garde la parole.
     return UNKNOWN_LIBRARY;
   }
+}
+
+/**
+ * Quand chaque saison CONFIRMÉE partie a quitté Jellyfin : une demande faite
+ * avant ne la retient plus (title-truth.ts). Un départ pas encore confirmé
+ * n'y figure pas.
+ */
+function departuresOfSeasons(departed: ReadonlyMap<number, number> | undefined, gone: ReadonlySet<number>): ReadonlyMap<number, number> | undefined {
+  if (!departed || gone.size === 0) return undefined;
+  const out = new Map<number, number>();
+  for (const season of gone) {
+    const at = departed.get(season);
+    if (at !== undefined) out.set(season, at);
+  }
+  return out;
 }
 
 function sameSet(a?: ReadonlySet<number>, b?: ReadonlySet<number>): boolean {

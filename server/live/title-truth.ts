@@ -11,8 +11,12 @@
  *   - ce que Jellyfin a (la liste du serveur Tentacle, confirmée au besoin
  *     par Jellyfin lui-même) : là → disponible ; parti → plus disponible ;
  *   - les demandes qui existent encore dans Jellyseerr (ou attendent dans la
- *     file de Vigie) : un titre parti dont la demande est toujours là redevient
- *     « Demandé » ; sans demande, il se redemande.
+ *     file de Vigie). Une demande faite AVANT le départ du titre a été servie,
+ *     puis Jellyfin a perdu ce qu'elle avait apporté : elle est CONSOMMÉE et ne
+ *     retient plus rien — le titre se redemande aussitôt, comme dans
+ *     Jellyseerr (la demande elle-même part peu après, auto-forget.ts). Seule
+ *     une demande faite APRÈS (une redemande), ou une saison jamais arrivée,
+ *     le garde « Demandé ».
  *
  * Pur : les faits arrivent en entrée, rien n'est lu ni écrit ici. Les mêmes
  * règles servent la recherche, les cartes de Tentacle, les affiches et la
@@ -39,6 +43,11 @@ export interface RequestFact {
   /** Saisons couvertes (séries) ; vide pour un film. */
   seasons: readonly number[];
   is4k?: boolean;
+  /**
+   * Sa création (ms, ou la date ISO de Jellyseerr). Inconnue : la demande
+   * n'est jamais tenue pour consommée — la règle d'avant.
+   */
+  createdAt?: number | string | null;
 }
 
 /** Ce que Jellyfin est, d'après la liste du serveur — confirmée. */
@@ -48,6 +57,10 @@ export interface LibraryFact {
   goneSeasons: ReadonlySet<number>;
   /** Séries : saisons dont au moins un épisode est là. */
   presentSeasons: ReadonlySet<number>;
+  /** Parti : quand il a quitté Jellyfin (ms). */
+  departedAt?: number | null;
+  /** Séries : quand chaque saison partie a quitté Jellyfin (ms). */
+  seasonDepartedAt?: ReadonlyMap<number, number>;
 }
 
 export interface TitleFacts {
@@ -74,6 +87,51 @@ export function isLiveRequest(r: RequestFact): boolean {
   return !r.is4k && (r.status === REQUEST.PENDING || r.status === REQUEST.APPROVED || r.status === REQUEST.COMPLETED);
 }
 
+/** Une date de demande en ms — `null` si elle manque ou ne se lit pas. */
+export function requestTime(createdAt: number | string | null | undefined): number | null {
+  if (typeof createdAt === "number") return Number.isFinite(createdAt) ? createdAt : null;
+  if (typeof createdAt !== "string" || createdAt === "") return null;
+  const ms = Date.parse(createdAt);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** Une demande née avant cet instant (ou sans date connue). */
+export function madeBefore(createdAt: number | string | null | undefined, at: number): boolean {
+  const ms = requestTime(createdAt);
+  return ms === null || ms <= at;
+}
+
+/** Quand cette saison a quitté Jellyfin — `null` : elle n'est pas partie. */
+function seasonDeparture(library: LibraryFact, season: number): number | null {
+  const at = library.seasonDepartedAt?.get(season);
+  if (at !== undefined) return at;
+  if (library.state === "gone" && library.goneSeasons.has(season) && library.departedAt != null) return library.departedAt;
+  return null;
+}
+
+/** La demande, née avant ce départ (date CONNUE), ne retient plus ce qu'il a emporté. */
+function spentAt(r: RequestFact, at: number | null): boolean {
+  const ms = requestTime(r.createdAt);
+  return at !== null && ms !== null && ms <= at;
+}
+
+/**
+ * Le départ du titre a-t-il CONSOMMÉ cette demande ? Un film parti, une série
+ * partie dont chaque saison demandée est partie après la demande. Une saison
+ * jamais arrivée la garde vivante : supprimer la saison 1 n'annule pas la 2
+ * qui est en route.
+ */
+export function spentRequest(r: RequestFact, library: LibraryFact): boolean {
+  if (library.state !== "gone") return false;
+  if (r.seasons.length === 0) return spentAt(r, library.departedAt ?? null);
+  return r.seasons.every((s) => spentAt(r, seasonDeparture(library, s)));
+}
+
+/** La saison partie de Jellyfin après cette demande ne lui doit plus rien. */
+export function spentSeason(r: RequestFact, library: LibraryFact, season: number): boolean {
+  return spentAt(r, seasonDeparture(library, season));
+}
+
 /** Le statut « Demandé » à rendre : en cours tant que quelque chose descend, en attente sinon. */
 function requested(facts: TitleFacts, seerr: number | undefined): number {
   return facts.downloading || seerr === STATUS.PROCESSING ? STATUS.PROCESSING : STATUS.PENDING;
@@ -86,14 +144,15 @@ function requested(facts: TitleFacts, seerr: number | undefined): number {
 export function stillRequested(facts: TitleFacts): boolean | null {
   if (facts.queued) return true;
   if (facts.requests === null) return null;
-  return facts.requests.some(isLiveRequest);
+  return facts.requests.some((r) => isLiveRequest(r) && !spentRequest(r, facts.library));
 }
 
 /** Une saison est-elle encore demandée — par une demande qui la couvre, ou dans la file ? */
 export function seasonStillRequested(facts: TitleFacts, season: number): boolean | null {
   if (facts.queuedSeasons?.has(season)) return true;
   if (facts.requests === null) return facts.queued ? true : null;
-  return facts.requests.some((r) => isLiveRequest(r) && r.seasons.includes(season)) || (facts.queued && !facts.queuedSeasons);
+  return facts.requests.some((r) => isLiveRequest(r) && r.seasons.includes(season) && !spentSeason(r, facts.library, season))
+    || (facts.queued && !facts.queuedSeasons);
 }
 
 /**
@@ -110,7 +169,9 @@ export function correctMediaStatus(
   const { library } = facts;
 
   if (library.state === "gone") {
-    // Il y était, il n'y est plus : demandé si une demande court encore, sinon libre.
+    // Sonarr ou Radarr le font revenir : en route, quelles que soient les demandes.
+    if (facts.downloading) return STATUS.PROCESSING;
+    // Il y était, il n'y est plus : demandé si une redemande court, sinon libre.
     const still = stillRequested(facts);
     if (still === true) return requested(facts, seerr);
     if (still === false) return STATUS.DELETED;
@@ -135,14 +196,20 @@ export function correctMediaStatus(
     // Plus aucune demande (supprimée, refusée) : il se redemande.
     return stillRequested(facts) === false ? STATUS.UNKNOWN : seerr;
   }
-  if (seerr === STATUS.DELETED && stillRequested(facts) === true) return requested(facts, seerr);
+  // Supprimé pour Jellyseerr (sa propre synchro) : une demande terminée a été
+  // servie, elle ne le retient plus — comme Jellyseerr, qui l'écarte. Seule
+  // une demande qui attend encore (ou la file de Vigie) le dit demandé.
+  if (seerr === STATUS.DELETED && (facts.queued || facts.requests?.some((r) => isLiveRequest(r) && r.status !== REQUEST.COMPLETED))) {
+    return requested(facts, seerr);
+  }
   return seerr;
 }
 
 /**
  * Le statut corrigé d'UNE saison (fiche d'une série, feuille des saisons).
- * Une saison partie de Jellyfin redevient demandée si une demande la couvre
- * encore, libre sinon (« supprimée », comme la dit Jellyseerr après sa synchro).
+ * Une saison partie de Jellyfin redevient demandée si une demande d'APRÈS son
+ * départ la couvre, libre sinon (« supprimée », comme la dit Jellyseerr après
+ * sa synchro) — elle se redemande seule ou avec d'autres.
  */
 export function correctSeasonStatus(season: number, seerr: number | undefined, facts: TitleFacts): number | undefined {
   if (seerr === STATUS.BLOCKLISTED) return seerr;

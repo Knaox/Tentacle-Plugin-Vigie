@@ -12,7 +12,7 @@ import { foldText, significantTokens, tokenize } from "./fold";
 import { TEXT_ALL_WORDS, TEXT_EXACT_TITLE, TEXT_KEY_WORDS, textScore } from "./rank";
 import { MEDIA_STATUS, statusMapReady, statusOf } from "./status-map";
 import { isLocallyPending } from "./pending";
-import { correctedStatus } from "../live/live-state";
+import { correctedStatus, goneFromJellyfin } from "../live/live-state";
 import type { Facet } from "./facets";
 import type { Ranked } from "./service";
 import {
@@ -40,7 +40,9 @@ const NOTABLE_POPULARITY = 3;
 export function statusFor(c: Pick<Candidate, "key" | "mediaType" | "tmdbId" | "remoteStatus">): number | undefined {
   const known = correctedStatus(c.mediaType, c.tmdbId, statusOf(c.mediaType, c.tmdbId) ?? c.remoteStatus);
   const settled = known !== undefined && known !== MEDIA_STATUS.UNKNOWN && known !== MEDIA_STATUS.DELETED;
-  if (!settled && isLocallyPending(c.key)) return MEDIA_STATUS.PENDING;
+  // Parti de Jellyfin, la règle a tout lu (file de Vigie comprise) : la ligne
+  // locale d'une demande consommée ne le redit pas « Demandé ».
+  if (!settled && isLocallyPending(c.key) && !goneFromJellyfin(c.mediaType, c.tmdbId)) return MEDIA_STATUS.PENDING;
   return known;
 }
 
