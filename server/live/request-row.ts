@@ -10,11 +10,12 @@
  * que sa demande court toujours.
  *
  * Avant d'en tirer le statut, on corrige donc la ligne avec la règle commune
- * (title-truth.ts) — la demande elle-même compte : elle EXISTE, c'est le
- * principe d'une ligne de Jellyseerr. Un titre parti dont la demande est là
- * redevient « Demandé » (en route si quelque chose descend) ; ses saisons
- * parties ne comptent plus pour arrivées, même si Jellyseerr a terminé la
- * demande de saison.
+ * (title-truth.ts) — la demande elle-même compte, avec sa date. Faite avant
+ * le départ du titre, elle est consommée : « Supprimé », et « Redemander »
+ * la remplace (elle quitte la liste peu après, auto-forget.ts). Faite après
+ * (une redemande), le titre est « Demandé » (en route si quelque chose
+ * descend). Ses saisons parties ne comptent plus pour arrivées, même si
+ * Jellyseerr a terminé la demande de saison.
  */
 
 import type { RequestStatus } from "../types";
@@ -25,6 +26,8 @@ import { REQUEST, correctMediaStatus, correctSeasonStatus, type RequestFact, typ
 
 export interface LiveRow extends StatusRow {
   is4k?: boolean;
+  /** Sa création chez Jellyseerr (ISO) : avant le départ du titre, elle est consommée. */
+  createdAt?: string | null;
   media?: StatusRow["media"] & { tmdbId?: number; mediaType?: "movie" | "tv" | string };
 }
 
@@ -37,6 +40,7 @@ function factsOfRow(row: LiveRow): { facts: TitleFacts; type: "movie" | "tv" } |
     status: row.status,
     is4k: row.is4k === true,
     seasons: (row.seasons ?? []).map((s) => s.seasonNumber).filter((n) => typeof n === "number"),
+    createdAt: row.createdAt ?? null,
   };
   const base = factsFor(type, tmdbId, { downloading });
   return { type, facts: { ...base, requests: [...(base.requests ?? []), own] } };

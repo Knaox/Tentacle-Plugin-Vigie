@@ -23,7 +23,7 @@ import { correctMediaStatus, correctSeasonStatus, type RequestFact } from "./tit
 export interface MediaInfoShape {
   status?: number;
   seasons?: Array<{ seasonNumber?: number; status?: number; [k: string]: unknown }>;
-  requests?: Array<{ status?: number; is4k?: boolean; seasons?: Array<{ seasonNumber?: number }> }>;
+  requests?: Array<{ status?: number; is4k?: boolean; createdAt?: string; seasons?: Array<{ seasonNumber?: number }> }>;
   downloadStatus?: unknown[];
   jellyfinMediaId?: string | null;
   [k: string]: unknown;
@@ -37,6 +37,7 @@ function requestFacts(info: MediaInfoShape | undefined): readonly RequestFact[] 
       status: r.status as number,
       is4k: r.is4k === true,
       seasons: (r.seasons ?? []).map((s) => s?.seasonNumber).filter((n): n is number => typeof n === "number"),
+      createdAt: typeof r.createdAt === "string" ? r.createdAt : null,
     }));
 }
 

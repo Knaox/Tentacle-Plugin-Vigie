@@ -16,9 +16,12 @@ import { seasonLocks } from "../../src/utils/season-locks";
  */
 
 const LONG_AGO = Date.now() - 3_600_000;
+/** Faites la veille du départ : les demandes d'avant. */
+const BEFORE = new Date(LONG_AGO - 86_400_000).toISOString();
+const AFTER = new Date(LONG_AGO + 60_000).toISOString();
 const indexed = (id: number, tmdbId: number, status: number, mediaType: "movie" | "tv" = "movie", seasons: number[] = []): IndexedRequest => ({
   id, status, is4k: false, mediaType, tmdbId, seasons,
-  requestedBy: { seerrUserId: 1, jellyfinUserId: "u1", name: null }, createdAt: null, updatedAt: null, mediaStatus: 5,
+  requestedBy: { seerrUserId: 1, jellyfinUserId: "u1", name: null }, createdAt: BEFORE, updatedAt: null, mediaStatus: 5,
 });
 
 beforeEach(() => {
@@ -45,24 +48,32 @@ test("une page de catalogue : le film supprimé n'est plus « Disponible », le 
   };
   const frozen = JSON.stringify(page);
   const out = correctCatalog("api/v1/discover/movies", page);
-  assert.deepEqual(out.results[0].mediaInfo, { status: STATUS.PENDING, jellyfinMediaId: null });
+  // Sa demande d'avant ne le retient plus : il se redemande.
+  assert.deepEqual(out.results[0].mediaInfo, { status: STATUS.DELETED, jellyfinMediaId: null });
   assert.equal(out.results[1], page.results[1], "rien à corriger : le même objet");
   assert.equal(out.results[2], page.results[2]);
   assert.equal(JSON.stringify(page), frozen, "la page en cache reste celle de Jellyseerr");
 });
 
-test("une fiche de série : la saison supprimée redevient demandée, la série « en partie »", () => {
+test("une fiche de série : la saison supprimée se redemande, la série « en partie »", () => {
   const detail = {
     id: 1399,
     mediaInfo: {
       status: 5,
       seasons: [{ seasonNumber: 1, status: 5 }, { seasonNumber: 2, status: 5 }],
-      requests: [{ id: 2, status: REQUEST.COMPLETED, seasons: [{ seasonNumber: 1 }, { seasonNumber: 2 }] }],
+      requests: [{ id: 2, status: REQUEST.COMPLETED, createdAt: BEFORE, seasons: [{ seasonNumber: 1 }, { seasonNumber: 2 }] }],
     },
   };
   const out = correctCatalog("api/v1/tv/1399", detail);
   assert.equal(out.mediaInfo.status, STATUS.PARTIALLY_AVAILABLE);
-  assert.deepEqual(out.mediaInfo.seasons.map((s) => s.status), [STATUS.AVAILABLE, STATUS.PENDING]);
+  assert.deepEqual(out.mediaInfo.seasons.map((s) => s.status), [STATUS.AVAILABLE, STATUS.DELETED]);
+  assert.equal(seasonLocks(out.mediaInfo as never, []).has(2), false, "la feuille des saisons la laisse redemander");
+  // Redemandée : demandée.
+  const again = correctMediaInfo("tv", 1399, {
+    ...detail.mediaInfo,
+    requests: [...detail.mediaInfo.requests, { id: 3, status: REQUEST.PENDING, createdAt: AFTER, seasons: [{ seasonNumber: 2 }] }],
+  });
+  assert.deepEqual(again?.seasons?.map((s) => s.status), [STATUS.AVAILABLE, STATUS.PENDING]);
   // Sans demande, la saison est libre : la feuille la laisse redemander.
   const noRequest = correctMediaInfo("tv", 1399, { status: 5, seasons: [{ seasonNumber: 1, status: 5 }, { seasonNumber: 2, status: 5 }], requests: [] });
   assert.deepEqual(noRequest?.seasons?.map((s) => s.status), [STATUS.AVAILABLE, STATUS.DELETED]);
@@ -75,13 +86,15 @@ test("un titre que Jellyfin a et que Jellyseerr ne connaît pas encore : là", (
   assert.equal(correctMediaInfo("movie", 999, undefined), undefined);
 });
 
-test("« Mes demandes » : supprimé de Jellyfin, la demande attend de nouveau", () => {
-  const row = { status: REQUEST.COMPLETED, media: { tmdbId: 603, mediaType: "movie", status: 5 } };
-  assert.equal(resolveLiveStatus(row, { status: "available" }), "approved");
-  // Synchro nocturne de Jellyseerr passée (supprimé pour lui aussi) : toujours en attente, pas archivée.
-  assert.equal(resolveLiveStatus({ ...row, media: { ...row.media, status: 7 } }, { status: "available" }), "approved");
-  // Une demande en attente de validation le reste.
-  assert.equal(resolveLiveStatus({ ...row, status: REQUEST.PENDING }, null), "sent_to_seer");
+test("« Mes demandes » : supprimé de Jellyfin, la demande d'avant est supprimée — une redemande attend", () => {
+  const row = { status: REQUEST.COMPLETED, createdAt: BEFORE, media: { tmdbId: 603, mediaType: "movie", status: 5 } };
+  assert.equal(resolveLiveStatus(row, { status: "available" }), "deleted");
+  // Synchro nocturne de Jellyseerr passée (supprimé pour lui aussi) : supprimée de même.
+  assert.equal(resolveLiveStatus({ ...row, media: { ...row.media, status: 7 } }, { status: "available" }), "deleted");
+  // Une redemande, faite après la suppression : elle attend (en validation, ou validée).
+  requestIndex.seed([indexed(1, 603, REQUEST.COMPLETED), { ...indexed(5, 603, REQUEST.PENDING), createdAt: AFTER }]);
+  assert.equal(resolveLiveStatus({ ...row, status: REQUEST.PENDING, createdAt: AFTER }, null), "sent_to_seer");
+  assert.equal(resolveLiveStatus({ ...row, status: REQUEST.APPROVED, createdAt: AFTER }, null), "approved");
   // Là dans Jellyfin : disponible.
   assert.equal(resolveLiveStatus({ status: REQUEST.COMPLETED, media: { tmdbId: 604, mediaType: "movie", status: 5 } }, null), "available");
 });
@@ -100,8 +113,11 @@ test("l'épingle « Disponible » ne vaut que si Jellyfin ne dit rien du titre",
   assert.equal(resolveRequestStatus(lost, { status: "available" }), "available");
   assert.equal(resolveRequestStatus(lost, { status: "available" }, undefined, "gone"), "deleted");
   // Un titre que la liste du serveur ne connaît pas (« Marquer comme disponible » d'un
-  // titre que Jellyfin n'identifie pas) garde l'ancienne épingle ; sans elle, il attend.
+  // titre que Jellyfin n'identifie pas) garde l'ancienne épingle ; sans elle, Jellyseerr
+  // l'a vu partir : sa demande terminée est consommée, comme il le dit.
   const unknownTitle = { status: REQUEST.COMPLETED, media: { tmdbId: 42, mediaType: "movie", status: 7 } };
   assert.equal(resolveLiveStatus(unknownTitle, { status: "available" }), "available");
-  assert.equal(resolveLiveStatus(unknownTitle, null), "approved");
+  assert.equal(resolveLiveStatus(unknownTitle, null), "deleted");
+  // Une demande qui attend encore, elle, attend.
+  assert.equal(resolveLiveStatus({ ...unknownTitle, status: REQUEST.APPROVED }, null), "approved");
 });
