@@ -76,79 +76,14 @@ export function buildArrUrl(server: ArrServerConfig): string {
   return `${protocol}://${server.hostname}:${server.port}${base}`;
 }
 
-/** Récupère l'ID externe Sonarr/Radarr d'un média via l'endpoint Seerr */
-export async function getMediaExternalId(
-  seerrUrl: string,
-  apiKey: string,
-  mediaType: string,
-  tmdbId: number,
-): Promise<{ externalServiceId: number; serviceId: number } | null> {
-  try {
-    const res = await fetch(`${seerrUrl}/api/v1/${mediaType}/${tmdbId}`, {
-      headers: { "X-Api-Key": apiKey },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as {
-      mediaInfo?: { externalServiceId?: number; serviceId?: number };
-    };
-    if (!data.mediaInfo?.externalServiceId) return null;
-    return {
-      externalServiceId: data.mediaInfo.externalServiceId,
-      serviceId: data.mediaInfo.serviceId ?? 0,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** Supprime une série de Sonarr (sans supprimer les fichiers) */
-export async function deleteSonarrSeries(
-  server: ArrServerConfig,
-  seriesId: number,
-  deleteFiles = false,
-): Promise<boolean> {
-  try {
-    const url = `${buildArrUrl(server)}/api/v3/series/${seriesId}?deleteFiles=${deleteFiles}`;
-    const res = await fetch(url, {
-      method: "DELETE",
-      headers: { "X-Api-Key": server.apiKey },
-      signal: AbortSignal.timeout(10_000),
-    });
-    return res.ok || res.status === 404;
-  } catch (err) {
-    console.warn(`[ArrService] Failed to delete Sonarr series #${seriesId}:`, err);
-    return false;
-  }
-}
-
-/** Supprime un film de Radarr (sans supprimer les fichiers) */
-export async function deleteRadarrMovie(
-  server: ArrServerConfig,
-  movieId: number,
-  deleteFiles = false,
-): Promise<boolean> {
-  try {
-    const url = `${buildArrUrl(server)}/api/v3/movie/${movieId}?deleteFiles=${deleteFiles}`;
-    const res = await fetch(url, {
-      method: "DELETE",
-      headers: { "X-Api-Key": server.apiKey },
-      signal: AbortSignal.timeout(10_000),
-    });
-    return res.ok || res.status === 404;
-  } catch (err) {
-    console.warn(`[ArrService] Failed to delete Radarr movie #${movieId}:`, err);
-    return false;
-  }
-}
-
 /* ──────────────────────────────────────────────────────────────────
- * Suppression « douce » : on ne retire JAMAIS la série/le film de *arr.
- * On désactive la surveillance (unmonitor) — toujours — et on supprime les
- * fichiers seulement sur demande. La série/le film reste dans Sonarr/Radarr.
+ * Les gestes élémentaires : annuler la file, ne plus surveiller, supprimer
+ * des fichiers. Ce qu'une demande supprimée en fait — retirer le film de
+ * Radarr, la série de Sonarr quand plus rien n'y est surveillé — est décidé
+ * dans cleanup-arr.ts.
  * ────────────────────────────────────────────────────────────────── */
 
-async function arrFetch(
+export async function arrFetch(
   server: ArrServerConfig,
   path: string,
   init?: RequestInit,
@@ -267,58 +202,6 @@ export async function cancelSonarrQueue(
 }
 
 /* ── Radarr ──────────────────────────────────────────────────────── */
-
-interface RadarrMovie {
-  id: number;
-  monitored: boolean;
-  [k: string]: unknown;
-}
-
-/** Désactive la surveillance d'un film (garde le film dans Radarr). */
-export async function unmonitorRadarrMovie(
-  server: ArrServerConfig,
-  movieId: number,
-): Promise<boolean> {
-  try {
-    const getRes = await arrFetch(server, `/api/v3/movie/${movieId}`);
-    if (getRes.status === 404) return true;
-    if (!getRes.ok) return false;
-    const movie = (await getRes.json()) as RadarrMovie;
-    movie.monitored = false;
-    const putRes = await arrFetch(server, `/api/v3/movie/${movieId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(movie),
-    });
-    return putRes.ok || putRes.status === 404;
-  } catch (err) {
-    console.warn(`[ArrService] unmonitorRadarrMovie #${movieId} failed:`, err);
-    return false;
-  }
-}
-
-/** Supprime le(s) fichier(s) d'un film (garde le film dans Radarr). */
-export async function deleteRadarrMovieFile(
-  server: ArrServerConfig,
-  movieId: number,
-): Promise<boolean> {
-  try {
-    const res = await arrFetch(server, `/api/v3/moviefile?movieId=${movieId}`);
-    if (res.status === 404) return true;
-    if (!res.ok) return false;
-    const files = (await res.json()) as Array<{ id: number }>;
-    if (files.length === 0) return true;
-    let ok = true;
-    for (const f of files) {
-      const del = await arrFetch(server, `/api/v3/moviefile/${f.id}`, { method: "DELETE" });
-      if (!del.ok && del.status !== 404) ok = false;
-    }
-    return ok;
-  } catch (err) {
-    console.warn(`[ArrService] deleteRadarrMovieFile #${movieId} failed:`, err);
-    return false;
-  }
-}
 
 /** Annule les téléchargements en cours d'un film (file Radarr). */
 export async function cancelRadarrQueue(

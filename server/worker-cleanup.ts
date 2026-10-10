@@ -8,12 +8,9 @@ import {
   clearPendingCleanup, deleteRequestById, updateRequestStatus,
   type CleanupJob,
 } from "./db";
-import {
-  getArrServerConfig, getMediaExternalId,
-  unmonitorSonarrSeasons, deleteSonarrSeasonFiles, cancelSonarrQueue,
-  unmonitorRadarrMovie, deleteRadarrMovieFile, cancelRadarrQueue,
-  triggerSeerrJob,
-} from "./arr-service";
+import { triggerSeerrJob } from "./arr-service";
+import { cleanArrForJob } from "./cleanup-arr";
+import { getSeerrMedia, resetGoneMedia } from "./seerr-media";
 import { reconcileSeerrSeasons } from "./seerr-reconcile";
 import { invalidateRequestCaches } from "./cache";
 import type { WorkerConfig } from "./worker-sync";
@@ -58,55 +55,29 @@ async function processCleanupJob(
     // Jellyseerr une fois que Jellyfin a eu le temps de rescanner.
     if (job.action === "sync") {
       await triggerSeerrJob(config.seerrUrl, config.seerrApiKey, "availability-sync");
+      // Jellyfin a eu le temps de rescanner : si le titre n'y est plus du tout,
+      // le média périmé de Jellyseerr est remis à zéro (seerr-media.ts).
+      await resetGoneMedia(config, job.mediaType, job.tmdbId, job.title);
       await updateCleanupJob(prisma, job.id, "completed");
       invalidateForJob(job);
       console.log(`[SeerWorker] availability-sync re-déclenchée pour "${job.title}"`);
       return;
     }
-    // === ÉTAPES *arr : on ne retire JAMAIS la série/le film de Sonarr/Radarr. ===
-    // On agit en direct sur *arr : annuler la file → désactiver la surveillance
-    // (toujours, empêche le re-téléchargement) → supprimer les fichiers (si demandé).
-    // Best-effort : si le média n'a jamais été grabé (pas d'externalServiceId) ou
-    // si *arr est injoignable, on saute proprement sans bloquer le reste.
-    const arrType = job.mediaType === "movie" ? "radarr" : "sonarr";
-    const [server, ext] = await Promise.all([
-      getArrServerConfig(config.seerrUrl, config.seerrApiKey, arrType),
-      getMediaExternalId(config.seerrUrl, config.seerrApiKey, job.mediaType, job.tmdbId),
-    ]);
-
-    if (server && ext?.externalServiceId) {
-      const arrId = ext.externalServiceId;
-      if (job.mediaType === "movie") {
-        await cancelRadarrQueue(server, arrId);
-        const unmon = await unmonitorRadarrMovie(server, arrId);
-        if (!unmon) throw new Error("Radarr unmonitor failed");
-        if (job.deleteFiles) {
-          const del = await deleteRadarrMovieFile(server, arrId);
-          if (!del) throw new Error("Radarr delete file failed");
-        }
-      } else {
-        await cancelSonarrQueue(server, arrId, job.seasons);
-        const unmon = await unmonitorSonarrSeasons(server, arrId, job.seasons);
-        if (!unmon) throw new Error("Sonarr unmonitor failed");
-        if (job.deleteFiles) {
-          const del = await deleteSonarrSeasonFiles(server, arrId, job.seasons);
-          if (!del) throw new Error("Sonarr delete season files failed");
-        }
-      }
-      console.log(
-        `[SeerWorker] *arr cleanup for "${job.title}" (${arrType} #${arrId}, ` +
-        `seasons=${job.seasons ? JSON.stringify(job.seasons) : "all"}, deleteFiles=${job.deleteFiles})`,
-      );
-    } else {
-      console.log(`[SeerWorker] "${job.title}" : pas de cible *arr (jamais grabé) — skip ops *arr`);
-    }
+    // === Radarr et Sonarr (cleanup-arr.ts) : le film retiré, les saisons plus
+    // surveillées, la série retirée quand plus rien n'y est surveillé. Rien si
+    // le titre n'y a jamais été ajouté. Un refus lève : le job est relancé (les
+    // gestes sont idempotents).
+    const media = await getSeerrMedia(config, job.mediaType, job.tmdbId);
+    const arr = await cleanArrForJob(config, job, media);
+    console.log(
+      `[SeerWorker] *arr pour "${job.title}" : ${arr} ` +
+      `(saisons=${job.seasons ? JSON.stringify(job.seasons) : "toutes"}, fichiers supprimés=${job.deleteFiles})`,
+    );
 
     // === Supprimer la demande Jellyseerr (obligatoire — retry si échec). ===
-    // On ne touche PAS au média Jellyseerr (pas de removeSeries/deleteMovie ni
-    // /media/file) : la disponibilité se re-synchronise seule côté Jellyseerr.
-    // 404 = déjà supprimée → OK. Tout autre échec → throw pour relancer le job
-    // (les ops *arr sont idempotentes), afin de ne jamais laisser une demande
-    // orpheline dans Jellyseerr.
+    // 404 = déjà supprimée → OK. Tout autre échec → throw pour relancer le job,
+    // afin de ne jamais laisser une demande orpheline dans Jellyseerr. Le média
+    // n'est remis à zéro qu'ensuite, et seulement si Jellyfin n'a plus le titre.
     if (job.seerrRequestId) {
       const delRes = await fetch(
         `${config.seerrUrl}/api/v1/request/${job.seerrRequestId}`,
@@ -126,6 +97,10 @@ async function processCleanupJob(
     if (job.mediaType === "tv" && job.seasons && job.seasons.length > 0) {
       await reconcileSeerrSeasons(prisma, config, job.tmdbId, job.seasons);
     }
+
+    // === Un titre que Jellyfin n'a plus du tout, sans plus aucune demande :
+    // Jellyseerr le disait encore « disponible » ou « en partie » — remis à zéro.
+    await resetGoneMedia(config, job.mediaType, job.tmdbId, job.title);
 
     // === Cleanup local ===
     await updateCleanupJob(prisma, job.id, "completed");
