@@ -89,7 +89,7 @@ export default async function seerBackend(
     db: prisma,
     store: coreLibraryStore(prisma),
     getWorkerConfig: () => getWorkerConfig(ctx),
-    afterPass: createAutoForget(prisma, () => getPluginConfig(ctx)),
+    afterPass: createAutoForget(prisma),
   });
   // Les réglages de Jellyseerr lus d'avance : `GET /config` ne les attend pas.
   void getWorkerConfig(ctx)

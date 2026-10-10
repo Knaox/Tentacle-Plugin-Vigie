@@ -4,18 +4,20 @@ import { json, stubFetch, type FetchCall } from "../test-support/fake-http";
 import type { PrismaClient } from "@prisma/client";
 import { forgetJellyfinAccounts } from "../jellyfin-users";
 import { normalizeConfig } from "../plugin-config";
+import { invalidate } from "../cache";
 import { liveState } from "./live-state";
 import { requestIndex } from "./request-index";
 import type { IndexedRequest } from "./request-index-model";
 import type { Departure } from "./library-keys";
-import { createAutoForget, forgetOptionsOf } from "./auto-forget";
+import { createAutoForget, forgetSpentNow } from "./auto-forget";
 import { FORGET_GRACE_MS, MASS_TITLES, forgetCandidates, planJobs } from "./auto-forget-plan";
 import { REQUEST } from "./title-truth";
 
 /*
- * « Supprimer la demande avec le titre » (option, désactivée d'office) :
- * supprimer est irréversible, chaque garde est éprouvée — l'activation,
- * le délai de grâce, Jellyfin redemandé, la vague de départs.
+ * Un titre supprimé de Jellyfin emporte sa demande — toujours, plus de
+ * réglage. Supprimer est irréversible : chaque garde est éprouvée — le délai
+ * de grâce, Jellyfin redemandé, Sonarr ou Radarr qui le font redescendre, la
+ * vague de départs. Et redemander n'attend rien.
  */
 
 const JELLYFIN = "http://jellyfin.test";
@@ -26,28 +28,28 @@ const indexed = (id: number, tmdbId: number, status: number, seasons: number[] =
 });
 const movieDeparture = (tmdbId: number, at: number): Departure => ({ mediaType: "movie", tmdbId, at, seasons: [], whole: true });
 
-test("l'option : désactivée d'office, l'instant d'activation posé par le serveur, gardé ensuite", () => {
-  assert.equal(normalizeConfig({}).deleteRequestsWithMedia, false);
-  assert.equal(normalizeConfig({}).deleteRequestsWithMediaSince, null);
-  const before = Date.now();
-  const on = normalizeConfig({ deleteRequestsWithMedia: true, deleteRequestsWithMediaSince: 1 });
-  assert.ok((on.deleteRequestsWithMediaSince as number) >= before, "le client ne choisit pas l'instant");
-  const again = normalizeConfig({ deleteRequestsWithMedia: true }, on);
-  assert.equal(again.deleteRequestsWithMediaSince, on.deleteRequestsWithMediaSince, "un autre réglage ne le déplace pas");
-  assert.equal(normalizeConfig({ deleteRequestsWithMedia: false }, on).deleteRequestsWithMediaSince, null);
-  assert.deepEqual(forgetOptionsOf({ deleteRequestsWithMedia: true, deleteRequestsWithMediaSince: 5 }), { enabled: true, since: 5 });
+test("plus de réglage : une configuration d'avant ne garde rien de l'interrupteur", () => {
+  const saved = normalizeConfig({ deleteRequestsWithMedia: false, deleteRequestsWithMediaSince: 5, autoApprove: true });
+  assert.equal("deleteRequestsWithMedia" in saved, false);
+  assert.equal("deleteRequestsWithMediaSince" in saved, false);
+  assert.equal(saved.autoApprove, true);
 });
 
-test("les candidats : après l'activation, après la grâce, jamais en vague", () => {
-  const now = 10_000_000;
-  const options = { enabled: true, since: now - 3_600_000 };
-  const before = movieDeparture(1, now - 7_200_000); // parti avant l'activation
+test("les candidats : après la grâce, le passé compris, jamais en vague — même l'heure passée", () => {
+  const now = 100_000_000_000;
+  const old = movieDeparture(1, now - 21 * 86_400_000); // trois semaines : avant cette règle
   const fresh = movieDeparture(2, now - 60_000); // dans la grâce
   const ready = movieDeparture(3, now - FORGET_GRACE_MS - 1);
-  assert.deepEqual(forgetCandidates({ departures: [before, fresh, ready], options, now }), { kind: "ready", departures: [ready] });
-  assert.deepEqual(forgetCandidates({ departures: [ready], options: { enabled: false, since: 1 }, now }), { kind: "none" });
-  const wave = Array.from({ length: MASS_TITLES + 1 }, (_, i) => movieDeparture(100 + i, now - FORGET_GRACE_MS - 1));
-  assert.deepEqual(forgetCandidates({ departures: wave, options, now }), { kind: "mass", count: MASS_TITLES + 1 });
+  assert.deepEqual(forgetCandidates({ departures: [old, fresh, ready], now }), { ready: [old, ready], held: 0 });
+
+  // Vingt et un départs en vingt minutes, il y a cinq heures : toujours tenus à l'écart.
+  const waveAt = now - 5 * 3_600_000;
+  const wave = Array.from({ length: MASS_TITLES + 1 }, (_, i) => movieDeparture(100 + i, waveAt + i * 60_000));
+  assert.deepEqual(forgetCandidates({ departures: [...wave, ready], now }), { ready: [ready], held: MASS_TITLES + 1 });
+  // Au seuil, ce n'est pas une vague ; étalés sur plus d'une heure non plus.
+  assert.equal(forgetCandidates({ departures: wave.slice(1), now }).held, 0);
+  const spread = Array.from({ length: MASS_TITLES + 1 }, (_, i) => movieDeparture(200 + i, waveAt + i * 4 * 60_000));
+  assert.equal(forgetCandidates({ departures: spread, now }).held, 0);
 });
 
 test("ce que devient chaque demande d'un titre parti", () => {
@@ -91,16 +93,16 @@ test("une série partie en entier : seules les demandes de ce qui est parti suiv
 });
 
 let net: ReturnType<typeof stubFetch>;
-let jellyfinHas: Set<number>;
-let config: Record<string, unknown>;
 /** La file de nettoyage et la file des demandes, telles que la base les verrait (MariaDB simulée). */
-let jobs: Array<{ seerrRequestId: number | null; requestId: string | null; deleteFiles: number }>;
+let jobs: Array<{ id: string; seerrRequestId: number | null; requestId: string | null; deleteFiles: number; status: string }>;
 let localRows: Array<Record<string, unknown>>;
 
-const prisma = {
+const db = {
   async $queryRawUnsafe(sql: string, ...params: unknown[]) {
     if (/FROM server_config/.test(sql)) return [{ k: "jellyfin_url", v: JELLYFIN }, { k: "jellyfin_api_key", v: "jk" }];
-    if (/FROM seer_cleanup_queue/.test(sql)) return [{ n: BigInt(jobs.filter((j) => j.seerrRequestId === params[0]).length) }];
+    if (/FROM seer_cleanup_queue/.test(sql)) {
+      return [{ n: BigInt(jobs.filter((j) => j.status === "pending" && j.seerrRequestId === params[0]).length) }];
+    }
     if (/FROM seer_requests WHERE media_type = \? AND tmdb_id = \?/.test(sql)) {
       return localRows.filter((r) => r.media_type === params[0] && r.tmdb_id === params[1] && !["deleted", "deleting", "delete_failed"].includes(String(r.status)));
     }
@@ -108,7 +110,10 @@ const prisma = {
   },
   async $executeRawUnsafe(sql: string, ...params: unknown[]) {
     if (/INSERT INTO seer_cleanup_queue/.test(sql)) {
-      jobs.push({ seerrRequestId: (params[5] as number | null) ?? null, requestId: (params[9] as string | null) ?? null, deleteFiles: params[7] as number });
+      jobs.push({
+        id: params[0] as string, seerrRequestId: (params[5] as number | null) ?? null,
+        requestId: (params[9] as string | null) ?? null, deleteFiles: params[7] as number, status: "pending",
+      });
       return 1;
     }
     if (/UPDATE seer_requests SET .*status = \?/.test(sql)) {
@@ -119,6 +124,8 @@ const prisma = {
     return 0;
   },
 } as unknown as PrismaClient;
+let jellyfinHas: Set<number>;
+let radarrQueue: Array<Record<string, unknown>>;
 
 function jellyfin(c: FetchCall) {
   if (!c.url.startsWith(JELLYFIN)) return null;
@@ -132,33 +139,61 @@ function jellyfin(c: FetchCall) {
   return null;
 }
 
+function radarr(c: FetchCall) {
+  if (c.url === `${cfg.seerrUrl}/api/v1/settings/radarr`) {
+    return json([{ isDefault: true, hostname: "radarr.test", port: 7878, apiKey: "r", useSsl: false, baseUrl: "" }]);
+  }
+  if (c.url.startsWith("http://radarr.test:7878/api/v3/queue")) return json({ records: radarrQueue, totalRecords: radarrQueue.length });
+  return null;
+}
+
 beforeEach(() => {
+  jobs = [];
+  localRows = [];
   forgetJellyfinAccounts();
   liveState.reset();
   requestIndex.reset();
+  invalidate("seer:arr:queue");
   jellyfinHas = new Set();
-  jobs = [];
-  localRows = [{ id: "r1", jellyfin_user_id: "u1", username: "alice", media_type: "movie", tmdb_id: 603, title: "Matrix", status: "available", seerr_request_id: 1, created_at: new Date(), updated_at: new Date() }];
-  net = stubFetch([jellyfin, (c) => (c.url.includes("/settings/") ? json([]) : null)]);
-  config = { deleteRequestsWithMedia: true, deleteRequestsWithMediaSince: Date.now() - 3_600_000 };
+  radarrQueue = [];
+  net = stubFetch([jellyfin, radarr, (c) => (c.url.includes("/settings/") ? json([]) : null)]);
 });
 afterEach(() => { net.restore(); });
 
-/** Les lignes que la boucle lirait dans la liste du serveur. */
-function buildSnapshotRows(rows: Array<[string, boolean, number | null]>) {
-  return rows.map(([key, present, departedAt]) => ({ key, present, departedAt }));
+async function cleanupJobs() {
+  return [...jobs]
+    .sort((a, b) => (a.seerrRequestId ?? 0) - (b.seerrRequestId ?? 0))
+    .map((j) => ({ id: j.id, seerr_request_id: j.seerrRequestId, request_id: j.requestId, delete_files: j.deleteFiles }));
+}
+
+async function insertLocal(id: string, seerrRequestId: number, status = "available") {
+  localRows.push({
+    id, jellyfin_user_id: "u1", username: "alice", media_type: "movie", tmdb_id: 603, title: "Matrix",
+    status, seerr_request_id: seerrRequestId, created_at: new Date(), updated_at: new Date(),
+  });
 }
 
 test("parti depuis plus de dix minutes, absent de Jellyfin : la demande part, sans toucher aux fichiers", async () => {
   const at = Date.now() - FORGET_GRACE_MS - 5_000;
   liveState.setLibrary(buildSnapshotRows([["m:t:603", false, at]]));
   requestIndex.seed([indexed(1, 603, REQUEST.COMPLETED)]);
-  await createAutoForget(prisma, () => config)(cfg, Date.now());
-  assert.deepEqual(jobs, [{ seerrRequestId: 1, requestId: "r1", deleteFiles: 0 }]);
-  assert.equal(localRows[0].status, "deleting");
+  await insertLocal("r1", 1);
+  const autoForget = createAutoForget(db);
+  await autoForget(cfg, Date.now());
+  assert.deepEqual((await cleanupJobs()).map((j) => [j.seerr_request_id, j.request_id, j.delete_files]), [[1, "r1", 0]]);
+  assert.equal(localRows.find((r) => r.id === "r1")?.status, "deleting");
   // Une seconde passe ne remet rien en file.
-  await createAutoForget(prisma, () => config)(cfg, Date.now());
-  assert.equal(jobs.length, 1);
+  await autoForget(cfg, Date.now());
+  await createAutoForget(db)(cfg, Date.now());
+  assert.equal((await cleanupJobs()).length, 1);
+});
+
+test("supprimé il y a trois semaines, avant cette règle : sa demande part aussi", async () => {
+  const at = Date.now() - 21 * 86_400_000;
+  liveState.setLibrary(buildSnapshotRows([["m:t:603", false, at]]));
+  requestIndex.seed([{ ...indexed(1, 603, REQUEST.COMPLETED), createdAt: new Date(at - 86_400_000).toISOString() }]);
+  await createAutoForget(db)(cfg, Date.now());
+  assert.deepEqual((await cleanupJobs()).map((j) => j.seerr_request_id), [1]);
 });
 
 test("Jellyfin l'a de nouveau (remplacé), ou ne répond pas : rien ne part", async () => {
@@ -166,24 +201,30 @@ test("Jellyfin l'a de nouveau (remplacé), ou ne répond pas : rien ne part", as
   liveState.setLibrary(buildSnapshotRows([["m:t:603", false, at]]));
   requestIndex.seed([indexed(1, 603, REQUEST.COMPLETED)]);
   jellyfinHas.add(603);
-  await createAutoForget(prisma, () => config)(cfg, Date.now());
-  assert.deepEqual(jobs, []);
+  await createAutoForget(db)(cfg, Date.now());
+  assert.deepEqual(await cleanupJobs(), []);
 
   jellyfinHas.delete(603);
   net.restore();
   net = stubFetch([() => { throw new TypeError("fetch failed"); }]);
   forgetJellyfinAccounts();
-  await createAutoForget(prisma, () => config)(cfg, Date.now());
-  assert.deepEqual(jobs, []);
+  await createAutoForget(db)(cfg, Date.now());
+  assert.deepEqual(await cleanupJobs(), []);
 });
 
-test("option désactivée, ou suppression d'avant l'activation : rien ne part", async () => {
+test("Radarr le fait redescendre : on attend, puis la demande part une fois la file vide", async () => {
   const at = Date.now() - FORGET_GRACE_MS - 5_000;
   liveState.setLibrary(buildSnapshotRows([["m:t:603", false, at]]));
-  requestIndex.seed([indexed(1, 603, REQUEST.COMPLETED)]);
-  await createAutoForget(prisma, () => ({ deleteRequestsWithMedia: false }))(cfg, Date.now());
-  await createAutoForget(prisma, () => ({ deleteRequestsWithMedia: true, deleteRequestsWithMediaSince: Date.now() }))(cfg, Date.now());
-  assert.deepEqual(jobs, []);
+  requestIndex.seed([indexed(1, 603, REQUEST.APPROVED)]);
+  radarrQueue = [{ id: 9, title: "Matrix.1999.2160p", size: 100, sizeleft: 40, movie: { title: "Matrix", tmdbId: 603 } }];
+  const autoForget = createAutoForget(db);
+  await autoForget(cfg, Date.now());
+  assert.deepEqual(await cleanupJobs(), []);
+  // Le téléchargement abandonné, le titre toujours absent : elle part à la passe suivante.
+  radarrQueue = [];
+  invalidate("seer:arr:queue");
+  await autoForget(cfg, Date.now());
+  assert.deepEqual((await cleanupJobs()).map((j) => j.seerr_request_id), [1]);
 });
 
 test("une redemande, faite APRÈS le départ du titre, n'est jamais retirée", async () => {
@@ -193,22 +234,50 @@ test("une redemande, faite APRÈS le départ du titre, n'est jamais retirée", a
   const after = { ...indexed(2, 603, REQUEST.APPROVED), createdAt: new Date(at + 60_000).toISOString() };
   // La demande d'avant part ; la redemande reste.
   requestIndex.seed([before, after]);
-  await createAutoForget(prisma, () => config)(cfg, Date.now());
-  assert.deepEqual(jobs.map((j) => j.seerrRequestId), [1]);
-  // Seule la redemande reste : l'option ne la touche pas, même plus tard.
+  await createAutoForget(db)(cfg, Date.now());
+  assert.deepEqual((await cleanupJobs()).map((j) => j.seerr_request_id), [1]);
+  // Seule la redemande reste : rien ne la touche, même plus tard.
   requestIndex.seed([after]);
-  await createAutoForget(prisma, () => config)(cfg, Date.now() + 3_600_000);
-  assert.deepEqual(jobs.map((j) => j.seerrRequestId), [1]);
+  await createAutoForget(db)(cfg, Date.now() + 3_600_000);
+  assert.deepEqual((await cleanupJobs()).map((j) => j.seerr_request_id), [1]);
   assert.deepEqual(planJobs(movieDeparture(603, at), [
     { seerrRequestId: 2, status: REQUEST.APPROVED, seasons: [], localId: null, jellyfinUserId: "u1", createdAt: at + 60_000 },
   ]), []);
 });
 
-test("une vague de départs (disque débranché) : rien ne part", async () => {
+test("une vague de départs (disque débranché) : rien ne part, ni tout de suite ni des heures après", async () => {
   const at = Date.now() - FORGET_GRACE_MS - 5_000;
   const rows = Array.from({ length: MASS_TITLES + 5 }, (_, i) => [`m:t:${1000 + i}`, false, at] as [string, boolean, number]);
   liveState.setLibrary(buildSnapshotRows(rows));
   requestIndex.seed(rows.map((_, i) => indexed(i + 1, 1000 + i, REQUEST.COMPLETED)));
-  await createAutoForget(prisma, () => config)(cfg, Date.now());
-  assert.deepEqual(jobs, []);
+  await createAutoForget(db)(cfg, Date.now());
+  await createAutoForget(db)(cfg, Date.now() + 5 * 3_600_000);
+  assert.deepEqual(await cleanupJobs(), []);
 });
+
+test("redemander : la demande d'avant part tout de suite — pendant la grâce, et même dans une vague", async () => {
+  // Parti il y a une minute, Jellyfin l'a confirmé.
+  const at = Date.now() - 60_000;
+  const rows = Array.from({ length: MASS_TITLES + 5 }, (_, i) => [`m:t:${600 + i}`, false, at] as [string, boolean, number]);
+  liveState.setLibrary(buildSnapshotRows(rows));
+  liveState.setCheck("movie:603", { at: Date.now(), present: false });
+  requestIndex.seed([{ ...indexed(1, 603, REQUEST.COMPLETED), createdAt: new Date(at - 86_400_000).toISOString() }]);
+  await insertLocal("r1", 1);
+  // La boucle, elle, n'y touche pas (grâce, vague).
+  await createAutoForget(db)(cfg, Date.now());
+  assert.deepEqual(await cleanupJobs(), []);
+  // Le geste de l'utilisateur, si.
+  const jobs = await forgetSpentNow(db, "movie", 603);
+  const queued = await cleanupJobs();
+  assert.deepEqual(queued.map((j) => [j.seerr_request_id, j.request_id]), [[1, "r1"]]);
+  assert.deepEqual(jobs, [queued[0].id]);
+  // Un titre que Jellyfin n'a pas encore confirmé parti : rien.
+  assert.deepEqual(await forgetSpentNow(db, "movie", 604), []);
+  // Rien d'autre à retirer : rien.
+  assert.deepEqual(await forgetSpentNow(db, "movie", 999), []);
+});
+
+/** Les lignes que la boucle lirait dans la liste du serveur. */
+function buildSnapshotRows(rows: Array<[string, boolean, number | null]>) {
+  return rows.map(([key, present, departedAt]) => ({ key, present, departedAt }));
+}
