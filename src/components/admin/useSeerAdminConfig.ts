@@ -28,6 +28,8 @@ export interface SeerAdminConfig {
   autoApprove: boolean;
   /** Les titres masqués se demandent (le blocage est levé chez Jellyseerr à l'envoi). */
   allowMaskedRequests: boolean;
+  /** Une série supprimée de Jellyfin part en entier, même ce qui est encore attendu. */
+  deleteWholeSeries: boolean;
   /** Limite quotidienne par défaut ; 0 = aucune. */
   userLimit: number;
   navLabels: NavLabels;
@@ -51,6 +53,8 @@ function fromServer(data: Record<string, unknown>): SeerAdminConfig {
     enabled: data.enabled === true,
     autoApprove: data.autoApprove === true,
     allowMaskedRequests: data.allowMaskedRequests === true,
+    // Relu ici, sinon le prochain réglage enregistré l'éteindrait.
+    deleteWholeSeries: data.deleteWholeSeries === true,
     userLimit: Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 0,
     navLabels: labelsOf(data.navLabels ?? data.navLabel),
     profiles: Array.isArray(data.profiles) ? (data.profiles as SeerProfile[]) : [],

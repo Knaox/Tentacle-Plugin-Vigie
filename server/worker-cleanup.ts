@@ -14,7 +14,8 @@ import { getSeerrMedia, resetGoneMedia } from "./seerr-media";
 import { reconcileSeerrSeasons } from "./seerr-reconcile";
 import { invalidateRequestCaches } from "./cache";
 import type { WorkerConfig } from "./worker-sync";
-import { departedSeasonsOf, forgetGuardReady, isRerequest, movieBack, sparedSeasons } from "./live/forget-guard";
+import { departedSeasonsOf, forgetGuardReady, isRerequest, movieBack, sparedSeasons, wholeSeriesStillGone } from "./live/forget-guard";
+import { isAutoForget } from "./db-cleanup";
 
 const CLEANUP_BATCH = 25;
 
@@ -72,13 +73,16 @@ async function processCleanupJob(
     // de Jellyfin) ne touche jamais ce qu'une redemande attend, ni ce qui est
     // revenu entre-temps (live/forget-guard.ts) ; « toute la série » ne vise
     // que ses saisons parties.
-    const forget = job.action === "forget";
+    const forget = isAutoForget(job.action);
     // Juste après un démarrage, rien n'est encore lu : il attend la passe suivante, sans compter d'essai.
     if (forget && !forgetGuardReady()) return;
     let target = job;
     let spareArr = false;
     if (forget && job.mediaType === "movie") spareArr = movieBack(job.tmdbId);
-    else if (forget) {
+    else if (job.action === "forget-series" && wholeSeriesStillGone(job.tmdbId, job.seerrRequestId)) {
+      // Réglage « une série supprimée part en entier » : Sonarr cesse de la surveiller toute.
+      target = { ...job, seasons: null };
+    } else if (forget) {
       const aimed = job.seasons ?? departedSeasonsOf(job.tmdbId);
       const spared = sparedSeasons(job.tmdbId, aimed, job.seerrRequestId);
       target = { ...job, seasons: aimed.filter((s) => !spared.has(s)) };

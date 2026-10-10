@@ -124,7 +124,7 @@ export async function assembleRows(
   try {
     const pending = await db.query<{ seerr_request_id: number }>(
       `SELECT seerr_request_id FROM seer_cleanup_queue
-       WHERE status = 'pending' AND action IN ('delete', 'forget') AND seerr_request_id IS NOT NULL`,
+       WHERE status = 'pending' AND action IN ('delete', 'forget', 'forget-series') AND seerr_request_id IS NOT NULL`,
     );
     for (const r of pending) deletingIds.add(Number(r.seerr_request_id));
   } catch { /* best-effort */ }

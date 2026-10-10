@@ -25,6 +25,12 @@
  *     une demande faite après est une REDEMANDE, jamais retirée.
  * Le passé compte aussi : la liste du serveur garde trente jours de départs,
  * et un titre supprimé avant cette règle était justement bloqué.
+ *
+ * Réglage « Une série supprimée part en entier » (`wholeSeries`, désactivé
+ * d'office) : une série dont plus rien ne reste dans Jellyfin emporte TOUTES
+ * ses demandes d'avant, même pour des saisons ou des épisodes encore
+ * attendus — Sonarr cesse de la surveiller, rien de ses prochaines sorties
+ * n'arrive. Une redemande, elle, reste.
  */
 
 import type { Departure } from "./library-keys";
@@ -124,6 +130,8 @@ export interface ForgetJob {
   jellyfinUserId: string | null;
   /** Vrai : la demande entière part. Faux : seules ces saisons la quittent. */
   whole: boolean;
+  /** La série entière part (réglage `wholeSeries`) : Sonarr cesse de la surveiller toute. */
+  wholeSeries?: boolean;
 }
 
 /** Quand cette saison est partie. */
@@ -140,9 +148,17 @@ export function spentSeasonsOf(r: Pick<ForgetRequest, "seasons" | "createdAt">, 
   return r.seasons.filter((s) => dep.seasons.includes(s) && madeBefore(r.createdAt, seasonDeparture(dep, s)));
 }
 
+/** Le réglage `wholeSeries` s'applique-t-il à ce départ (une série dont plus rien ne reste) ? */
+export function goesWhole(dep: Departure, wholeSeries: boolean): boolean {
+  return wholeSeries && dep.mediaType === "tv" && dep.whole;
+}
+
 /** La demande a-t-elle quelque chose à perdre dans ce départ ? */
-export function spentBy(r: Pick<ForgetRequest, "seasons" | "createdAt" | "status" | "is4k">, dep: Departure): boolean {
+export function spentBy(
+  r: Pick<ForgetRequest, "seasons" | "createdAt" | "status" | "is4k">, dep: Departure, wholeSeries = false,
+): boolean {
   if (!isLiveRequest(r)) return false;
+  if (goesWhole(dep, wholeSeries)) return madeBefore(r.createdAt, dep.at);
   if (dep.mediaType === "movie" || r.seasons.length === 0) {
     return (dep.mediaType === "movie" || dep.whole) && madeBefore(r.createdAt, dep.at);
   }
@@ -163,11 +179,15 @@ export function spentBy(r: Pick<ForgetRequest, "seasons" | "createdAt" | "status
  * Sonarr ne cesse de surveiller QUE les saisons parties. Refusées, en échec,
  * en 4K : rien.
  */
-export function planJobs(dep: Departure, requests: readonly ForgetRequest[]): ForgetJob[] {
+export function planJobs(dep: Departure, requests: readonly ForgetRequest[], wholeSeries = false): ForgetJob[] {
   const jobs: ForgetJob[] = [];
   for (const r of requests) {
-    if (!spentBy(r, dep)) continue;
+    if (!spentBy(r, dep, wholeSeries)) continue;
     const base = { localId: r.localId, jellyfinUserId: r.jellyfinUserId };
+    if (goesWhole(dep, wholeSeries)) {
+      jobs.push({ ...base, seerrRequestId: r.seerrRequestId, seasons: null, whole: true, wholeSeries: true });
+      continue;
+    }
     if (dep.mediaType === "movie" || r.seasons.length === 0) {
       jobs.push({ ...base, seerrRequestId: r.seerrRequestId, seasons: null, whole: true });
       continue;

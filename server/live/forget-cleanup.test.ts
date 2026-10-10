@@ -105,3 +105,31 @@ test("une redemande liée à un nettoyage déjà fini ou retiré n'attend pas po
   await db.execute("UPDATE seer_cleanup_queue SET status = 'completed' WHERE id = ?", pending);
   assert.equal((await getNextQueued(db, ["orphan"]))?.id, "waits");
 });
+
+test("réglage « une série supprimée part en entier » : Sonarr cesse de surveiller toute la série", async () => {
+  liveState.setLibrary([{ key: "e:t:1399:1", present: false, departedAt: LONG_AGO }, { key: "e:t:1399:2", present: false, departedAt: LONG_AGO }]);
+  requests = [{ id: 41, status: 2, createdAt: BEFORE, seasons: [{ seasonNumber: 1 }, { seasonNumber: 2 }, { seasonNumber: 3 }] }];
+  requestIndex.seed([indexed(41, 2, [1, 2, 3], BEFORE)]);
+  await enqueueCleanup(db, { action: "forget-series", mediaType: "tv", tmdbId: 1399, title: "Série", seerrRequestId: 41, deleteFiles: false });
+  await processCleanupQueue(db, config);
+  const put = net.calls.find((c) => c.method === "PUT" && c.url.includes("sonarr.test"));
+  const monitored = (JSON.parse(put?.body ?? "{}") as { seasons: Array<{ seasonNumber: number; monitored: boolean }> }).seasons;
+  assert.deepEqual(monitored.map((s) => s.monitored), [false, false, false], "plus rien n'est attendu");
+  assert.ok(calls.includes(`DELETE ${new URL(SEERR).host}/api/v1/request/41`));
+  // Encore des épisodes chez Sonarr : la série reste dans sa liste, sans surveillance.
+  assert.ok(!calls.some((c) => c.startsWith("DELETE sonarr.test")));
+});
+
+test("réglage actif, mais la série a été redemandée depuis : seule la saison partie quitte Sonarr", async () => {
+  liveState.setLibrary([{ key: "e:t:1399:1", present: false, departedAt: LONG_AGO }]);
+  requests = [
+    { id: 41, status: 5, createdAt: BEFORE, seasons: [{ seasonNumber: 1 }] },
+    { id: 77, status: 2, createdAt: AFTER, seasons: [{ seasonNumber: 2 }] },
+  ];
+  requestIndex.seed([indexed(41, 5, [1], BEFORE), indexed(77, 2, [2], AFTER)]);
+  await enqueueCleanup(db, { action: "forget-series", mediaType: "tv", tmdbId: 1399, title: "Série", seerrRequestId: 41, deleteFiles: false });
+  await processCleanupQueue(db, config);
+  const put = net.calls.find((c) => c.method === "PUT" && c.url.includes("sonarr.test"));
+  const monitored = (JSON.parse(put?.body ?? "{}") as { seasons: Array<{ seasonNumber: number; monitored: boolean }> }).seasons;
+  assert.deepEqual(monitored.map((s) => [s.seasonNumber, s.monitored]), [[1, false], [2, true], [3, true]]);
+});

@@ -65,6 +65,17 @@ export function sparedSeasons(tmdbId: number, seasons: readonly number[], except
   return spared;
 }
 
+/**
+ * La série part-elle en entier (réglage) ? Seulement si plus rien d'elle
+ * n'est dans Jellyfin et que personne ne l'a redemandée depuis.
+ */
+export function wholeSeriesStillGone(tmdbId: number, exceptSeerrId: number | null): boolean {
+  const dep = departureOf("tv", tmdbId);
+  if (!dep || !dep.whole) return false;
+  return !(requestIndex.requestsFor("tv", tmdbId) ?? [])
+    .some((r) => r.id !== exceptSeerrId && isLiveRequest(r) && after(r.createdAt, dep.at));
+}
+
 /** Les saisons parties d'une série — celles qu'un retrait « toute la série » vise. */
 export function departedSeasonsOf(tmdbId: number): number[] {
   return departureOf("tv", tmdbId)?.seasons ?? [];

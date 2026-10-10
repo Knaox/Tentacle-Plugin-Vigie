@@ -30,6 +30,7 @@ const indexed = (id: number, tmdbId: number, status: number, seasons: number[] =
   requestedBy: { seerrUserId: 1, jellyfinUserId: "u1", name: "Alice" }, createdAt: null, updatedAt: null, mediaStatus: 5,
 });
 const movieDeparture = (tmdbId: number, at: number): Departure => ({ mediaType: "movie", tmdbId, at, seasons: [], whole: true });
+const noConfig = () => ({});
 
 test("plus de réglage : une configuration d'avant ne garde rien de l'interrupteur", () => {
   const saved = normalizeConfig({ deleteRequestsWithMedia: false, deleteRequestsWithMediaSince: 5, autoApprove: true });
@@ -177,14 +178,14 @@ test("parti depuis plus de dix minutes, absent de Jellyfin : la demande part, sa
   liveState.setLibrary(buildSnapshotRows([["m:t:603", false, at]]));
   requestIndex.seed([indexed(1, 603, REQUEST.COMPLETED)]);
   await insertLocal("r1", 1);
-  const autoForget = createAutoForget(db);
+  const autoForget = createAutoForget(db, noConfig);
   await autoForget(cfg, Date.now());
   assert.deepEqual((await cleanupJobs()).map((j) => [j.seerr_request_id, j.request_id, j.delete_files]), [[1, "r1", 0]]);
   const [{ status }] = await db.query<{ status: string }>("SELECT status FROM seer_requests WHERE id = 'r1'");
   assert.equal(status, "deleting");
   // Une seconde passe ne remet rien en file.
   await autoForget(cfg, Date.now());
-  await createAutoForget(db)(cfg, Date.now());
+  await createAutoForget(db, noConfig)(cfg, Date.now());
   assert.equal((await cleanupJobs()).length, 1);
 });
 
@@ -192,7 +193,7 @@ test("supprimé il y a trois semaines, avant cette règle : sa demande part auss
   const at = Date.now() - 21 * 86_400_000;
   liveState.setLibrary(buildSnapshotRows([["m:t:603", false, at]]));
   requestIndex.seed([{ ...indexed(1, 603, REQUEST.COMPLETED), createdAt: new Date(at - 86_400_000).toISOString() }]);
-  await createAutoForget(db)(cfg, Date.now());
+  await createAutoForget(db, noConfig)(cfg, Date.now());
   assert.deepEqual((await cleanupJobs()).map((j) => j.seerr_request_id), [1]);
 });
 
@@ -201,14 +202,14 @@ test("Jellyfin l'a de nouveau (remplacé), ou ne répond pas : rien ne part", as
   liveState.setLibrary(buildSnapshotRows([["m:t:603", false, at]]));
   requestIndex.seed([indexed(1, 603, REQUEST.COMPLETED)]);
   jellyfinHas.add(603);
-  await createAutoForget(db)(cfg, Date.now());
+  await createAutoForget(db, noConfig)(cfg, Date.now());
   assert.deepEqual(await cleanupJobs(), []);
 
   jellyfinHas.delete(603);
   net.restore();
   net = stubFetch([() => { throw new TypeError("fetch failed"); }]);
   forgetJellyfinAccounts();
-  await createAutoForget(db)(cfg, Date.now());
+  await createAutoForget(db, noConfig)(cfg, Date.now());
   assert.deepEqual(await cleanupJobs(), []);
 });
 
@@ -217,7 +218,7 @@ test("Radarr le fait redescendre : on attend, puis la demande part une fois la f
   liveState.setLibrary(buildSnapshotRows([["m:t:603", false, at]]));
   requestIndex.seed([indexed(1, 603, REQUEST.APPROVED)]);
   radarrQueue = [{ id: 9, title: "Matrix.1999.2160p", size: 100, sizeleft: 40, movie: { title: "Matrix", tmdbId: 603 } }];
-  const autoForget = createAutoForget(db);
+  const autoForget = createAutoForget(db, noConfig);
   await autoForget(cfg, Date.now());
   assert.deepEqual(await cleanupJobs(), []);
   // Le téléchargement abandonné, le titre toujours absent : elle part à la passe suivante.
@@ -234,11 +235,11 @@ test("une redemande, faite APRÈS le départ du titre, n'est jamais retirée", a
   const after = { ...indexed(2, 603, REQUEST.APPROVED), createdAt: new Date(at + 60_000).toISOString() };
   // La demande d'avant part ; la redemande reste.
   requestIndex.seed([before, after]);
-  await createAutoForget(db)(cfg, Date.now());
+  await createAutoForget(db, noConfig)(cfg, Date.now());
   assert.deepEqual((await cleanupJobs()).map((j) => j.seerr_request_id), [1]);
   // Seule la redemande reste : rien ne la touche, même plus tard.
   requestIndex.seed([after]);
-  await createAutoForget(db)(cfg, Date.now() + 3_600_000);
+  await createAutoForget(db, noConfig)(cfg, Date.now() + 3_600_000);
   assert.deepEqual((await cleanupJobs()).map((j) => j.seerr_request_id), [1]);
   assert.deepEqual(planJobs(movieDeparture(603, at), [
     { seerrRequestId: 2, status: REQUEST.APPROVED, seasons: [], localId: null, jellyfinUserId: "u1", createdAt: at + 60_000 },
@@ -250,8 +251,8 @@ test("une vague de départs (disque débranché) : rien ne part, ni tout de suit
   const rows = Array.from({ length: MASS_TITLES + 5 }, (_, i) => [`m:t:${1000 + i}`, false, at] as [string, boolean, number]);
   liveState.setLibrary(buildSnapshotRows(rows));
   requestIndex.seed(rows.map((_, i) => indexed(i + 1, 1000 + i, REQUEST.COMPLETED)));
-  await createAutoForget(db)(cfg, Date.now());
-  await createAutoForget(db)(cfg, Date.now() + 5 * 3_600_000);
+  await createAutoForget(db, noConfig)(cfg, Date.now());
+  await createAutoForget(db, noConfig)(cfg, Date.now() + 5 * 3_600_000);
   assert.deepEqual(await cleanupJobs(), []);
 });
 
@@ -264,7 +265,7 @@ test("redemander : la demande d'avant part tout de suite — pendant la grâce, 
   requestIndex.seed([{ ...indexed(1, 603, REQUEST.COMPLETED), createdAt: new Date(at - 86_400_000).toISOString() }]);
   await insertLocal("r1", 1);
   // La boucle, elle, n'y touche pas (grâce, vague).
-  await createAutoForget(db)(cfg, Date.now());
+  await createAutoForget(db, noConfig)(cfg, Date.now());
   assert.deepEqual(await cleanupJobs(), []);
   // Le geste de l'utilisateur, si.
   const jobs = await forgetSpentNow(db, "movie", 603);
@@ -281,3 +282,22 @@ test("redemander : la demande d'avant part tout de suite — pendant la grâce, 
 function buildSnapshotRows(rows: Array<[string, boolean, number | null]>) {
   return rows.map(([key, present, departedAt]) => ({ key, present, departedAt }));
 }
+
+test("réglage « une série supprimée part en entier » : désactivé d'office ; actif, tout part — sauf une redemande", () => {
+  assert.equal(normalizeConfig({}).deleteWholeSeries, false);
+  assert.equal(normalizeConfig({ deleteWholeSeries: true }).deleteWholeSeries, true);
+  const base = { localId: null, jellyfinUserId: "u1" };
+  // Plus rien de la série dans Jellyfin : S1 et S2 parties, S3 encore attendue.
+  const dep: Departure = { mediaType: "tv", tmdbId: 66732, at: 10_000_000, seasons: [1, 2], whole: true };
+  const requests = [
+    { ...base, seerrRequestId: 50, status: REQUEST.COMPLETED, seasons: [1, 2], createdAt: 0 },
+    { ...base, seerrRequestId: 51, status: REQUEST.APPROVED, seasons: [3], createdAt: 0 }, // attendue
+    { ...base, seerrRequestId: 52, status: REQUEST.APPROVED, seasons: [1], createdAt: 10_000_000 + 600_000 }, // redemande
+  ];
+  assert.deepEqual(planJobs(dep, requests).map((j) => j.seerrRequestId), [50], "désactivé : la saison attendue garde sa demande");
+  const whole = planJobs(dep, requests, true);
+  assert.deepEqual(whole.map((j) => [j.seerrRequestId, j.seasons, j.wholeSeries]), [[50, null, true], [51, null, true]]);
+  // Une saison seule supprimée d'une série encore là : le réglage n'y change rien.
+  const partial: Departure = { ...dep, seasons: [1], whole: false };
+  assert.deepEqual(planJobs(partial, requests, true).map((j) => j.wholeSeries ?? false), [false]);
+});

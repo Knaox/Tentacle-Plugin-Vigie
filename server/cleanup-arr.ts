@@ -23,7 +23,7 @@
  * Sonarr que s'il n'y a plus aucun épisode.
  */
 
-import type { CleanupJob } from "./db";
+import { isAutoForget, type CleanupJob } from "./db-cleanup";
 import {
   arrFetch, cancelRadarrQueue, cancelSonarrQueue, deleteSonarrSeasonFiles, getArrServerConfig,
   unmonitorSonarrSeasons, type ArrServerConfig,
@@ -63,7 +63,7 @@ async function cleanMovie(server: ArrServerConfig, movieId: number, job: Job, me
   const others = media.requests.filter((r) => r.id !== job.seerrRequestId && !r.is4k && LIVE_REQUEST.has(r.status));
   if (others.length > 0) return "kept";
   await cancelRadarrQueue(server, movieId);
-  if (job.action === "forget") {
+  if (isAutoForget(job.action)) {
     const kept = await unmonitorRadarrMovieWithFile(server, movieId);
     if (kept === "failed") throw new Error("Radarr unmonitor failed");
     if (kept === "unmonitored") return "unmonitored";
@@ -102,7 +102,7 @@ async function cleanSeries(server: ArrServerConfig, seriesId: number, job: Job):
   if (job.deleteFiles && !(await deleteSonarrSeasonFiles(server, seriesId, job.seasons))) {
     throw new Error("Sonarr delete season files failed");
   }
-  const outcome = await removeSonarrSeriesIfUnmonitored(server, seriesId, job.deleteFiles, job.action === "forget");
+  const outcome = await removeSonarrSeriesIfUnmonitored(server, seriesId, job.deleteFiles, isAutoForget(job.action));
   if (outcome === "failed") throw new Error("Sonarr remove failed");
   return outcome === "removed" ? "removed" : "unmonitored";
 }
