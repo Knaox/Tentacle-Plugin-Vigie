@@ -19,6 +19,18 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.25.3]
+### FR
+- **Un titre supprimé de Jellyfin se redemande tout de suite** : sa demande d'avant est considérée comme supprimée, comme le fait Jellyseerr — plus de « Demandé » qui bloque. Un film, une série entière ou une seule saison : chacun se redemande, saison par saison s'il le faut
+- **La demande part avec le titre, toujours** : quand un titre est supprimé de Jellyfin, sa demande disparaît aussi de Vigie et de Jellyseerr, et quitte Mes demandes. Ce n'est plus une option : le réglage « Supprimer la demande avec le titre » disparaît. Les titres supprimés ces 30 derniers jours sont rattrapés
+- **Redemander n'attend rien** : la demande d'avant est retirée sur-le-champ, puis la nouvelle part
+- **Rien de perdu à tort** : une saison encore attendue continue d'arriver ; une redemande n'est jamais retirée ; ce que Sonarr ou Radarr font redescendre attend ; un film ou une série dont Sonarr ou Radarr ont encore les fichiers ne quitte pas leur liste, ils cessent seulement de le surveiller ; une vague de suppressions d'un coup (disque débranché) n'emporte rien, même des heures après, même revenue en partie
+### EN
+- **A title deleted from Jellyfin can be requested again right away**: its earlier request is treated as deleted, as Jellyseerr does — no more blocking "Requested". A movie, a whole series or a single season: each can be requested again, season by season if needed
+- **The request always goes with the title**: when a title is deleted from Jellyfin, its request also leaves Vigie, Jellyseerr and My requests. It is no longer an option: the "Delete the request with the title" setting is gone. Titles deleted in the last 30 days are caught up
+- **Requesting again waits for nothing**: the earlier request is removed on the spot, then the new one goes out
+- **Nothing lost by mistake**: a season still on its way keeps coming; a new request is never removed; what Sonarr or Radarr are downloading again waits; a movie or series whose files Sonarr or Radarr still have stays in their list, they only stop monitoring it; a sudden wave of deletions (unplugged disk) removes nothing, even hours later, even partly back
+
 ## [1.25.2]
 ### FR
 - **Une série dont il ne reste que le dossier n'est plus « En partie »** : Vigie ne compte plus une série que par ses vrais épisodes. Un dossier vide laissé dans Jellyfin la fait passer « Demandé » (ou « Demander »), et l'option « Supprimer la demande avec le titre » agit enfin dessus
