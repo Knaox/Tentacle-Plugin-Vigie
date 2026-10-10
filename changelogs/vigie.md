@@ -19,6 +19,12 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.25.4]
+### FR
+- **Nouveau réglage — « Une série supprimée part en entier »** (désactivé par défaut) : quand une série est supprimée de Jellyfin, sa demande part entièrement, même pour les saisons et épisodes encore attendus — Sonarr cesse de la surveiller, ses prochaines sorties n'arrivent pas. Elle se redemande aussitôt, en entier ou saison par saison. Une redemande faite depuis n'est jamais touchée
+### EN
+- **New setting — "A deleted series goes entirely"** (off by default): when a series is deleted from Jellyfin, its whole request goes, even for seasons and episodes still on their way — Sonarr stops monitoring it, its next releases don't come. It can be requested again right away, whole or season by season. A request made since is never touched
+
 ## [1.25.3]
 ### FR
 - **Un titre supprimé de Jellyfin se redemande tout de suite** : sa demande d'avant est considérée comme supprimée, comme le fait Jellyseerr — plus de « Demandé » qui bloque. Un film, une série entière ou une seule saison : chacun se redemande, saison par saison s'il le faut
