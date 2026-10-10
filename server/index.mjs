@@ -1252,23 +1252,6 @@ function buildArrUrl(server) {
   const base = server.baseUrl ? `/${server.baseUrl.replace(/^\/|\/$/g, "")}` : "";
   return `${protocol}://${server.hostname}:${server.port}${base}`;
 }
-async function getMediaExternalId(seerrUrl2, apiKey, mediaType, tmdbId) {
-  try {
-    const res = await fetch(`${seerrUrl2}/api/v1/${mediaType}/${tmdbId}`, {
-      headers: { "X-Api-Key": apiKey },
-      signal: AbortSignal.timeout(1e4)
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data.mediaInfo?.externalServiceId) return null;
-    return {
-      externalServiceId: data.mediaInfo.externalServiceId,
-      serviceId: data.mediaInfo.serviceId ?? 0
-    };
-  } catch {
-    return null;
-  }
-}
 async function arrFetch(server, path, init) {
   return fetch(`${buildArrUrl(server)}${path}`, {
     ...init,
@@ -1342,42 +1325,6 @@ async function cancelSonarrQueue(server, seriesId, seasons) {
     }
   } catch (err) {
     console.warn(`[ArrService] cancelSonarrQueue #${seriesId} failed:`, err);
-  }
-}
-async function unmonitorRadarrMovie(server, movieId) {
-  try {
-    const getRes = await arrFetch(server, `/api/v3/movie/${movieId}`);
-    if (getRes.status === 404) return true;
-    if (!getRes.ok) return false;
-    const movie = await getRes.json();
-    movie.monitored = false;
-    const putRes = await arrFetch(server, `/api/v3/movie/${movieId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(movie)
-    });
-    return putRes.ok || putRes.status === 404;
-  } catch (err) {
-    console.warn(`[ArrService] unmonitorRadarrMovie #${movieId} failed:`, err);
-    return false;
-  }
-}
-async function deleteRadarrMovieFile(server, movieId) {
-  try {
-    const res = await arrFetch(server, `/api/v3/moviefile?movieId=${movieId}`);
-    if (res.status === 404) return true;
-    if (!res.ok) return false;
-    const files = await res.json();
-    if (files.length === 0) return true;
-    let ok = true;
-    for (const f of files) {
-      const del = await arrFetch(server, `/api/v3/moviefile/${f.id}`, { method: "DELETE" });
-      if (!del.ok && del.status !== 404) ok = false;
-    }
-    return ok;
-  } catch (err) {
-    console.warn(`[ArrService] deleteRadarrMovieFile #${movieId} failed:`, err);
-    return false;
   }
 }
 async function cancelRadarrQueue(server, movieId) {
@@ -2979,6 +2926,102 @@ function statusNotification(request, newStatus) {
   }
 }
 
+// server/cleanup-arr.ts
+var LIVE_REQUEST = /* @__PURE__ */ new Set([1, 2, 5]);
+async function cleanArrForJob(config, job, media) {
+  const arrId = media?.externalServiceId;
+  if (!media || !arrId) return "no-target";
+  const server = await getArrServerConfig(config.seerrUrl, config.seerrApiKey, job.mediaType === "movie" ? "radarr" : "sonarr");
+  if (!server) return "no-target";
+  return job.mediaType === "movie" ? cleanMovie(server, arrId, job, media) : cleanSeries(server, arrId, job);
+}
+async function cleanMovie(server, movieId, job, media) {
+  const others = media.requests.filter((r) => r.id !== job.seerrRequestId && !r.is4k && LIVE_REQUEST.has(r.status));
+  if (others.length > 0) return "kept";
+  await cancelRadarrQueue(server, movieId);
+  if (!await removeRadarrMovie(server, movieId, job.deleteFiles)) throw new Error("Radarr remove failed");
+  return "removed";
+}
+async function cleanSeries(server, seriesId, job) {
+  await cancelSonarrQueue(server, seriesId, job.seasons);
+  if (!await unmonitorSonarrSeasons(server, seriesId, job.seasons)) throw new Error("Sonarr unmonitor failed");
+  if (job.deleteFiles && !await deleteSonarrSeasonFiles(server, seriesId, job.seasons)) {
+    throw new Error("Sonarr delete season files failed");
+  }
+  const outcome = await removeSonarrSeriesIfUnmonitored(server, seriesId, job.deleteFiles);
+  if (outcome === "failed") throw new Error("Sonarr remove failed");
+  return outcome === "removed" ? "removed" : "unmonitored";
+}
+async function removeRadarrMovie(server, movieId, deleteFiles) {
+  try {
+    const res = await arrFetch(server, `/api/v3/movie/${movieId}?deleteFiles=${deleteFiles}&addImportExclusion=false`, { method: "DELETE" });
+    return res.ok || res.status === 404;
+  } catch (err) {
+    console.warn(`[ArrService] removeRadarrMovie #${movieId} failed:`, err);
+    return false;
+  }
+}
+async function removeSonarrSeriesIfUnmonitored(server, seriesId, deleteFiles) {
+  try {
+    const res = await arrFetch(server, `/api/v3/series/${seriesId}`);
+    if (res.status === 404) return "removed";
+    if (!res.ok) return "failed";
+    const series = await res.json();
+    if ((series.seasons ?? []).some((s) => s.monitored)) return "kept";
+    const empty = series.statistics?.episodeFileCount === 0;
+    const del = await arrFetch(
+      server,
+      `/api/v3/series/${seriesId}?deleteFiles=${deleteFiles && empty}&addImportListExclusion=false`,
+      { method: "DELETE" }
+    );
+    return del.ok || del.status === 404 ? "removed" : "failed";
+  } catch (err) {
+    console.warn(`[ArrService] removeSonarrSeriesIfUnmonitored #${seriesId} failed:`, err);
+    return "failed";
+  }
+}
+
+// server/seerr-media.ts
+var CLAIMS_SOMETHING = /* @__PURE__ */ new Set([2, 3, 4, 5]);
+async function getSeerrMedia(cfg, mediaType, tmdbId) {
+  try {
+    const res = await fetch(`${cfg.seerrUrl}/api/v1/${mediaType}/${tmdbId}`, {
+      headers: { "X-Api-Key": cfg.seerrApiKey },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const m = data.mediaInfo;
+    if (!m || typeof m.id !== "number") return null;
+    return {
+      id: m.id,
+      status: m.status ?? 1,
+      externalServiceId: m.externalServiceId ?? null,
+      serviceId: m.serviceId ?? null,
+      requests: (m.requests ?? []).filter((r) => typeof r.id === "number").map((r) => ({ id: r.id, status: r.status ?? 0, is4k: r.is4k === true }))
+    };
+  } catch {
+    return null;
+  }
+}
+async function resetGoneMedia(cfg, mediaType, tmdbId, title) {
+  if (!goneFromJellyfin(mediaType, tmdbId)) return false;
+  const media = await getSeerrMedia(cfg, mediaType, tmdbId);
+  if (!media || media.requests.length > 0 || !CLAIMS_SOMETHING.has(media.status)) return false;
+  try {
+    const res = await fetch(`${cfg.seerrUrl}/api/v1/media/${media.id}`, {
+      method: "DELETE",
+      headers: { "X-Api-Key": cfg.seerrApiKey },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!res.ok && res.status !== 404) return false;
+    console.log(`[SeerWorker] \xAB ${title} \xBB n'est plus dans Jellyfin : son m\xE9dia Jellyseerr est remis \xE0 z\xE9ro (statut ${media.status} p\xE9rim\xE9)`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // server/seerr-reconcile.ts
 async function reconcileSeerrSeasons(db, config, tmdbId, removedSeasons) {
   if (removedSeasons.length === 0) return;
@@ -3064,41 +3107,17 @@ async function processCleanupJob(db, config, job) {
   try {
     if (job.action === "sync") {
       await triggerSeerrJob(config.seerrUrl, config.seerrApiKey, "availability-sync");
+      await resetGoneMedia(config, job.mediaType, job.tmdbId, job.title);
       await updateCleanupJob(db, job.id, "completed");
       invalidateForJob(job);
       console.log(`[SeerWorker] availability-sync re-d\xE9clench\xE9e pour "${job.title}"`);
       return;
     }
-    const arrType = job.mediaType === "movie" ? "radarr" : "sonarr";
-    const [server, ext] = await Promise.all([
-      getArrServerConfig(config.seerrUrl, config.seerrApiKey, arrType),
-      getMediaExternalId(config.seerrUrl, config.seerrApiKey, job.mediaType, job.tmdbId)
-    ]);
-    if (server && ext?.externalServiceId) {
-      const arrId = ext.externalServiceId;
-      if (job.mediaType === "movie") {
-        await cancelRadarrQueue(server, arrId);
-        const unmon = await unmonitorRadarrMovie(server, arrId);
-        if (!unmon) throw new Error("Radarr unmonitor failed");
-        if (job.deleteFiles) {
-          const del = await deleteRadarrMovieFile(server, arrId);
-          if (!del) throw new Error("Radarr delete file failed");
-        }
-      } else {
-        await cancelSonarrQueue(server, arrId, job.seasons);
-        const unmon = await unmonitorSonarrSeasons(server, arrId, job.seasons);
-        if (!unmon) throw new Error("Sonarr unmonitor failed");
-        if (job.deleteFiles) {
-          const del = await deleteSonarrSeasonFiles(server, arrId, job.seasons);
-          if (!del) throw new Error("Sonarr delete season files failed");
-        }
-      }
-      console.log(
-        `[SeerWorker] *arr cleanup for "${job.title}" (${arrType} #${arrId}, seasons=${job.seasons ? JSON.stringify(job.seasons) : "all"}, deleteFiles=${job.deleteFiles})`
-      );
-    } else {
-      console.log(`[SeerWorker] "${job.title}" : pas de cible *arr (jamais grab\xE9) \u2014 skip ops *arr`);
-    }
+    const media = await getSeerrMedia(config, job.mediaType, job.tmdbId);
+    const arr = await cleanArrForJob(config, job, media);
+    console.log(
+      `[SeerWorker] *arr pour "${job.title}" : ${arr} (saisons=${job.seasons ? JSON.stringify(job.seasons) : "toutes"}, fichiers supprim\xE9s=${job.deleteFiles})`
+    );
     if (job.seerrRequestId) {
       const delRes = await fetch(
         `${config.seerrUrl}/api/v1/request/${job.seerrRequestId}`,
@@ -3111,6 +3130,7 @@ async function processCleanupJob(db, config, job) {
     if (job.mediaType === "tv" && job.seasons && job.seasons.length > 0) {
       await reconcileSeerrSeasons(db, config, job.tmdbId, job.seasons);
     }
+    await resetGoneMedia(config, job.mediaType, job.tmdbId, job.title);
     await updateCleanupJob(db, job.id, "completed");
     if (job.requestId) {
       await deleteRequestById(db, job.requestId);
@@ -4848,6 +4868,41 @@ function parseRequestId(id) {
   return { kind: "local", id };
 }
 
+// server/request-delete-seerr.ts
+async function deleteSeerrOnlyRequest(db, config, user, seerrId, opts) {
+  const seerrReq = await fetchSeerrRequestById(config, seerrId);
+  if (!seerrReq) return { ok: false, code: 404, message: "Seerr request not found" };
+  if (!user.isAdmin) {
+    const settingsRows = await db.query(
+      `SELECT jellyseerr_user_id FROM seer_user_settings WHERE jellyfin_user_id = ? LIMIT 1`,
+      user.userId
+    );
+    const myId = settingsRows[0]?.jellyseerr_user_id ?? null;
+    if (!myId || seerrReq.requestedBy?.id !== myId) {
+      return { ok: false, code: 403, message: "Not your request" };
+    }
+  }
+  const seerrMediaType = seerrReq.media?.mediaType ?? "movie";
+  const seerrSeasons = (seerrReq.seasons ?? []).map((s) => s.seasonNumber).filter((n) => typeof n === "number");
+  const isSeasonSpecific = seerrMediaType === "tv" && !!opts.seasons && opts.seasons.length > 0;
+  const removing = isSeasonSpecific ? opts.seasons : seerrMediaType === "tv" && seerrSeasons.length > 0 ? seerrSeasons : null;
+  const remaining = isSeasonSpecific ? seerrSeasons.filter((s) => !removing.includes(s)) : [];
+  const partial = isSeasonSpecific && remaining.length > 0;
+  await enqueueCleanup(db, {
+    action: "delete",
+    mediaType: seerrMediaType,
+    tmdbId: seerrReq.media?.tmdbId ?? 0,
+    title: `#${seerrReq.id}`,
+    seerrRequestId: partial ? null : seerrReq.id,
+    seerrMediaId: seerrReq.media?.id ?? null,
+    deleteFiles: opts.deleteFiles,
+    seasons: removing,
+    requestId: null,
+    jellyfinUserId: user.userId
+  });
+  return { ok: true, status: partial ? "updated" : "deleting" };
+}
+
 // server/series-gaps.ts
 var AVAILABLE3 = 5;
 var PARTIAL2 = 4;
@@ -4933,6 +4988,10 @@ async function buildMergedRows(db, cfg, user, log) {
     seerrUnreachable = true;
     log?.(err, "Seerr fetch failed, falling back to local only");
   }
+  return assembleRows(db, { seerrRows, localPending, localBySeerrId, seerrUnreachable }, seasonStatesP);
+}
+async function assembleRows(db, parts, seasonStatesP) {
+  const { seerrRows, localPending, localBySeerrId, seerrUnreachable } = parts;
   const seerrSeenIds = new Set(seerrRows.map((r) => r.id));
   const localOnly = localPending.filter(
     (l) => !l.seerrRequestId || !seerrSeenIds.has(l.seerrRequestId)
@@ -5001,15 +5060,19 @@ function metaToDetail(meta) {
     firstAirDate: meta.mediaType === "tv" ? meta.releaseDate ?? void 0 : void 0
   };
 }
-function hydrateRows(rows, meta, user) {
+function hydrateRows(rows, meta, user, requesterOf) {
   const out = rows.localOnly.map(localToUnified);
+  const viewer = { jellyfinUserId: user.userId, username: user.username };
   for (const sr of rows.seerrRows) {
     if (!sr.media) continue;
     const detail = metaToDetail(meta.get(tmdbKey({ mediaType: sr.media.mediaType, tmdbId: sr.media.tmdbId })));
-    const unified = seerrRequestToUnified(sr, detail, rows.localBySeerrId, {
-      jellyfinUserId: user.userId,
-      username: user.username
-    }, rows.seasonStates?.get(sr.media.tmdbId));
+    const unified = seerrRequestToUnified(
+      sr,
+      detail,
+      rows.localBySeerrId,
+      requesterOf ? requesterOf(sr) : viewer,
+      rows.seasonStates?.get(sr.media.tmdbId)
+    );
     if (rows.deletingIds.has(sr.id)) unified.status = "deleting";
     out.push(unified);
   }
@@ -5025,7 +5088,8 @@ function filterAndPaginate(items, query) {
   }
   if (query.q) {
     const q = query.q.trim().toLowerCase();
-    if (q) filtered = filtered.filter((r) => (r.title ?? "").toLowerCase().includes(q));
+    const matches2 = (r) => (r.title ?? "").toLowerCase().includes(q) || query.byRequester === true && (r.username ?? "").toLowerCase().includes(q);
+    if (q) filtered = filtered.filter(matches2);
   }
   const total = filtered.length;
   const offset = (query.page - 1) * query.limit;
@@ -5034,6 +5098,34 @@ function filterAndPaginate(items, query) {
     total,
     page: query.page,
     pages: Math.max(1, Math.ceil(total / query.limit))
+  };
+}
+
+// server/requests-page.ts
+var PAGE_META_BUDGET = 20;
+async function requestsPage(db, config, rows, viewer, query, requesterOf) {
+  const refs = collectTmdbRefs(rows);
+  const { meta, missing } = await resolveTmdbMeta(db, config, refs, { maxFetch: 0 });
+  const hydrated = hydrateRows(rows, meta, viewer, requesterOf);
+  const verdicts = await arrVerdicts(config, hydrated).catch(() => /* @__PURE__ */ new Map());
+  let items = withArrStatus(hydrated, verdicts);
+  let result = filterAndPaginate(items, query);
+  if (missing.length > 0) {
+    const visible2 = new Set(result.results.map((r) => tmdbKey({ mediaType: r.mediaType, tmdbId: r.tmdbId })));
+    const onPage = missing.filter((r) => visible2.has(tmdbKey(r)));
+    if (onPage.length > 0) {
+      const filled = await resolveTmdbMeta(db, config, onPage, { maxFetch: PAGE_META_BUDGET });
+      for (const [k, v] of filled.meta) meta.set(k, v);
+      items = withArrStatus(hydrateRows(rows, meta, viewer, requesterOf), verdicts);
+      result = filterAndPaginate(items, query);
+    }
+    scheduleTmdbBackfill(db, config, missing);
+  }
+  return {
+    ...result,
+    stats: restat(rows.stats, hydrated, verdicts),
+    // > 0 : des titres manquent encore, le front repasse plus vite.
+    metaPending: pendingBackfillCount()
   };
 }
 
@@ -5066,7 +5158,6 @@ async function localRequestedSeasons(db, userId, tmdbId) {
 // server/routes-requests-read.ts
 var ROWS_TTL_MS = 6e4;
 var ROWS_STALE_MS = 6e5;
-var PAGE_META_BUDGET = 20;
 var rowsCacheKey = (userId) => `seer-cache:${userId}:rows`;
 function loadMergedRows(db, cfg, user, log) {
   return cached(rowsCacheKey(user.userId), ROWS_TTL_MS, () => buildMergedRows(db, cfg, user, log), { staleMs: ROWS_STALE_MS });
@@ -5076,14 +5167,6 @@ function registerRequestReadRoutes(app, db, getWorkerConfig2) {
   app.get("/requests", async (request) => {
     const user = getUser(request);
     const query = request.query;
-    if (user.isAdmin && query.status === "all_users") {
-      const list = await getAllRequests(db, {
-        page: Number(query.page) || 1,
-        limit: Number(query.limit) || 20,
-        mediaType: query.type
-      });
-      return { ...list, results: list.results.map(localToUnified) };
-    }
     const page = Number(query.page) || 1;
     const limit = Math.min(Number(query.limit) || 20, 100);
     const config = await getWorkerConfig2();
@@ -5092,31 +5175,7 @@ function registerRequestReadRoutes(app, db, getWorkerConfig2) {
       return { ...local, results: local.results.map(localToUnified) };
     }
     const rows = await loadRows(config, user);
-    const refs = collectTmdbRefs(rows);
-    const { meta, missing } = await resolveTmdbMeta(db, config, refs, { maxFetch: 0 });
-    const hydrated = hydrateRows(rows, meta, user);
-    const verdicts = await arrVerdicts(config, hydrated).catch(() => /* @__PURE__ */ new Map());
-    let items = withArrStatus(hydrated, verdicts);
-    let result = filterAndPaginate(items, { page, limit, status: query.status, type: query.type, q: query.q });
-    if (missing.length > 0) {
-      const visible2 = new Set(
-        result.results.map((r) => tmdbKey({ mediaType: r.mediaType, tmdbId: r.tmdbId }))
-      );
-      const onPage = missing.filter((r) => visible2.has(tmdbKey(r)));
-      if (onPage.length > 0) {
-        const filled = await resolveTmdbMeta(db, config, onPage, { maxFetch: PAGE_META_BUDGET });
-        for (const [k, v] of filled.meta) meta.set(k, v);
-        items = withArrStatus(hydrateRows(rows, meta, user), verdicts);
-        result = filterAndPaginate(items, { page, limit, status: query.status, type: query.type, q: query.q });
-      }
-      scheduleTmdbBackfill(db, config, missing);
-    }
-    return {
-      ...result,
-      stats: restat(rows.stats, hydrated, verdicts),
-      // > 0 : des titres manquent encore, le front repasse plus vite.
-      metaPending: pendingBackfillCount()
-    };
+    return requestsPage(db, config, rows, user, { page, limit, status: query.status, type: query.type, q: query.q });
   });
   app.get("/requests/stats", async (request) => {
     const user = getUser(request);
@@ -5584,10 +5643,10 @@ function registerRequestRoutes(app, db, getWorkerConfig2) {
         return reply.status(403).send({ message: "Not your request" });
       }
       const reqSeasons = req.seasons ?? [];
-      const isSeasonSpecific2 = req.mediaType === "tv" && !!body.seasons && body.seasons.length > 0;
-      const removing2 = isSeasonSpecific2 ? body.seasons : req.mediaType === "tv" && reqSeasons.length > 0 ? reqSeasons : null;
-      const remaining2 = isSeasonSpecific2 ? reqSeasons.filter((s) => !removing2.includes(s)) : [];
-      const partial2 = isSeasonSpecific2 && remaining2.length > 0;
+      const isSeasonSpecific = req.mediaType === "tv" && !!body.seasons && body.seasons.length > 0;
+      const removing = isSeasonSpecific ? body.seasons : req.mediaType === "tv" && reqSeasons.length > 0 ? reqSeasons : null;
+      const remaining = isSeasonSpecific ? reqSeasons.filter((s) => !removing.includes(s)) : [];
+      const partial = isSeasonSpecific && remaining.length > 0;
       await enqueueCleanup(db, {
         action: "delete",
         mediaType: req.mediaType,
@@ -5595,59 +5654,31 @@ function registerRequestRoutes(app, db, getWorkerConfig2) {
         title: req.title,
         // En partiel on préserve la demande Jellyseerr et la ligne locale
         // (les saisons conservées restent suivies) ; on agit uniquement sur *arr.
-        seerrRequestId: partial2 ? null : req.seerrRequestId,
+        seerrRequestId: partial ? null : req.seerrRequestId,
         seerrMediaId: req.seerrMediaId,
         deleteFiles,
-        seasons: removing2,
-        requestId: partial2 ? null : parsed.id,
+        seasons: removing,
+        requestId: partial ? null : parsed.id,
         // Propriétaire réel : un admin peut supprimer la demande d'un tiers,
         // et c'est SON cache à lui qu'il faut invalider, pas celui de tout le monde.
         jellyfinUserId: req.jellyfinUserId
       });
-      if (partial2) {
-        await addSeasonsToRequest(db, parsed.id, remaining2);
+      if (partial) {
+        await addSeasonsToRequest(db, parsed.id, remaining);
       } else {
         await updateRequestStatus(db, parsed.id, "deleting");
       }
       invalidateRequestCaches(user.userId);
       kickWorkerNow();
-      return { success: true, status: partial2 ? "updated" : "deleting" };
+      return { success: true, status: partial ? "updated" : "deleting" };
     }
     const config = await getWorkerConfig2();
     if (!config) return reply.status(503).send({ message: "Seerr not configured" });
-    const seerrReq = await fetchSeerrRequestById(config, parsed.seerrId);
-    if (!seerrReq) return reply.status(404).send({ message: "Seerr request not found" });
-    if (!user.isAdmin) {
-      const settingsRows = await db.query(
-        `SELECT jellyseerr_user_id FROM seer_user_settings WHERE jellyfin_user_id = ? LIMIT 1`,
-        user.userId
-      );
-      const myId = settingsRows[0]?.jellyseerr_user_id ?? null;
-      if (!myId || seerrReq.requestedBy?.id !== myId) {
-        return reply.status(403).send({ message: "Not your request" });
-      }
-    }
-    const seerrMediaType = seerrReq.media?.mediaType ?? "movie";
-    const seerrSeasons = (seerrReq.seasons ?? []).map((s) => s.seasonNumber).filter((n) => typeof n === "number");
-    const isSeasonSpecific = seerrMediaType === "tv" && !!body.seasons && body.seasons.length > 0;
-    const removing = isSeasonSpecific ? body.seasons : seerrMediaType === "tv" && seerrSeasons.length > 0 ? seerrSeasons : null;
-    const remaining = isSeasonSpecific ? seerrSeasons.filter((s) => !removing.includes(s)) : [];
-    const partial = isSeasonSpecific && remaining.length > 0;
-    await enqueueCleanup(db, {
-      action: "delete",
-      mediaType: seerrMediaType,
-      tmdbId: seerrReq.media?.tmdbId ?? 0,
-      title: `#${seerrReq.id}`,
-      seerrRequestId: partial ? null : seerrReq.id,
-      seerrMediaId: seerrReq.media?.id ?? null,
-      deleteFiles,
-      seasons: removing,
-      requestId: null,
-      jellyfinUserId: user.userId
-    });
+    const done = await deleteSeerrOnlyRequest(db, config, user, parsed.seerrId, { seasons: body.seasons, deleteFiles });
+    if (!done.ok) return reply.status(done.code).send({ message: done.message });
     invalidateRequestCaches(user.userId);
     kickWorkerNow();
-    return { success: true, status: partial ? "updated" : "deleting" };
+    return { success: true, status: done.status };
   });
 }
 
@@ -5666,6 +5697,14 @@ function registerBulkRoutes(app, db, getWorkerConfig2) {
     let errors = 0;
     for (const id of body.ids.slice(0, 50)) {
       try {
+        const parsed = parseRequestId(id);
+        if (parsed.kind === "seerr") {
+          const config = await getWorkerConfig2();
+          const done = config ? await deleteSeerrOnlyRequest(db, config, user, parsed.seerrId, { deleteFiles: false }) : null;
+          if (done?.ok) deleted++;
+          else errors++;
+          continue;
+        }
         const req = await getRequestById(db, id);
         if (!req) {
           errors++;
@@ -6544,22 +6583,116 @@ function registerProgressRoutes(app, db, getWorkerConfig2, requireAdmin) {
     if (!config) return { updatedAt: (/* @__PURE__ */ new Date()).toISOString(), items: [] };
     return cached(`seer-cache:${user.userId}:progress`, PROGRESS_TTL_MS, async () => {
       const rows = await loadMergedRows(db, config, user, (err, msg) => app.log?.warn?.({ err }, msg));
-      const requests = hydrateRows(rows, /* @__PURE__ */ new Map(), user).filter((r) => IN_FLIGHT.has(r.status));
-      const verdicts = await arrVerdicts(config, requests);
-      const items = [];
-      for (const r of requests) {
-        const verdict = verdicts.get(r.id);
-        if (!verdict || !verdict.download && verdict.status === r.status) continue;
-        items.push({
-          id: r.id,
-          tmdbId: r.tmdbId,
-          mediaType: r.mediaType,
-          status: verdict.status,
-          download: verdict.download ?? void 0,
-          downloads: verdict.downloads
-        });
-      }
-      return { updatedAt: (/* @__PURE__ */ new Date()).toISOString(), items };
+      return progressOf(config, hydrateRows(rows, /* @__PURE__ */ new Map(), user));
+    });
+  });
+}
+async function progressOf(config, list) {
+  const requests = list.filter((r) => IN_FLIGHT.has(r.status));
+  const verdicts = await arrVerdicts(config, requests);
+  const items = [];
+  for (const r of requests) {
+    const verdict = verdicts.get(r.id);
+    if (!verdict || !verdict.download && verdict.status === r.status) continue;
+    items.push({
+      id: r.id,
+      tmdbId: r.tmdbId,
+      mediaType: r.mediaType,
+      status: verdict.status,
+      download: verdict.download ?? void 0,
+      downloads: verdict.downloads
+    });
+  }
+  return { updatedAt: (/* @__PURE__ */ new Date()).toISOString(), items };
+}
+
+// server/calendar-everyone.ts
+var LOCAL_PENDING_STATUSES2 = [
+  "queued",
+  "processing",
+  "retry_pending",
+  "failed",
+  "deleting",
+  "delete_failed"
+];
+var EVERYONE_ROWS_KEY = "seer:rows:everyone";
+async function buildEveryoneRows(db, cfg, log) {
+  const localPendingRows = await db.query(
+    `SELECT * FROM seer_requests
+     WHERE status IN (${LOCAL_PENDING_STATUSES2.map(() => "?").join(",")})
+     ORDER BY created_at DESC, id ASC`,
+    ...LOCAL_PENDING_STATUSES2
+  );
+  const localPending = localPendingRows.map(rowToRequest);
+  const localBySeerrId = /* @__PURE__ */ new Map();
+  const allLocalRows = await db.query(
+    `SELECT * FROM seer_requests WHERE seerr_request_id IS NOT NULL`
+  );
+  for (const row of allLocalRows) {
+    const r = rowToRequest(row);
+    if (r.seerrRequestId) localBySeerrId.set(r.seerrRequestId, r);
+  }
+  let seerrRows = [];
+  let seerrUnreachable = false;
+  const seasonStatesP = partialSeriesSeasons(cfg);
+  try {
+    const all = await fetchAllSeerrRequests(cfg, null);
+    seerrRows = all.rows;
+  } catch (err) {
+    seerrUnreachable = true;
+    log?.(err, "Seerr fetch (tous) failed, falling back to local only");
+  }
+  return assembleRows(db, { seerrRows, localPending, localBySeerrId, seerrUnreachable }, seasonStatesP);
+}
+function loadEveryoneRows(db, cfg, log) {
+  return cached(EVERYONE_ROWS_KEY, 6e4, () => buildEveryoneRows(db, cfg, log), { staleMs: 6e5 });
+}
+
+// server/routes-requests-all.ts
+var PROGRESS_TTL_MS2 = 1e4;
+async function requesterResolver(db) {
+  const rows = await db.query(
+    `SELECT jellyfin_user_id, username, jellyseerr_user_id FROM seer_user_settings WHERE jellyseerr_user_id IS NOT NULL`
+  ).catch(() => []);
+  const byId = new Map(rows.map((r) => [Number(r.jellyseerr_user_id), r]));
+  return (sr) => {
+    const by = sr.requestedBy;
+    const known = by ? byId.get(by.id) : void 0;
+    return {
+      jellyfinUserId: known?.jellyfin_user_id ?? by?.jellyfinUserId ?? "",
+      username: known?.username || by?.jellyfinUsername || by?.displayName || by?.username || (by ? `#${by.id}` : "?")
+    };
+  };
+}
+function registerAllRequestsRoutes(app, db, getWorkerConfig2, requireAdmin) {
+  const warn = (err, msg) => app.log?.warn?.({ err }, msg);
+  app.get("/admin/requests", { preHandler: requireAdmin }, async (request) => {
+    const user = getUser(request);
+    const query = request.query;
+    const page = Number(query.page) || 1;
+    const limit = Math.min(Number(query.limit) || 20, 100);
+    const config = await getWorkerConfig2();
+    if (!config) {
+      const local = await getAllRequests(db, { page, limit, mediaType: query.type });
+      return { ...local, results: local.results.map(localToUnified) };
+    }
+    const rows = await loadEveryoneRows(db, config, warn);
+    return requestsPage(
+      db,
+      config,
+      rows,
+      user,
+      { page, limit, status: query.status, type: query.type, q: query.q, byRequester: true },
+      await requesterResolver(db)
+    );
+  });
+  app.get("/admin/requests/progress", { preHandler: requireAdmin }, async (request) => {
+    const user = getUser(request);
+    const config = await getWorkerConfig2();
+    if (!config) return { updatedAt: (/* @__PURE__ */ new Date()).toISOString(), items: [] };
+    return cached("seer:progress:everyone", PROGRESS_TTL_MS2, async () => {
+      const rows = await loadEveryoneRows(db, config, warn);
+      return progressOf(config, hydrateRows(rows, /* @__PURE__ */ new Map(), user, await requesterResolver(db)));
     });
   });
 }
@@ -6608,56 +6741,6 @@ function capPerSeriesFuture(items, max, today) {
     if (n <= max) out.push(item);
   }
   return out;
-}
-
-// server/calendar-everyone.ts
-var LOCAL_PENDING_STATUSES2 = [
-  "queued",
-  "processing",
-  "retry_pending",
-  "failed",
-  "deleting",
-  "delete_failed"
-];
-var NO_STATS = { total: 0, byStatus: {}, byType: { movie: 0, tv: 0 } };
-async function buildEveryoneRows(db, cfg, log) {
-  const localPendingRows = await db.query(
-    `SELECT * FROM seer_requests
-     WHERE status IN (${LOCAL_PENDING_STATUSES2.map(() => "?").join(",")})
-     ORDER BY created_at DESC, id ASC`,
-    ...LOCAL_PENDING_STATUSES2
-  );
-  const localPending = localPendingRows.map(rowToRequest);
-  const localBySeerrId = /* @__PURE__ */ new Map();
-  const allLocalRows = await db.query(
-    `SELECT * FROM seer_requests WHERE seerr_request_id IS NOT NULL`
-  );
-  for (const row of allLocalRows) {
-    const r = rowToRequest(row);
-    if (r.seerrRequestId) localBySeerrId.set(r.seerrRequestId, r);
-  }
-  let seerrRows = [];
-  let seerrUnreachable = false;
-  try {
-    const all = await fetchAllSeerrRequests(cfg, null);
-    seerrRows = all.rows;
-  } catch (err) {
-    seerrUnreachable = true;
-    log?.(err, "Seerr fetch (tous) failed, falling back to local only");
-  }
-  const seerrSeenIds = new Set(seerrRows.map((r) => r.id));
-  const localOnly = localPending.filter(
-    (l) => !l.seerrRequestId || !seerrSeenIds.has(l.seerrRequestId)
-  );
-  return {
-    seerrRows,
-    localBySeerrId,
-    localOnly,
-    deletingIds: /* @__PURE__ */ new Set(),
-    stats: NO_STATS,
-    fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    seerrUnreachable
-  };
 }
 
 // server/calendar-freshness.ts
@@ -7012,9 +7095,7 @@ async function buildCalendarStore(db, cfg, region, from, to, warn) {
     sourceOrFallback(discoverTvTopProviders(cfg, region), [], fail("plateformes")),
     sourceOrFallback(sonarrWindowEpisodes(cfg, from, to), [], fail("calendrier Sonarr")),
     // Ne lève jamais : repli local interne + drapeau seerrUnreachable.
-    cached("seer:rows:everyone", 6e4, () => buildEveryoneRows(db, cfg, warn), {
-      staleMs: 6e5
-    })
+    loadEveryoneRows(db, cfg, warn)
   ]);
   if (rows.seerrUnreachable === true) degraded = true;
   const requests = await buildPersonalCalendar(db, cfg, rows, {
@@ -7554,12 +7635,7 @@ function registerCalendarRoutes(app, db, getWorkerConfig2) {
       key,
       PERSONAL_TTL_MS,
       async () => {
-        const rows = everyone ? await cached(
-          "seer:rows:everyone",
-          6e4,
-          () => buildEveryoneRows(db, config, warn),
-          { staleMs: 6e5 }
-        ) : await cached(
+        const rows = everyone ? await loadEveryoneRows(db, config, warn) : await cached(
           rowsCacheKey(user.userId),
           6e4,
           () => buildMergedRows(db, config, user, warn),
@@ -10090,6 +10166,7 @@ function registerTitleGapRoutes(app, db, getWorkerConfig2) {
 }
 
 // server/live/jellyfin-check.ts
+var isReal = (it) => it.LocationType !== "Virtual";
 var LIMIT = 50;
 function tmdbOf2(ids) {
   if (!ids) return null;
@@ -10152,6 +10229,7 @@ async function wholeIndex(s) {
 async function seasonsOf2(s, seriesId) {
   const params = new URLSearchParams({
     userId: s.userId,
+    IsMissing: "false",
     Fields: "",
     EnableImages: "false",
     EnableUserData: "false"
@@ -10163,7 +10241,9 @@ async function seasonsOf2(s, seriesId) {
   if (!res.ok) throw new Error(`Jellyfin GET /Shows/{id}/Episodes ${res.status}`);
   const data = await res.json();
   const out = /* @__PURE__ */ new Set();
-  for (const ep of data.Items ?? []) if (typeof ep.ParentIndexNumber === "number") out.add(ep.ParentIndexNumber);
+  for (const ep of data.Items ?? []) {
+    if (isReal(ep) && typeof ep.ParentIndexNumber === "number") out.add(ep.ParentIndexNumber);
+  }
   return out;
 }
 async function checkInJellyfin(db, targets) {
@@ -10187,12 +10267,13 @@ async function checkInJellyfin(db, targets) {
         index ??= await wholeIndex(s);
         item = index.get(keyOf(t)) ?? null;
       }
-      if (!item?.Id) {
+      if (!item?.Id || !isReal(item)) {
         out.set(keyOf(t), { present: false, presentSeasons: t.mediaType === "tv" ? /* @__PURE__ */ new Set() : void 0 });
         continue;
       }
-      if (t.mediaType === "tv" && t.seasons && t.seasons.length > 0) {
-        out.set(keyOf(t), { present: true, presentSeasons: await seasonsOf2(s, item.Id) });
+      if (t.mediaType === "tv") {
+        const presentSeasons = await seasonsOf2(s, item.Id);
+        out.set(keyOf(t), { present: presentSeasons.size > 0, presentSeasons });
       } else {
         out.set(keyOf(t), { present: true });
       }
@@ -10397,6 +10478,9 @@ async function applyIndexChange(db, cfg, change) {
 }
 
 // server/live/auto-forget-plan.ts
+function madeBefore(createdAt, at) {
+  return createdAt == null || !Number.isFinite(createdAt) || createdAt <= at;
+}
 var FORGET_GRACE_MS = 10 * 6e4;
 var MASS_WINDOW_MS = 60 * 6e4;
 var MASS_TITLES = 20;
@@ -10411,14 +10495,14 @@ function forgetCandidates({ departures, options, now, graceMs = FORGET_GRACE_MS 
 function planJobs(dep, requests) {
   const jobs = [];
   for (const r of requests) {
-    if (!isLiveRequest(r)) continue;
+    if (!isLiveRequest(r) || !madeBefore(r.createdAt, dep.at)) continue;
     const base = { localId: r.localId, jellyfinUserId: r.jellyfinUserId };
     if (dep.mediaType === "movie") {
       jobs.push({ ...base, seerrRequestId: r.seerrRequestId, seasons: null, whole: true });
       continue;
     }
-    if (dep.whole) {
-      jobs.push({ ...base, seerrRequestId: r.seerrRequestId, seasons: r.seasons.length > 0 ? [...r.seasons] : null, whole: true });
+    if (r.seasons.length === 0) {
+      if (dep.whole) jobs.push({ ...base, seerrRequestId: r.seerrRequestId, seasons: null, whole: true });
       continue;
     }
     const gone = r.seasons.filter((s) => dep.seasons.includes(s));
@@ -10430,6 +10514,10 @@ function planJobs(dep, requests) {
 }
 
 // server/live/auto-forget.ts
+var msOf = (iso) => {
+  const ms2 = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(ms2) ? ms2 : null;
+};
 var COOLDOWN_MS = 15 * 6e4;
 var MASS_WARN_EVERY_MS = 60 * 6e4;
 var TITLES_PER_PASS = 5;
@@ -10470,7 +10558,7 @@ function createAutoForget(db, readConfig) {
       return;
     }
     if (plan.kind !== "ready") return;
-    const targets = plan.departures.filter((d) => !handled.has(`${d.mediaType}:${d.tmdbId}`)).filter((d) => (requestIndex.requestsFor(d.mediaType, d.tmdbId) ?? []).some(isLiveRequest)).slice(0, TITLES_PER_PASS);
+    const targets = plan.departures.filter((d) => !handled.has(`${d.mediaType}:${d.tmdbId}`)).filter((d) => (requestIndex.requestsFor(d.mediaType, d.tmdbId) ?? []).some((r) => isLiveRequest(r) && madeBefore(msOf(r.createdAt), d.at))).slice(0, TITLES_PER_PASS);
     if (targets.length === 0) return;
     const checks = await checkInJellyfin(db, targets.map((d) => ({ mediaType: d.mediaType, tmdbId: d.tmdbId, seasons: d.seasons })));
     let enqueued = 0;
@@ -10507,7 +10595,8 @@ async function forgetTitle(db, dep) {
       seasons: r.seasons,
       is4k: r.is4k,
       localId: local?.id ?? null,
-      jellyfinUserId: local?.jellyfinUserId ?? r.requestedBy.jellyfinUserId
+      jellyfinUserId: local?.jellyfinUserId ?? r.requestedBy.jellyfinUserId,
+      createdAt: msOf(r.createdAt)
     };
   });
   const jobs = planJobs(dep, requests);
@@ -10632,6 +10721,7 @@ async function seerBackend(app, ctx) {
   registerConnectionRoutes(app, ctx.requireAdmin);
   registerAvailabilityRoutes(app, db, gwc);
   registerProgressRoutes(app, db, gwc, ctx.requireAdmin);
+  registerAllRequestsRoutes(app, db, gwc, ctx.requireAdmin);
   registerCalendarRoutes(app, db, gwc);
   registerMiscRoutes(app, db, gwc, ctx.requireAdmin);
   await registerSearchRoutes(app, db, gwc);
