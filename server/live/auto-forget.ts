@@ -23,8 +23,14 @@ import { liveState } from "./live-state";
 import { requestIndex } from "./request-index";
 import { openLocalRequestsFor } from "./local-requests";
 import { isLiveRequest } from "./title-truth";
-import { forgetCandidates, planJobs, type ForgetOptions, type ForgetRequest } from "./auto-forget-plan";
+import { forgetCandidates, madeBefore, planJobs, type ForgetOptions, type ForgetRequest } from "./auto-forget-plan";
 import type { Departure } from "./library-keys";
+
+/** La date ISO d'une demande Jellyseerr, en ms ; `null` si elle manque. */
+const msOf = (iso: string | null): number | null => {
+  const ms = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(ms) ? ms : null;
+};
 
 /** Un titre traité n'est pas repris avant que la file de nettoyage ait eu le temps d'agir. */
 const COOLDOWN_MS = 15 * 60_000;
@@ -76,9 +82,11 @@ export function createAutoForget(db: PrismaClient, readConfig: () => PluginConfi
     }
     if (plan.kind !== "ready") return;
 
+    // Seulement les titres dont une demande d'AVANT le départ vit encore : une redemande reste.
     const targets = plan.departures
       .filter((d) => !handled.has(`${d.mediaType}:${d.tmdbId}`))
-      .filter((d) => (requestIndex.requestsFor(d.mediaType, d.tmdbId) ?? []).some(isLiveRequest))
+      .filter((d) => (requestIndex.requestsFor(d.mediaType, d.tmdbId) ?? [])
+        .some((r) => isLiveRequest(r) && madeBefore(msOf(r.createdAt), d.at)))
       .slice(0, TITLES_PER_PASS);
     if (targets.length === 0) return;
 
@@ -118,6 +126,7 @@ async function forgetTitle(db: PrismaClient, dep: Departure): Promise<number> {
       seerrRequestId: r.id, status: r.status, seasons: r.seasons, is4k: r.is4k,
       localId: local?.id ?? null,
       jellyfinUserId: local?.jellyfinUserId ?? r.requestedBy.jellyfinUserId,
+      createdAt: msOf(r.createdAt),
     };
   });
   const jobs = planJobs(dep, requests);

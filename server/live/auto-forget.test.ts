@@ -186,6 +186,24 @@ test("option désactivée, ou suppression d'avant l'activation : rien ne part", 
   assert.deepEqual(jobs, []);
 });
 
+test("une redemande, faite APRÈS le départ du titre, n'est jamais retirée", async () => {
+  const at = Date.now() - FORGET_GRACE_MS - 5_000;
+  liveState.setLibrary(buildSnapshotRows([["m:t:603", false, at]]));
+  const before = { ...indexed(1, 603, REQUEST.COMPLETED), createdAt: new Date(at - 86_400_000).toISOString() };
+  const after = { ...indexed(2, 603, REQUEST.APPROVED), createdAt: new Date(at + 60_000).toISOString() };
+  // La demande d'avant part ; la redemande reste.
+  requestIndex.seed([before, after]);
+  await createAutoForget(prisma, () => config)(cfg, Date.now());
+  assert.deepEqual(jobs.map((j) => j.seerrRequestId), [1]);
+  // Seule la redemande reste : l'option ne la touche pas, même plus tard.
+  requestIndex.seed([after]);
+  await createAutoForget(prisma, () => config)(cfg, Date.now() + 3_600_000);
+  assert.deepEqual(jobs.map((j) => j.seerrRequestId), [1]);
+  assert.deepEqual(planJobs(movieDeparture(603, at), [
+    { seerrRequestId: 2, status: REQUEST.APPROVED, seasons: [], localId: null, jellyfinUserId: "u1", createdAt: at + 60_000 },
+  ]), []);
+});
+
 test("une vague de départs (disque débranché) : rien ne part", async () => {
   const at = Date.now() - FORGET_GRACE_MS - 5_000;
   const rows = Array.from({ length: MASS_TITLES + 5 }, (_, i) => [`m:t:${1000 + i}`, false, at] as [string, boolean, number]);

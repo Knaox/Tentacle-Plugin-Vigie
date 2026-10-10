@@ -18,7 +18,15 @@
  *   - Une vague de départs (un disque débranché, un partage réseau perdu) ne
  *     supprime RIEN : au-delà de `MASS_TITLES` titres partis en une heure,
  *     Vigie s'abstient et le dit dans le journal.
+ *   - Seules les demandes nées AVANT le départ du titre : une demande faite
+ *     après est une REDEMANDE — sans cette garde, redemander un titre supprimé
+ *     était impossible, l'option la retirait dans la minute.
  */
+
+/** Une demande née avant le départ (ou sans date connue) : celles que l'option peut retirer. */
+export function madeBefore(createdAt: number | null | undefined, at: number): boolean {
+  return createdAt == null || !Number.isFinite(createdAt) || createdAt <= at;
+}
 
 import type { Departure } from "./library-keys";
 import { REQUEST, isLiveRequest } from "./title-truth";
@@ -65,6 +73,8 @@ export interface ForgetRequest {
   /** La ligne de la file locale qui la suit, s'il y en a une. */
   localId: string | null;
   jellyfinUserId: string | null;
+  /** Sa création chez Jellyseerr (ms) : née après le départ, c'est une redemande. */
+  createdAt?: number | null;
 }
 
 export interface ForgetJob {
@@ -98,7 +108,7 @@ export interface ForgetJob {
 export function planJobs(dep: Departure, requests: readonly ForgetRequest[]): ForgetJob[] {
   const jobs: ForgetJob[] = [];
   for (const r of requests) {
-    if (!isLiveRequest(r)) continue;
+    if (!isLiveRequest(r) || !madeBefore(r.createdAt, dep.at)) continue;
     const base = { localId: r.localId, jellyfinUserId: r.jellyfinUserId };
     if (dep.mediaType === "movie") {
       jobs.push({ ...base, seerrRequestId: r.seerrRequestId, seasons: null, whole: true });
