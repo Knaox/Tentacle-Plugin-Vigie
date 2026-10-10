@@ -2422,6 +2422,12 @@ var LiveState = class {
   digest = "";
   checks = /* @__PURE__ */ new Map();
   policy = { wholeSeries: false };
+  /**
+   * Les fenêtres où un départ est SUSPECT (panne des dossiers, vague) tant
+   * que Jellyfin n'a pas relu sa bibliothèque (departure-watch.ts) : un titre
+   * parti là n'est pas « supprimé » — sa demande d'avant le retient encore.
+   */
+  suspect = [];
   gen = 0;
   /** Change dès que l'état d'un titre a pu changer (bibliothèque, Jellyfin, demandes). */
   get generation() {
@@ -2436,9 +2442,27 @@ var LiveState = class {
     this.policy = { ...policy };
     this.gen++;
   }
+  setSuspect(windows) {
+    const same = windows.length === this.suspect.length && windows.every((w, i) => w.start === this.suspect[i].start && w.end === this.suspect[i].end);
+    if (same) return;
+    this.suspect = windows.map((w) => ({ ...w }));
+    this.gen++;
+  }
+  /** Un départ à cet instant vaut-il suppression (hors de toute fenêtre suspecte) ? */
+  trusted(at) {
+    return !this.suspect.some((w) => at >= w.start && at <= w.end);
+  }
+  /** Les départs de saisons qui valent suppression, parmi `seasons` (toutes si absent). */
+  trustedSeasons(departed, seasons) {
+    if (!departed) return void 0;
+    const out = /* @__PURE__ */ new Map();
+    for (const [season, at] of departed) if ((!seasons || seasons.has(season)) && this.trusted(at)) out.set(season, at);
+    return out;
+  }
   /** Pour les tests : rien de connu. */
   reset() {
     this.policy = { wholeSeries: false };
+    this.suspect = [];
     this.snapshot = emptySnapshot();
     this.libraryReadable = false;
     this.digest = "";
@@ -2502,35 +2526,26 @@ var LiveState = class {
         const at = facts.departed.get(season) ?? 0;
         if (this.settled(key, at, now, (c) => !c.presentSeasons?.has(season))) gone.add(season);
       }
-      return { state: "present", goneSeasons: gone, presentSeasons: base.presentSeasons, seasonDepartedAt: departuresOfSeasons(facts.departed, gone) };
+      return { state: "present", goneSeasons: gone, presentSeasons: base.presentSeasons, seasonDepartedAt: this.trustedSeasons(facts.departed, gone) };
     }
     if (this.settled(key, base.since, now, (c) => !c.present)) {
       return {
         state: "gone",
         goneSeasons: base.goneSeasons,
         presentSeasons: NO_SEASONS,
-        departedAt: base.since,
-        seasonDepartedAt: facts?.departed
+        departedAt: this.trusted(base.since) ? base.since : null,
+        seasonDepartedAt: this.trustedSeasons(facts?.departed)
       };
     }
     const check2 = this.checks.get(key);
     if (check2 && check2.at >= base.since && check2.present) {
       const present = check2.presentSeasons ?? NO_SEASONS;
       const gone = new Set([...base.goneSeasons].filter((s) => check2.presentSeasons && !present.has(s)));
-      return { state: "present", goneSeasons: gone, presentSeasons: present, seasonDepartedAt: departuresOfSeasons(facts?.departed, gone) };
+      return { state: "present", goneSeasons: gone, presentSeasons: present, seasonDepartedAt: this.trustedSeasons(facts?.departed, gone) };
     }
     return UNKNOWN_LIBRARY;
   }
 };
-function departuresOfSeasons(departed, gone) {
-  if (!departed || gone.size === 0) return void 0;
-  const out = /* @__PURE__ */ new Map();
-  for (const season of gone) {
-    const at = departed.get(season);
-    if (at !== void 0) out.set(season, at);
-  }
-  return out;
-}
 function sameSet(a, b) {
   if (!a || !b) return !a && !b;
   if (a.size !== b.size) return false;
@@ -5616,7 +5631,7 @@ function tmdbOf(ids) {
   return null;
 }
 var typeOf = (t) => t.mediaType === "movie" ? "Movie" : "Series";
-async function session(db) {
+async function jellyfinSession(db) {
   const creds = await jellyfinCredentials(db);
   if (!creds) return null;
   const accounts = await fetchJellyfinAccounts(db);
@@ -5693,7 +5708,7 @@ async function checkInJellyfin(db, targets) {
   const keyOf = (t) => `${t.mediaType}:${t.tmdbId}`;
   let s = null;
   try {
-    s = await session(db);
+    s = await jellyfinSession(db);
   } catch {
     s = null;
   }
@@ -5784,11 +5799,27 @@ function mergeWaves(waves) {
   return out;
 }
 var inWave = (at, waves) => waves.some((w) => at >= w.start && at <= w.end);
-function forgetCandidates({ departures, now, graceMs = FORGET_GRACE_MS, knownWaves = [] }) {
+function unconfirmedWindows(waves, outages, lastScanEnd) {
+  const windows = mergeWaves([...waves, ...outages.map((o) => ({ start: o.start - MASS_WINDOW_MS, end: o.end }))]);
+  return windows.filter((w) => lastScanEnd === null || lastScanEnd <= w.end);
+}
+function forgetCandidates({
+  departures,
+  candidates = departures,
+  now,
+  graceMs = FORGET_GRACE_MS,
+  knownWaves = [],
+  outages = [],
+  storage = "ok",
+  lastScanEnd = null
+}) {
   const waves = mergeWaves([...knownWaves, ...wavesOf(departures)]);
-  const held = departures.filter((d) => inWave(d.at, waves));
-  const ready = departures.filter((d) => !inWave(d.at, waves) && now - d.at >= graceMs);
-  return { ready, held: held.length, waves };
+  const unconfirmed = unconfirmedWindows(waves, outages, lastScanEnd);
+  const graced = candidates.filter((d) => now - d.at >= graceMs);
+  if (storage !== "ok") return { ready: [], held: graced.length, waves, unconfirmed, scanNeeded: false };
+  const ready = graced.filter((d) => !inWave(d.at, unconfirmed));
+  const scanNeeded = graced.length > ready.length && unconfirmed.some((w) => now - w.end >= graceMs);
+  return { ready, held: graced.length - ready.length, waves, unconfirmed, scanNeeded };
 }
 function seasonDeparture2(dep, season) {
   return dep.seasonAt?.get(season) ?? dep.at;
@@ -5827,11 +5858,349 @@ function planJobs(dep, requests, wholeSeries = false) {
   return jobs;
 }
 
+// server/search/title-store.ts
+var FLUSH_EVERY_MS = 3e4;
+var FLUSH_AT = 400;
+var BATCH = 200;
+var pending = [];
+var flushTimer = null;
+async function ensureSearchTables(prisma) {
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS seer_search_titles (
+      media_type        VARCHAR(5)    NOT NULL,
+      tmdb_id           INT           NOT NULL,
+      lang              VARCHAR(8)    NOT NULL,
+      title             VARCHAR(500)  NOT NULL DEFAULT '',
+      original_title    VARCHAR(500)  DEFAULT NULL,
+      release_date      CHAR(10)      DEFAULT NULL,
+      popularity        DECIMAL(10,3) DEFAULT NULL,
+      vote_count        INT           DEFAULT NULL,
+      vote_average      DECIMAL(3,1)  DEFAULT NULL,
+      poster_path       VARCHAR(255)  DEFAULT NULL,
+      backdrop_path     VARCHAR(255)  DEFAULT NULL,
+      original_language VARCHAR(10)   DEFAULT NULL,
+      genre_ids         VARCHAR(120)  DEFAULT NULL,
+      updated_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (media_type, tmdb_id, lang)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS seer_search_meta (
+      meta_key   VARCHAR(64)  NOT NULL PRIMARY KEY,
+      meta_value VARCHAR(500) NOT NULL DEFAULT '',
+      updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+function num2(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+function rowToRecord(row) {
+  return {
+    mediaType: row.media_type === "tv" ? "tv" : "movie",
+    tmdbId: num2(row.tmdb_id),
+    lang: String(row.lang ?? "en"),
+    title: String(row.title ?? ""),
+    originalTitle: row.original_title ?? null,
+    releaseDate: row.release_date ?? null,
+    popularity: num2(row.popularity),
+    voteCount: num2(row.vote_count),
+    voteAverage: num2(row.vote_average),
+    posterPath: row.poster_path ?? null,
+    backdropPath: row.backdrop_path ?? null,
+    originalLanguage: row.original_language ?? null,
+    genreIds: String(row.genre_ids ?? "").split(",").map(Number).filter((n) => Number.isFinite(n) && n > 0)
+  };
+}
+async function loadTitles(prisma, index) {
+  const rows = await prisma.$queryRawUnsafe(`SELECT * FROM seer_search_titles`);
+  for (const row of rows) index.upsert(rowToRecord(row));
+  return rows.length;
+}
+async function writeBatch(prisma, records) {
+  for (const part of chunk(records, BATCH)) {
+    const placeholders = part.map(() => "(?,?,?,?,?,?,?,?,?,?,?,?,?)").join(",");
+    const values = part.flatMap((r) => [
+      r.mediaType,
+      r.tmdbId,
+      r.lang.slice(0, 8),
+      r.title.slice(0, 500),
+      r.originalTitle?.slice(0, 500) ?? null,
+      r.releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(r.releaseDate) ? r.releaseDate : null,
+      Math.min(r.popularity, 9999999),
+      r.voteCount,
+      Math.min(r.voteAverage, 10),
+      r.posterPath,
+      r.backdropPath,
+      r.originalLanguage?.slice(0, 10) ?? null,
+      r.genreIds.join(",").slice(0, 120) || null
+    ]);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO seer_search_titles
+         (media_type, tmdb_id, lang, title, original_title, release_date, popularity, vote_count,
+          vote_average, poster_path, backdrop_path, original_language, genre_ids)
+       VALUES ${placeholders}
+       ON DUPLICATE KEY UPDATE title = VALUES(title), original_title = VALUES(original_title),
+         release_date = VALUES(release_date), popularity = VALUES(popularity), vote_count = VALUES(vote_count),
+         vote_average = VALUES(vote_average), poster_path = VALUES(poster_path), backdrop_path = VALUES(backdrop_path),
+         original_language = VALUES(original_language), genre_ids = VALUES(genre_ids)`,
+      ...values
+    );
+  }
+}
+async function flushTitles(prisma) {
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  if (pending.length === 0) return;
+  const batch = pending;
+  pending = [];
+  try {
+    await writeBatch(prisma, batch);
+  } catch (err) {
+    console.warn(`[Vigie] Index de recherche non enregistr\xE9 : ${err instanceof Error ? err.message : err}`);
+  }
+}
+function queueTitles(prisma, records) {
+  pending.push(...records);
+  if (pending.length >= FLUSH_AT) {
+    void flushTitles(prisma);
+    return;
+  }
+  if (!flushTimer) flushTimer = setTimeout(() => {
+    void flushTitles(prisma);
+  }, FLUSH_EVERY_MS);
+}
+async function readMeta(prisma, key) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT meta_value FROM seer_search_meta WHERE meta_key = ?`,
+    key
+  );
+  return rows[0]?.meta_value ?? null;
+}
+async function writeMeta(prisma, key, value) {
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO seer_search_meta (meta_key, meta_value) VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)`,
+    key,
+    value.slice(0, 500)
+  );
+}
+async function clearTitles(prisma) {
+  pending = [];
+  await prisma.$executeRawUnsafe(`DELETE FROM seer_search_titles`);
+}
+
+// server/live/outages.ts
+var META_KEY = "live:storage-outages";
+var KEEP_MS = 31 * 864e5;
+var MAX_KEPT = 8;
+function nextOutages(outages, state2, now) {
+  const open = outages.find((o) => o.end === null);
+  if (state2 === "down" && !open) {
+    return [...outages, { start: now, end: null }].filter((o) => o.end === null || now - o.end < KEEP_MS).slice(-MAX_KEPT);
+  }
+  if (state2 === "ok" && open) return outages.map((o) => o === open ? { ...o, end: now } : o);
+  return null;
+}
+function outageWindows(outages, now) {
+  return outages.map((o) => ({ start: o.start, end: o.end ?? now }));
+}
+function parse(raw) {
+  try {
+    const list = JSON.parse(raw ?? "[]");
+    if (!Array.isArray(list)) return [];
+    return list.flatMap((o) => Array.isArray(o) && Number.isFinite(o[0]) && (o[1] === null || Number.isFinite(o[1])) ? [{ start: Number(o[0]), end: o[1] === null ? null : Number(o[1]) }] : []);
+  } catch {
+    return [];
+  }
+}
+function createOutageLog(db) {
+  let outages = null;
+  return {
+    async observe(state2, now) {
+      if (outages === null) outages = parse(await readMeta(db, META_KEY).catch(() => null));
+      const next = nextOutages(outages, state2, now);
+      if (next) {
+        outages = next;
+        await writeMeta(db, META_KEY, JSON.stringify(next.map((o) => [o.start, o.end]))).catch(() => void 0);
+      }
+      return outages;
+    }
+  };
+}
+
+// server/live/storage-health.ts
+import { createHash } from "node:crypto";
+var CHECK_TTL_MS = 6e4;
+var SEEN_KEY = "live:storage-seen";
+var MAX_SEEN = 40;
+var fingerprint = (path) => createHash("sha1").update(path).digest("hex").slice(0, 8);
+var LIBRARY_SCAN_KEY = "RefreshLibrary";
+async function getJson(s, path, timeoutMs = 15e3) {
+  const res = await fetch(`${s.base}${path}`, { headers: s.headers, signal: AbortSignal.timeout(timeoutMs) });
+  const data = res.ok ? await res.json().catch(() => null) : null;
+  return { status: res.status, data };
+}
+async function libraryLocations(s) {
+  const { status, data } = await getJson(s, "/Library/VirtualFolders");
+  if (status !== 200 || !Array.isArray(data)) return null;
+  const out = /* @__PURE__ */ new Set();
+  for (const lib of data) {
+    for (const loc of Array.isArray(lib?.Locations) ? lib.Locations : []) if (typeof loc === "string" && loc) out.add(loc);
+  }
+  return [...out];
+}
+async function locationState(s, path) {
+  const query = new URLSearchParams({ path, includeDirectories: "true", includeFiles: "true" });
+  try {
+    const { status, data } = await getJson(s, `/Environment/DirectoryContents?${query}`, 2e4);
+    if (status === 401 || status === 403) return "unknown";
+    if (status >= 400 && status < 500) return "unreachable";
+    if (status !== 200 || !Array.isArray(data)) return "unknown";
+    return data.length > 0 ? "filled" : "empty";
+  } catch {
+    return "unknown";
+  }
+}
+function createStorageWatch(db) {
+  let seen = null;
+  let last = null;
+  return async function storage(now = Date.now()) {
+    if (last && now - last.at < CHECK_TTL_MS) return last.report;
+    if (seen === null) seen = parseSeen(await readMeta(db, SEEN_KEY).catch(() => null));
+    const before = seen.length;
+    const report = await readStorage(db, seen).catch(() => ({ state: "unknown", down: [] }));
+    if (seen.length !== before) {
+      seen = seen.slice(-MAX_SEEN);
+      await writeMeta(db, SEEN_KEY, JSON.stringify(seen)).catch(() => void 0);
+    }
+    last = { at: now, report };
+    return report;
+  };
+}
+function parseSeen(raw) {
+  try {
+    const list = JSON.parse(raw ?? "[]");
+    return Array.isArray(list) ? list.filter((v) => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+async function readStorage(db, seen) {
+  const s = await jellyfinSession(db);
+  if (!s) return { state: "unknown", down: [] };
+  const locations = await libraryLocations(s);
+  if (locations === null) return { state: "unknown", down: [] };
+  const down = [];
+  let unknown = false;
+  for (const path of locations) {
+    const state2 = await locationState(s, path);
+    const id = fingerprint(path);
+    if (state2 === "filled") {
+      if (!seen.includes(id)) seen.push(id);
+    } else if ((state2 === "unreachable" || state2 === "empty") && seen.includes(id)) down.push(path);
+    else if (state2 === "unknown") unknown = true;
+  }
+  if (down.length > 0) return { state: "down", down };
+  return { state: unknown ? "unknown" : "ok", down };
+}
+async function libraryScanState(db) {
+  const s = await jellyfinSession(db).catch(() => null);
+  if (!s) return null;
+  const { status, data } = await getJson(s, "/ScheduledTasks?isHidden=false").catch(() => ({ status: 0, data: null }));
+  if (status !== 200 || !Array.isArray(data)) return null;
+  const task = data.find((t) => t?.Key === LIBRARY_SCAN_KEY);
+  if (!task || typeof task.Id !== "string") return null;
+  const result = task.LastExecutionResult;
+  const end = result?.Status === "Completed" && result.EndTimeUtc ? Date.parse(result.EndTimeUtc) : NaN;
+  return { taskId: task.Id, running: task.State === "Running", lastEnd: Number.isFinite(end) ? end : null };
+}
+async function startLibraryScan(db, taskId) {
+  const s = await jellyfinSession(db).catch(() => null);
+  if (!s) return false;
+  const res = await fetch(`${s.base}/ScheduledTasks/Running/${encodeURIComponent(taskId)}`, {
+    method: "POST",
+    headers: s.headers,
+    signal: AbortSignal.timeout(1e4)
+  }).catch(() => null);
+  return !!res && res.ok;
+}
+
+// server/live/departure-watch.ts
+var WAVE_MEMORY_MS = 31 * 864e5;
+var SCAN_RETRY_MS = 30 * 6e4;
+var WARN_EVERY_MS = 6 * 60 * 6e4;
+function jellyfinWatchDeps(db) {
+  const storage = createStorageWatch(db);
+  return {
+    storage,
+    scanState: () => libraryScanState(db),
+    startScan: (taskId) => startLibraryScan(db, taskId)
+  };
+}
+function createDepartureWatch(db, deps2) {
+  const outages = createOutageLog(db);
+  let waves = [];
+  let lastScanRequest = 0;
+  let lastWarn = 0;
+  let lastWarnKey = "";
+  const warn = (key, now, message) => {
+    if (key === lastWarnKey && now - lastWarn < WARN_EVERY_MS) return;
+    lastWarnKey = key;
+    lastWarn = now;
+    console.warn(`[VigieLive] ${message}`);
+  };
+  return async function decide2(open, now) {
+    const departures = liveState.departures();
+    if (open.length === 0) {
+      liveState.setSuspect([]);
+      return null;
+    }
+    const storage = await deps2.storage(now);
+    const windows = outageWindows(await outages.observe(storage.state, now), now);
+    const allWaves = mergeWaves([...waves, ...wavesOf(departures)]);
+    const suspect = open.some((d) => inWave(d.at, unconfirmedWindows(allWaves, windows, null)));
+    const scan = suspect ? await deps2.scanState().catch(() => null) : null;
+    const plan = forgetCandidates({
+      departures,
+      candidates: open,
+      now,
+      knownWaves: waves,
+      outages: windows,
+      storage: storage.state,
+      lastScanEnd: scan?.lastEnd ?? null
+    });
+    waves = plan.waves.filter((w) => now - w.end < WAVE_MEMORY_MS);
+    liveState.setSuspect(plan.unconfirmed);
+    if (storage.state === "down") {
+      warn(
+        `down:${storage.down.join("|")}`,
+        now,
+        `Dossier(s) de Jellyfin injoignable(s) : ${storage.down.join(", ")} \u2014 une panne, pas une suppression. Aucune demande n'est retir\xE9e tant qu'ils ne r\xE9pondent pas.`
+      );
+    } else if (plan.held > 0) {
+      warn(
+        `held:${plan.held}`,
+        now,
+        `${plan.held} titre(s) partis autour d'une panne ou d'une vague : leurs demandes attendent que Jellyfin ait relu sa biblioth\xE8que.`
+      );
+    }
+    if (plan.scanNeeded && scan && !scan.running && now - lastScanRequest >= SCAN_RETRY_MS) {
+      lastScanRequest = now;
+      if (await deps2.startScan(scan.taskId).catch(() => false)) {
+        console.log("[VigieLive] Analyse de la m\xE9diath\xE8que demand\xE9e \xE0 Jellyfin : ce qui n'en revient pas a bien \xE9t\xE9 supprim\xE9");
+      }
+    }
+    return plan;
+  };
+}
+
 // server/live/auto-forget.ts
 var COOLDOWN_MS = 15 * 6e4;
-var WAVE_WARN_EVERY_MS = 6 * 60 * 6e4;
-var TITLES_PER_PASS = 5;
-var WAVE_MEMORY_MS = 31 * 864e5;
+var TITLES_PER_PASS = 10;
 async function titleOf(db, dep, fallback) {
   if (fallback) return fallback;
   const meta = await getTmdbMetaBulk(db, [{ mediaType: dep.mediaType, tmdbId: dep.tmdbId }]).catch(() => null);
@@ -5854,25 +6223,16 @@ function arriving(queue, dep) {
   if (!queue) return false;
   return queue.items.some((e) => e.mediaType === dep.mediaType && e.tmdbId === dep.tmdbId && (dep.mediaType === "movie" || e.seasonNumber === null || dep.seasons.includes(e.seasonNumber)));
 }
-function createAutoForget(db, readConfig) {
+function createAutoForget(db, readConfig, deps2 = jellyfinWatchDeps(db)) {
   const handled = /* @__PURE__ */ new Map();
-  let lastWaveWarn = 0;
-  let lastWaveSize = 0;
-  let waves = [];
+  const decide2 = createDepartureWatch(db, deps2);
   return async function autoForget(cfg, now) {
     liveState.setPolicy(forgetPolicyOf(readConfig()));
     if (!requestIndex.ready || !liveState.libraryReadable) return;
     for (const [key, at] of handled) if (now - at > COOLDOWN_MS) handled.delete(key);
-    const plan = forgetCandidates({ departures: liveState.departures(), now, knownWaves: waves });
-    waves = plan.waves.filter((w) => now - w.end < WAVE_MEMORY_MS);
-    if (plan.held > 0 && (plan.held !== lastWaveSize || now - lastWaveWarn > WAVE_WARN_EVERY_MS)) {
-      lastWaveWarn = now;
-      console.warn(
-        `[VigieLive] ${plan.held} titres partis de Jellyfin en moins d'une heure : trop pour \xEAtre une suppression voulue (disque ou partage d\xE9branch\xE9 ?). Leurs demandes ne sont pas supprim\xE9es d'office ; les redemander les remplace.`
-      );
-    }
-    lastWaveSize = plan.held;
-    const pending2 = plan.ready.filter((d) => !handled.has(`${d.mediaType}:${d.tmdbId}`)).filter(hasSpentRequest);
+    const open = liveState.departures().filter((d) => !handled.has(`${d.mediaType}:${d.tmdbId}`)).filter(hasSpentRequest);
+    const plan = await decide2(open, now);
+    const pending2 = plan?.ready ?? [];
     if (pending2.length === 0) return;
     const queue = await queueSnapshot(cfg).catch(() => null);
     const targets = pending2.filter((d) => !arriving(queue, d)).slice(0, TITLES_PER_PASS);
@@ -8959,10 +9319,10 @@ var TitleIndex = class {
 var TTL_MS2 = 10 * 6e4;
 var STALE_MS = 60 * 6e4;
 var str = (v) => typeof v === "string" && v !== "" ? v : null;
-var num2 = (v) => typeof v === "number" && Number.isFinite(v) ? v : 0;
+var num3 = (v) => typeof v === "number" && Number.isFinite(v) ? v : 0;
 function toRemoteMedia(r, rank = 0) {
   const mediaType = r.mediaType === "movie" || r.mediaType === "tv" ? r.mediaType : null;
-  const id = num2(r.id);
+  const id = num3(r.id);
   if (!mediaType || id <= 0) return null;
   const info = r.mediaInfo;
   return {
@@ -8974,9 +9334,9 @@ function toRemoteMedia(r, rank = 0) {
     posterPath: str(r.posterPath),
     backdropPath: str(r.backdropPath),
     overview: str(r.overview),
-    voteAverage: num2(r.voteAverage),
-    voteCount: num2(r.voteCount),
-    popularity: num2(r.popularity),
+    voteAverage: num3(r.voteAverage),
+    voteCount: num3(r.voteCount),
+    popularity: num3(r.popularity),
     genreIds: Array.isArray(r.genreIds) ? r.genreIds.filter((g) => typeof g === "number") : [],
     originalLanguage: str(r.originalLanguage),
     status: typeof info?.status === "number" ? info.status : void 0,
@@ -8984,7 +9344,7 @@ function toRemoteMedia(r, rank = 0) {
   };
 }
 function toRemotePerson(r, rank) {
-  const id = num2(r.id);
+  const id = num3(r.id);
   const name = str(r.name);
   if (id <= 0 || !name) return null;
   const knownFor = Array.isArray(r.knownFor) ? r.knownFor.map((m) => toRemoteMedia(m)).filter((m) => m !== null) : [];
@@ -8992,7 +9352,7 @@ function toRemotePerson(r, rank) {
     id,
     name,
     profilePath: str(r.profilePath),
-    popularity: num2(r.popularity),
+    popularity: num3(r.popularity),
     department: str(r.knownForDepartment),
     knownFor,
     rank
@@ -9038,144 +9398,9 @@ async function remoteSearch(cfg, text2, page, lang, showBlocked, knownSafe = () 
       }
     }
     for (const m of media) noteStatus(m.mediaType, m.id, m.status);
-    return { media, people, totalPages: num2(raw.totalPages), blockedCount, blockedActive: blocked.size > 0 };
+    return { media, people, totalPages: num3(raw.totalPages), blockedCount, blockedActive: blocked.size > 0 };
   }, { staleMs: STALE_MS });
   return result;
-}
-
-// server/search/title-store.ts
-var FLUSH_EVERY_MS = 3e4;
-var FLUSH_AT = 400;
-var BATCH = 200;
-var pending = [];
-var flushTimer = null;
-async function ensureSearchTables(prisma) {
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS seer_search_titles (
-      media_type        VARCHAR(5)    NOT NULL,
-      tmdb_id           INT           NOT NULL,
-      lang              VARCHAR(8)    NOT NULL,
-      title             VARCHAR(500)  NOT NULL DEFAULT '',
-      original_title    VARCHAR(500)  DEFAULT NULL,
-      release_date      CHAR(10)      DEFAULT NULL,
-      popularity        DECIMAL(10,3) DEFAULT NULL,
-      vote_count        INT           DEFAULT NULL,
-      vote_average      DECIMAL(3,1)  DEFAULT NULL,
-      poster_path       VARCHAR(255)  DEFAULT NULL,
-      backdrop_path     VARCHAR(255)  DEFAULT NULL,
-      original_language VARCHAR(10)   DEFAULT NULL,
-      genre_ids         VARCHAR(120)  DEFAULT NULL,
-      updated_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (media_type, tmdb_id, lang)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS seer_search_meta (
-      meta_key   VARCHAR(64)  NOT NULL PRIMARY KEY,
-      meta_value VARCHAR(500) NOT NULL DEFAULT '',
-      updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
-}
-function num3(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
-function rowToRecord(row) {
-  return {
-    mediaType: row.media_type === "tv" ? "tv" : "movie",
-    tmdbId: num3(row.tmdb_id),
-    lang: String(row.lang ?? "en"),
-    title: String(row.title ?? ""),
-    originalTitle: row.original_title ?? null,
-    releaseDate: row.release_date ?? null,
-    popularity: num3(row.popularity),
-    voteCount: num3(row.vote_count),
-    voteAverage: num3(row.vote_average),
-    posterPath: row.poster_path ?? null,
-    backdropPath: row.backdrop_path ?? null,
-    originalLanguage: row.original_language ?? null,
-    genreIds: String(row.genre_ids ?? "").split(",").map(Number).filter((n) => Number.isFinite(n) && n > 0)
-  };
-}
-async function loadTitles(prisma, index) {
-  const rows = await prisma.$queryRawUnsafe(`SELECT * FROM seer_search_titles`);
-  for (const row of rows) index.upsert(rowToRecord(row));
-  return rows.length;
-}
-async function writeBatch(prisma, records) {
-  for (const part of chunk(records, BATCH)) {
-    const placeholders = part.map(() => "(?,?,?,?,?,?,?,?,?,?,?,?,?)").join(",");
-    const values = part.flatMap((r) => [
-      r.mediaType,
-      r.tmdbId,
-      r.lang.slice(0, 8),
-      r.title.slice(0, 500),
-      r.originalTitle?.slice(0, 500) ?? null,
-      r.releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(r.releaseDate) ? r.releaseDate : null,
-      Math.min(r.popularity, 9999999),
-      r.voteCount,
-      Math.min(r.voteAverage, 10),
-      r.posterPath,
-      r.backdropPath,
-      r.originalLanguage?.slice(0, 10) ?? null,
-      r.genreIds.join(",").slice(0, 120) || null
-    ]);
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO seer_search_titles
-         (media_type, tmdb_id, lang, title, original_title, release_date, popularity, vote_count,
-          vote_average, poster_path, backdrop_path, original_language, genre_ids)
-       VALUES ${placeholders}
-       ON DUPLICATE KEY UPDATE title = VALUES(title), original_title = VALUES(original_title),
-         release_date = VALUES(release_date), popularity = VALUES(popularity), vote_count = VALUES(vote_count),
-         vote_average = VALUES(vote_average), poster_path = VALUES(poster_path), backdrop_path = VALUES(backdrop_path),
-         original_language = VALUES(original_language), genre_ids = VALUES(genre_ids)`,
-      ...values
-    );
-  }
-}
-async function flushTitles(prisma) {
-  if (flushTimer) {
-    clearTimeout(flushTimer);
-    flushTimer = null;
-  }
-  if (pending.length === 0) return;
-  const batch = pending;
-  pending = [];
-  try {
-    await writeBatch(prisma, batch);
-  } catch (err) {
-    console.warn(`[Vigie] Index de recherche non enregistr\xE9 : ${err instanceof Error ? err.message : err}`);
-  }
-}
-function queueTitles(prisma, records) {
-  pending.push(...records);
-  if (pending.length >= FLUSH_AT) {
-    void flushTitles(prisma);
-    return;
-  }
-  if (!flushTimer) flushTimer = setTimeout(() => {
-    void flushTitles(prisma);
-  }, FLUSH_EVERY_MS);
-}
-async function readMeta(prisma, key) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT meta_value FROM seer_search_meta WHERE meta_key = ?`,
-    key
-  );
-  return rows[0]?.meta_value ?? null;
-}
-async function writeMeta(prisma, key, value) {
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO seer_search_meta (meta_key, meta_value) VALUES (?, ?)
-     ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)`,
-    key,
-    value.slice(0, 500)
-  );
-}
-async function clearTitles(prisma) {
-  pending = [];
-  await prisma.$executeRawUnsafe(`DELETE FROM seer_search_titles`);
 }
 
 // server/search/title-crawl.ts
