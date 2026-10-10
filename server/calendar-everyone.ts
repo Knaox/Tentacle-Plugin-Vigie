@@ -14,14 +14,18 @@
  *
  * Ce que cela expose est assumé : cette vue montre ce que les autres ont
  * demandé. Elle n'est pas réservée aux administrateurs — c'est un choix, et
- * l'interface le dit en toutes lettres.
+ * l'interface le dit en toutes lettres. La LISTE des demandes de tous les
+ * comptes, elle, l'est (routes-requests-all.ts) : mêmes lignes, même cache —
+ * l'agenda partagé et la vue de l'administrateur ne coûtent qu'une lecture.
  */
 
 import type { VigieDb } from "./storage/vigie-db";
 import type { SeerRequest } from "./types";
-import type { MergedRows } from "./requests-list";
+import { assembleRows, type MergedRows } from "./requests-list";
 import type { SeerrRequestRow, WorkerCfg } from "./seerr-unified";
 import { fetchAllSeerrRequests } from "./seerr-requests-fetch";
+import { partialSeriesSeasons } from "./series-gaps";
+import { cached } from "./cache";
 import { rowToRequest } from "./db-helpers";
 
 /** Statuts locaux considérés comme « pas encore repris par Jellyseerr ». */
@@ -29,8 +33,8 @@ const LOCAL_PENDING_STATUSES = [
   "queued", "processing", "retry_pending", "failed", "deleting", "delete_failed",
 ];
 
-/** L'agenda ne lit pas les statistiques : inutile de les calculer ici. */
-const NO_STATS = { total: 0, byStatus: {}, byType: { movie: 0, tv: 0 } };
+/** Fraîche une minute, servable dix pendant qu'elle se relit (comme celles d'un compte). */
+export const EVERYONE_ROWS_KEY = "seer:rows:everyone";
 
 export async function buildEveryoneRows(
   db: VigieDb,
@@ -59,6 +63,7 @@ export async function buildEveryoneRows(
    * demandes de tous les comptes. */
   let seerrRows: SeerrRequestRow[] = [];
   let seerrUnreachable = false;
+  const seasonStatesP = partialSeriesSeasons(cfg);
   try {
     const all = await fetchAllSeerrRequests(cfg, null);
     seerrRows = all.rows;
@@ -66,19 +71,14 @@ export async function buildEveryoneRows(
     seerrUnreachable = true;
     log?.(err, "Seerr fetch (tous) failed, falling back to local only");
   }
+  return assembleRows(db, { seerrRows, localPending, localBySeerrId, seerrUnreachable }, seasonStatesP);
+}
 
-  const seerrSeenIds = new Set(seerrRows.map((r) => r.id));
-  const localOnly = localPending.filter(
-    (l) => !l.seerrRequestId || !seerrSeenIds.has(l.seerrRequestId),
-  );
-
-  return {
-    seerrRows,
-    localBySeerrId,
-    localOnly,
-    deletingIds: new Set<number>(),
-    stats: NO_STATS,
-    fetchedAt: new Date().toISOString(),
-    seerrUnreachable,
-  };
+/** Les lignes de tout le monde, partagées par l'agenda commun et la vue de l'administrateur. */
+export function loadEveryoneRows(
+  db: VigieDb,
+  cfg: WorkerCfg,
+  log?: (err: unknown, msg: string) => void,
+): Promise<MergedRows> {
+  return cached(EVERYONE_ROWS_KEY, 60_000, () => buildEveryoneRows(db, cfg, log), { staleMs: 600_000 });
 }

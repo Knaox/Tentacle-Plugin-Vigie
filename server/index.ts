@@ -21,6 +21,7 @@ import { registerOwnershipRoutes } from "./routes-ownership";
 import { registerConnectionRoutes } from "./routes-connection";
 import { registerAvailabilityRoutes } from "./routes-availability";
 import { registerProgressRoutes } from "./routes-progress";
+import { registerAllRequestsRoutes } from "./routes-requests-all";
 import { registerCalendarRoutes } from "./routes-calendar";
 import { registerMiscRoutes } from "./routes-misc";
 import { registerProxyRoutes } from "./routes-proxy";
@@ -152,6 +153,7 @@ export default async function seerBackend(
   registerConnectionRoutes(app, ctx.requireAdmin);
   registerAvailabilityRoutes(app, db, gwc);
   registerProgressRoutes(app, db, gwc, ctx.requireAdmin);
+  registerAllRequestsRoutes(app, db, gwc, ctx.requireAdmin);
   registerCalendarRoutes(app, db, gwc);
 
   registerMiscRoutes(app, db, gwc, ctx.requireAdmin);

@@ -18,7 +18,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { VigieDb } from "./storage/vigie-db";
-import type { DownloadProgress, RequestStatus } from "./types";
+import type { DownloadProgress, RequestStatus, UnifiedRequest } from "./types";
 import { fetchServerQueue, type QueueResponse } from "./arr-queue";
 import { cached } from "./cache";
 import { getUser, type WorkerCfg } from "./seerr-unified";
@@ -71,26 +71,32 @@ export function registerProgressRoutes(
 
     return cached(`seer-cache:${user.userId}:progress`, PROGRESS_TTL_MS, async () => {
       const rows = await loadMergedRows(db, config, user, (err, msg) => app.log?.warn?.({ err }, msg));
-      /* Les lignes de la liste, telles quelles : mêmes identifiants (le front
-       * rattache chaque avancement à sa carte), mêmes saisons demandées. */
-      const requests = hydrateRows(rows, new Map(), user).filter((r) => IN_FLIGHT.has(r.status));
-      const verdicts = await arrVerdicts(config, requests);
-
-      const items: ProgressItem[] = [];
-      for (const r of requests) {
-        const verdict = verdicts.get(r.id);
-        // Rien qui descende, rien de neuf : rien à suivre.
-        if (!verdict || (!verdict.download && verdict.status === r.status)) continue;
-        items.push({
-          id: r.id,
-          tmdbId: r.tmdbId,
-          mediaType: r.mediaType,
-          status: verdict.status,
-          download: verdict.download ?? undefined,
-          downloads: verdict.downloads,
-        });
-      }
-      return { updatedAt: new Date().toISOString(), items };
+      return progressOf(config, hydrateRows(rows, new Map(), user));
     });
   });
+}
+
+/**
+ * L'avancement de ce qui attend encore, pour des lignes telles que la liste
+ * les montre : mêmes identifiants (le front rattache chaque avancement à sa
+ * carte), mêmes saisons demandées. Partagé avec la vue de tous les comptes.
+ */
+export async function progressOf(config: WorkerCfg, list: UnifiedRequest[]) {
+  const requests = list.filter((r) => IN_FLIGHT.has(r.status));
+  const verdicts = await arrVerdicts(config, requests);
+  const items: ProgressItem[] = [];
+  for (const r of requests) {
+    const verdict = verdicts.get(r.id);
+    // Rien qui descende, rien de neuf : rien à suivre.
+    if (!verdict || (!verdict.download && verdict.status === r.status)) continue;
+    items.push({
+      id: r.id,
+      tmdbId: r.tmdbId,
+      mediaType: r.mediaType,
+      status: verdict.status,
+      download: verdict.download ?? undefined,
+      downloads: verdict.downloads,
+    });
+  }
+  return { updatedAt: new Date().toISOString(), items };
 }

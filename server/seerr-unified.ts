@@ -45,7 +45,11 @@ export interface SeerrRequestRow {
      * réelle ne coûte donc aucun appel supplémentaire. */
     downloadStatus?: SeerrDownloadItem[];
   };
-  requestedBy?: { id: number; jellyfinUserId?: string; jellyfinUsername?: string };
+  requestedBy?: {
+    id: number; jellyfinUserId?: string; jellyfinUsername?: string;
+    /** Un compte propre à Jellyseerr n'a pas de nom Jellyfin : celui qu'il affiche. */
+    displayName?: string; username?: string;
+  };
 }
 
 export interface SeerrTmdbDetail {
