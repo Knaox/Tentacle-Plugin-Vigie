@@ -95,10 +95,18 @@ export function requestTime(createdAt: number | string | null | undefined): numb
   return Number.isFinite(ms) ? ms : null;
 }
 
+/**
+ * Jellyseerr et le serveur Tentacle n'ont pas forcément la même horloge : une
+ * demande n'est « d'avant » un départ que née au moins une minute avant lui.
+ * Une redemande faite aussitôt la suppression vue ne passe jamais pour
+ * ancienne ; une demande vieille d'une minute de plus ne compte pas.
+ */
+export const CLOCK_MARGIN_MS = 60_000;
+
 /** Une demande née avant cet instant (ou sans date connue). */
 export function madeBefore(createdAt: number | string | null | undefined, at: number): boolean {
   const ms = requestTime(createdAt);
-  return ms === null || ms <= at;
+  return ms === null || ms <= at - CLOCK_MARGIN_MS;
 }
 
 /** Quand cette saison a quitté Jellyfin — `null` : elle n'est pas partie. */
@@ -111,8 +119,7 @@ function seasonDeparture(library: LibraryFact, season: number): number | null {
 
 /** La demande, née avant ce départ (date CONNUE), ne retient plus ce qu'il a emporté. */
 function spentAt(r: RequestFact, at: number | null): boolean {
-  const ms = requestTime(r.createdAt);
-  return at !== null && ms !== null && ms <= at;
+  return at !== null && requestTime(r.createdAt) !== null && madeBefore(r.createdAt, at);
 }
 
 /**

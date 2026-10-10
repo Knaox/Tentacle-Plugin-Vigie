@@ -32,8 +32,8 @@ test("supprimé de Jellyfin, demande toujours là (terminée comprise) : Demand�
 test("supprimé de Jellyfin : la demande d'AVANT ne le retient plus, il se redemande ; une redemande, si", () => {
   const at = 1_000_000;
   const lib: LibraryFact = { ...gone, departedAt: at };
-  const served = { ...req(REQUEST.COMPLETED), createdAt: at - 1_000 };
-  const servedIso = { ...req(REQUEST.APPROVED), createdAt: new Date(at - 1_000).toISOString() };
+  const served = { ...req(REQUEST.COMPLETED), createdAt: at - 3_600_000 };
+  const servedIso = { ...req(REQUEST.APPROVED), createdAt: new Date(at - 3_600_000).toISOString() };
   const again = { ...req(REQUEST.APPROVED), createdAt: at + 1_000 };
   assert.equal(correctMediaStatus("movie", STATUS.AVAILABLE, facts(lib, [served])), STATUS.DELETED);
   assert.equal(correctMediaStatus("movie", STATUS.AVAILABLE, facts(lib, [servedIso])), STATUS.DELETED);
@@ -42,6 +42,8 @@ test("supprimé de Jellyfin : la demande d'AVANT ne le retient plus, il se redem
   assert.equal(correctMediaStatus("movie", STATUS.AVAILABLE, facts(lib, [served], { queued: true })), STATUS.PENDING);
   // Radarr le fait redescendre : en route, quelles que soient les demandes.
   assert.equal(correctMediaStatus("movie", STATUS.AVAILABLE, facts(lib, [served], { downloading: true })), STATUS.PROCESSING);
+  // Horloges décalées : une demande née moins d'une minute avant le départ n'est pas « d'avant ».
+  assert.equal(correctMediaStatus("movie", STATUS.AVAILABLE, facts(lib, [{ ...req(REQUEST.APPROVED), createdAt: at - 30_000 }])), STATUS.PENDING);
 });
 
 test("une série supprimée : chaque saison se redemande ; une saison jamais arrivée garde sa demande", () => {
@@ -51,11 +53,11 @@ test("une série supprimée : chaque saison se redemande ; une saison jamais arr
     state: "gone", goneSeasons: new Set([1, 2]), presentSeasons: NO_SEASONS,
     departedAt: at, seasonDepartedAt: new Map([[1, at - 500], [2, at]]),
   };
-  const served = { ...req(REQUEST.COMPLETED, [1, 2]), createdAt: at - 10_000 };
+  const served = { ...req(REQUEST.COMPLETED, [1, 2]), createdAt: at - 3_600_000 };
   assert.equal(correctMediaStatus("tv", STATUS.AVAILABLE, facts(lib, [served])), STATUS.DELETED);
   assert.equal(correctSeasonStatus(1, STATUS.AVAILABLE, facts(lib, [served])), STATUS.DELETED);
   assert.equal(correctSeasonStatus(2, STATUS.AVAILABLE, facts(lib, [served])), STATUS.DELETED);
-  const waiting = { ...req(REQUEST.APPROVED, [1, 2, 3]), createdAt: at - 10_000 };
+  const waiting = { ...req(REQUEST.APPROVED, [1, 2, 3]), createdAt: at - 3_600_000 };
   assert.equal(correctMediaStatus("tv", STATUS.PARTIALLY_AVAILABLE, facts(lib, [waiting])), STATUS.PENDING);
   assert.equal(correctSeasonStatus(1, STATUS.AVAILABLE, facts(lib, [waiting])), STATUS.DELETED);
   assert.equal(correctSeasonStatus(3, STATUS.PROCESSING, facts(lib, [waiting])), STATUS.PROCESSING);

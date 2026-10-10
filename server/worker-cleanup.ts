@@ -14,6 +14,7 @@ import { getSeerrMedia, resetGoneMedia } from "./seerr-media";
 import { reconcileSeerrSeasons } from "./seerr-reconcile";
 import { invalidateRequestCaches } from "./cache";
 import type { WorkerConfig } from "./worker-sync";
+import { departedSeasonsOf, forgetGuardReady, isRerequest, movieBack, sparedSeasons } from "./live/forget-guard";
 
 const CLEANUP_BATCH = 25;
 
@@ -67,12 +68,29 @@ async function processCleanupJob(
       console.log(`[SeerWorker] availability-sync re-déclenchée pour "${job.title}"`);
       return;
     }
+    // === Le retrait d'une demande consommée (action « forget », titre supprimé
+    // de Jellyfin) ne touche jamais ce qu'une redemande attend, ni ce qui est
+    // revenu entre-temps (live/forget-guard.ts) ; « toute la série » ne vise
+    // que ses saisons parties.
+    const forget = job.action === "forget";
+    // Juste après un démarrage, rien n'est encore lu : il attend la passe suivante, sans compter d'essai.
+    if (forget && !forgetGuardReady()) return;
+    let target = job;
+    let spareArr = false;
+    if (forget && job.mediaType === "movie") spareArr = movieBack(job.tmdbId);
+    else if (forget) {
+      const aimed = job.seasons ?? departedSeasonsOf(job.tmdbId);
+      const spared = sparedSeasons(job.tmdbId, aimed, job.seerrRequestId);
+      target = { ...job, seasons: aimed.filter((s) => !spared.has(s)) };
+      spareArr = target.seasons!.length === 0;
+    }
+
     // === Radarr et Sonarr (cleanup-arr.ts) : le film retiré, les saisons plus
     // surveillées, la série retirée quand plus rien n'y est surveillé. Rien si
     // le titre n'y a jamais été ajouté. Un refus lève : le job est relancé (les
     // gestes sont idempotents).
     const media = await getSeerrMedia(config, job.mediaType, job.tmdbId);
-    const arr = await cleanArrForJob(config, job, media);
+    const arr = spareArr ? "kept" : await cleanArrForJob(config, target, media);
     console.log(
       `[SeerWorker] *arr pour "${job.title}" : ${arr} ` +
       `(saisons=${job.seasons ? JSON.stringify(job.seasons) : "toutes"}, fichiers supprimés=${job.deleteFiles})`,
@@ -98,8 +116,10 @@ async function processCleanupJob(
     // Jellyseerr qui les couvrent (PUT saisons restantes, ou DELETE si vide).
     // Sans cela, une suppression partielle (ex. S2 sur S1+S2) laissait S2
     // « demandée » pour toujours dans Jellyseerr.
-    if (job.mediaType === "tv" && job.seasons && job.seasons.length > 0) {
-      await reconcileSeerrSeasons(db, config, job.tmdbId, job.seasons);
+    if (job.mediaType === "tv" && target.seasons && target.seasons.length > 0) {
+      await reconcileSeerrSeasons(db, config, job.tmdbId, target.seasons, forget
+        ? { spare: (r) => isRerequest(r, "tv", job.tmdbId), lockedGoesWhole: true }
+        : {});
     }
 
     // === Un titre que Jellyfin n'a plus du tout, sans plus aucune demande :

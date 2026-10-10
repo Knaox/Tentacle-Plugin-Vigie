@@ -156,6 +156,8 @@ export interface Departure {
   at: number;
   /** Série : les saisons parties ; film : vide. */
   seasons: number[];
+  /** Série : quand chaque saison est partie (ms) — sans elle, `at` pour toutes. */
+  seasonAt?: ReadonlyMap<number, number>;
   /** Série : plus rien d'elle n'est là. Film : toujours vrai. */
   whole: boolean;
 }
@@ -171,6 +173,7 @@ export function departuresOf(snap: LibrarySnapshot): Departure[] {
       tmdbId,
       at: Math.max(...facts.departed.values()),
       seasons: [...facts.departed.keys()].sort((a, b) => a - b),
+      seasonAt: facts.departed,
       whole: facts.present.size === 0,
     });
   }

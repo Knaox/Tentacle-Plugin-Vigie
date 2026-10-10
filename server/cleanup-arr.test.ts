@@ -25,6 +25,7 @@ let net: ReturnType<typeof stubFetch>;
 let arrCalls: string[];
 let seasons: Array<{ seasonNumber: number; monitored: boolean }>;
 let episodeFiles: Array<{ id: number; seasonNumber: number }>;
+let radarrHasFile: boolean;
 
 function seerrSettings(c: FetchCall) {
   if (c.url === `${SEERR}/api/v1/settings/radarr`) return json([{ isDefault: true, hostname: "radarr.test", port: 7878, apiKey: "r", useSsl: false, baseUrl: "" }]);
@@ -45,6 +46,7 @@ function arr(c: FetchCall) {
     seasons = (JSON.parse(c.body ?? "{}") as { seasons: typeof seasons }).seasons;
     return json({});
   }
+  if (url.pathname === "/api/v3/movie/50" && c.method === "GET") return json({ id: 50, hasFile: radarrHasFile, monitored: true });
   if (url.pathname === "/api/v3/episodefile") return json(episodeFiles);
   if (url.pathname === "/api/v3/episodefile/bulk") {
     const ids = new Set((JSON.parse(c.body ?? "{}") as { episodeFileIds: number[] }).episodeFileIds);
@@ -58,6 +60,7 @@ beforeEach(() => {
   arrCalls = [];
   seasons = [{ seasonNumber: 1, monitored: true }, { seasonNumber: 2, monitored: true }];
   episodeFiles = [{ id: 1, seasonNumber: 1 }, { id: 2, seasonNumber: 2 }];
+  radarrHasFile = false;
   net = stubFetch([seerrSettings, arr]);
 });
 afterEach(() => net.restore());
@@ -109,6 +112,27 @@ test("fichiers supprimés : le dossier de la série ne part que s'il n'y reste p
   episodeFiles = [{ id: 1, seasonNumber: 1 }];
   await cleanArrForJob(config, { mediaType: "tv", seasons: [1], deleteFiles: true, seerrRequestId: 41 }, media());
   assert.equal(arrCalls.at(-1), "DELETE /api/v3/series/50?deleteFiles=true&addImportListExclusion=false");
+});
+
+test("retrait automatique (titre supprimé de Jellyfin) : Radarr qui a encore le fichier cesse seulement de surveiller", async () => {
+  radarrHasFile = true;
+  assert.equal(await cleanArrForJob(config, { ...movieJob, action: "forget" }, media()), "unmonitored");
+  assert.ok(arrCalls.includes("PUT /api/v3/movie/50"));
+  assert.ok(!arrCalls.some((c) => c.startsWith("DELETE /api/v3/movie")));
+  // Plus de fichier : retiré, comme une suppression.
+  arrCalls = [];
+  radarrHasFile = false;
+  assert.equal(await cleanArrForJob(config, { ...movieJob, action: "forget" }, media()), "removed");
+});
+
+test("retrait automatique : une série n'est retirée de Sonarr que sans plus aucun épisode", async () => {
+  seasons = [{ seasonNumber: 1, monitored: true }, { seasonNumber: 2, monitored: false }];
+  const job = { mediaType: "tv" as const, seasons: [1], deleteFiles: false, seerrRequestId: 41, action: "forget" as const };
+  // La saison 2 a encore ses fichiers (dé-surveillée après téléchargement) : la série reste.
+  assert.equal(await cleanArrForJob(config, job, media()), "unmonitored");
+  assert.ok(!arrCalls.some((c) => c.startsWith("DELETE /api/v3/series")));
+  episodeFiles = [];
+  assert.equal(await cleanArrForJob(config, job, media()), "removed");
 });
 
 test("jamais ajouté à Radarr : rien à faire", async () => {
