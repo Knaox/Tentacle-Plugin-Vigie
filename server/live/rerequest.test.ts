@@ -93,3 +93,10 @@ test("une redemande attend le nettoyage de la demande d'avant : posé à sa cré
   await getNextQueued(prisma);
   assert.match(seen.at(-1)!.sql, /pending_cleanup_id IS NULL/);
 });
+
+test("une redemande liée à un nettoyage déjà fini ou retiré n'attend pas pour rien", async () => {
+  const seen: string[] = [];
+  const prisma = { async $queryRawUnsafe(sql: string) { seen.push(sql); return []; } } as unknown as PrismaClient;
+  await getNextQueued(prisma);
+  assert.match(seen[0], /pending_cleanup_id IS NULL OR NOT EXISTS \(\s*SELECT 1 FROM seer_cleanup_queue c WHERE c\.id = seer_requests\.pending_cleanup_id AND c\.status = 'pending'\)/);
+});

@@ -7,7 +7,7 @@ export interface MediaDetail {
   mediaInfo?: {
     id?: number;
     status?: number;
-    requests?: { id: number; status: number }[];
+    requests?: { id: number; status: number; createdAt?: string; seasons?: { seasonNumber: number }[] }[];
     /** Disponibilité par saison (status: 5 = disponible). Renvoyé par /api/v1/tv/{id}. */
     seasons?: { seasonNumber: number; status: number }[];
   };

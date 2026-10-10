@@ -22,8 +22,8 @@ import type { MediaDetail } from "../anime";
 import type { SeerRequest } from "../types";
 import type { WorkerCfg } from "../seerr-unified";
 import { triggerSeerrJob } from "../arr-service";
-import { goneFromJellyfin, goneSeasonsOf } from "./live-state";
-import { STATUS, isLiveRequest } from "./title-truth";
+import { goneFromJellyfin, goneSeasonsOf, liveState } from "./live-state";
+import { STATUS, isLiveRequest, spentRequest } from "./title-truth";
 
 /** Une demande en attente de Jellyseerr repasse à ce rythme. */
 const DEFER_MS = 2 * 60_000;
@@ -77,7 +77,12 @@ export async function unblockSeasons(
   now = Date.now(),
 ): Promise<Unblock> {
   const mediaId = detail?.mediaInfo?.id;
-  const live = (detail?.mediaInfo?.requests ?? []).some((r) => isLiveRequest({ status: r.status, seasons: [] }));
+  // Une demande consommée (d'avant la suppression) ne compte pas : elle part de toute façon.
+  const library = liveState.libraryFact("tv", request.tmdbId, now);
+  const live = (detail?.mediaInfo?.requests ?? []).some((r) => {
+    const fact = { status: r.status, createdAt: r.createdAt, seasons: (r.seasons ?? []).map((s) => s.seasonNumber) };
+    return isLiveRequest(fact) && !spentRequest(fact, library);
+  });
   if (mediaId && goneFromJellyfin("tv", request.tmdbId) && !live) {
     const res = await fetch(`${cfg.seerrUrl}/api/v1/media/${mediaId}`, {
       method: "DELETE",

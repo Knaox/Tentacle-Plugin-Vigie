@@ -12,8 +12,11 @@
  *   - `isLocallyPending` : tout ce qui attend encore (en file, envoyé, validé)
  *     — ce que la recherche disait déjà « Demandé » ;
  *   - `locallyQueued` : seulement ce que Jellyseerr n'a PAS encore (en file,
- *     en cours d'envoi, à retenter), saisons comprises — la seule part de la
- *     file que Jellyseerr ne peut pas contredire (cf. live/title-truth.ts).
+ *     en cours d'envoi, à retenter — ou envoyé il y a moins de deux minutes,
+ *     le temps que l'index des demandes le lise), saisons comprises — la
+ *     seule part de la file que Jellyseerr ne peut pas contredire (cf.
+ *     live/title-truth.ts). Sans ce délai, un titre parti de Jellyfin et
+ *     redemandé repassait « Demander » quelques secondes après l'envoi.
  */
 
 import type { PrismaClient } from "@prisma/client";
@@ -21,6 +24,8 @@ import type { PrismaClient } from "@prisma/client";
 const REFRESH_MS = 10_000;
 const WAITING = ["queued", "processing", "retry_pending", "sent_to_seer", "approved"];
 const NOT_SENT = new Set(["queued", "processing", "retry_pending"]);
+/** Une demande envoyée compte encore comme en file, le temps que l'index des demandes la lise. */
+const JUST_SENT_MS = 2 * 60_000;
 
 let keys = new Set<string>();
 /** « movie:603 » → saisons en file (vide : le titre entier, ou un film). */
@@ -51,8 +56,8 @@ function seasonsOf(raw: unknown): number[] {
 export function refreshLocalPending(prisma: PrismaClient, force = false): void {
   if (reading || (!force && Date.now() - readAt < REFRESH_MS)) return;
   reading = true;
-  prisma.$queryRawUnsafe<Array<{ media_type: string; tmdb_id: number; status: string; seasons: unknown }>>(
-    `SELECT media_type, tmdb_id, status, seasons FROM seer_requests
+  prisma.$queryRawUnsafe<Array<{ media_type: string; tmdb_id: number; status: string; seasons: unknown; sent_at: unknown }>>(
+    `SELECT media_type, tmdb_id, status, seasons, sent_at FROM seer_requests
      WHERE status IN (${WAITING.map(() => "?").join(", ")})`,
     ...WAITING,
   )
@@ -62,7 +67,9 @@ export function refreshLocalPending(prisma: PrismaClient, force = false): void {
       for (const r of rows) {
         const key = `${r.media_type}:${Number(r.tmdb_id)}`;
         nextKeys.add(key);
-        if (!NOT_SENT.has(r.status)) continue;
+        const sentMs = r.sent_at instanceof Date ? r.sent_at.getTime() : Date.parse(String(r.sent_at ?? ""));
+        const justSent = r.status === "sent_to_seer" && Number.isFinite(sentMs) && Date.now() - sentMs < JUST_SENT_MS;
+        if (!NOT_SENT.has(r.status) && !justSent) continue;
         const set = nextQueued.get(key) ?? new Set<number>();
         for (const s of seasonsOf(r.seasons)) set.add(s);
         nextQueued.set(key, set);
