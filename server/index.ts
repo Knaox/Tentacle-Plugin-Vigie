@@ -20,6 +20,7 @@ import { registerOwnershipRoutes } from "./routes-ownership";
 import { registerConnectionRoutes } from "./routes-connection";
 import { registerAvailabilityRoutes } from "./routes-availability";
 import { registerProgressRoutes } from "./routes-progress";
+import { registerAllRequestsRoutes } from "./routes-requests-all";
 import { registerCalendarRoutes } from "./routes-calendar";
 import { registerMiscRoutes } from "./routes-misc";
 import { registerProxyRoutes } from "./routes-proxy";
@@ -150,6 +151,7 @@ export default async function seerBackend(
   registerConnectionRoutes(app, ctx.requireAdmin);
   registerAvailabilityRoutes(app, prisma, gwc);
   registerProgressRoutes(app, prisma, gwc, ctx.requireAdmin);
+  registerAllRequestsRoutes(app, prisma, gwc, ctx.requireAdmin);
   registerCalendarRoutes(app, prisma, gwc);
 
   registerMiscRoutes(app, prisma, gwc, ctx.requireAdmin);

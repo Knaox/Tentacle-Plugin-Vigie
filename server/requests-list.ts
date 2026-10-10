@@ -91,7 +91,28 @@ export async function buildMergedRows(
     seerrUnreachable = true;
     log?.(err, "Seerr fetch failed, falling back to local only");
   }
+  return assembleRows(prisma, { seerrRows, localPending, localBySeerrId, seerrUnreachable }, seasonStatesP);
+}
 
+export interface RowParts {
+  seerrRows: SeerrRequestRow[];
+  localPending: SeerRequest[];
+  localBySeerrId: Map<number, SeerRequest>;
+  seerrUnreachable: boolean;
+}
+
+/**
+ * La fin commune des lignes d'un compte et de celles de tout le monde : ce
+ * qui n'est encore que local, les suppressions en file, l'état des saisons et
+ * les compteurs — le MÊME verdict partout (« Mes demandes », l'agenda, la vue
+ * de l'administrateur).
+ */
+export async function assembleRows(
+  prisma: PrismaClient,
+  parts: RowParts,
+  seasonStatesP: Promise<ReadonlyMap<number, SeasonStates>>,
+): Promise<MergedRows> {
+  const { seerrRows, localPending, localBySeerrId, seerrUnreachable } = parts;
   const seerrSeenIds = new Set(seerrRows.map((r) => r.id));
   const localOnly = localPending.filter(
     (l) => !l.seerrRequestId || !seerrSeenIds.has(l.seerrRequestId),
@@ -186,20 +207,25 @@ export function metaToDetail(meta: TmdbMeta | undefined): SeerrTmdbDetail | null
   };
 }
 
+/** Le compte d'une demande Jellyseerr, quand Jellyseerr ne le dit pas lui-même. */
+export type RequesterOf = (sr: SeerrRequestRow) => { jellyfinUserId: string; username: string };
+
 export function hydrateRows(
   rows: MergedRows,
   meta: Map<string, TmdbMeta>,
   user: JellyfinUser,
+  /** Les lignes de tout le monde : chacune porte SON demandeur, pas celui qui regarde. */
+  requesterOf?: RequesterOf,
 ): UnifiedRequest[] {
   const out: UnifiedRequest[] = rows.localOnly.map(localToUnified);
+  const viewer = { jellyfinUserId: user.userId, username: user.username };
 
   for (const sr of rows.seerrRows) {
     if (!sr.media) continue;
     const detail = metaToDetail(meta.get(tmdbKey({ mediaType: sr.media.mediaType, tmdbId: sr.media.tmdbId })));
-    const unified = seerrRequestToUnified(sr, detail, rows.localBySeerrId, {
-      jellyfinUserId: user.userId,
-      username: user.username,
-    }, rows.seasonStates?.get(sr.media.tmdbId));
+    const unified = seerrRequestToUnified(
+      sr, detail, rows.localBySeerrId, requesterOf ? requesterOf(sr) : viewer, rows.seasonStates?.get(sr.media.tmdbId),
+    );
     if (rows.deletingIds.has(sr.id)) unified.status = "deleting";
     out.push(unified);
   }
@@ -214,6 +240,8 @@ export interface ListQuery {
   status?: string;
   type?: string;
   q?: string;
+  /** La recherche porte aussi sur le compte qui a demandé (vue de tous les comptes). */
+  byRequester?: boolean;
 }
 
 export function filterAndPaginate(
@@ -231,7 +259,9 @@ export function filterAndPaginate(
 
   if (query.q) {
     const q = query.q.trim().toLowerCase();
-    if (q) filtered = filtered.filter((r) => (r.title ?? "").toLowerCase().includes(q));
+    const matches = (r: UnifiedRequest) => (r.title ?? "").toLowerCase().includes(q)
+      || (query.byRequester === true && (r.username ?? "").toLowerCase().includes(q));
+    if (q) filtered = filtered.filter(matches);
   }
 
   const total = filtered.length;

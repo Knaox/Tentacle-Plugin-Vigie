@@ -22,7 +22,7 @@ import { cached } from "./cache";
 import { detectAnimeLoose } from "./tmdb-traits";
 import { tmdbKey, type TmdbRef } from "./tmdb-cache";
 import { resolveTmdbMeta, scheduleTmdbBackfill } from "./tmdb-resolver";
-import { buildEveryoneRows } from "./calendar-everyone";
+import { loadEveryoneRows } from "./calendar-everyone";
 import { buildPersonalCalendar } from "./calendar-personal";
 import { buildProviderEpisodes } from "./calendar-providers";
 import { attachAirTimes, sonarrWindowEpisodes, type SonarrWindowEpisode } from "./sonarr-schedule";
@@ -80,9 +80,7 @@ export async function buildCalendarStore(
       sourceOrFallback(discoverTvTopProviders(cfg, region), [], fail("plateformes")),
       sourceOrFallback(sonarrWindowEpisodes(cfg, from, to), [], fail("calendrier Sonarr")),
       // Ne lève jamais : repli local interne + drapeau seerrUnreachable.
-      cached("seer:rows:everyone", 60_000, () => buildEveryoneRows(prisma, cfg, warn), {
-        staleMs: 600_000,
-      }),
+      loadEveryoneRows(prisma, cfg, warn),
     ]);
   if (rows.seerrUnreachable === true) degraded = true;
 

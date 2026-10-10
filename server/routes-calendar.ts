@@ -16,7 +16,7 @@ import { cached } from "./cache";
 import { getUser, type WorkerCfg } from "./seerr-unified";
 import { buildMergedRows, type MergedRows } from "./requests-list";
 import { buildPersonalFromStore } from "./calendar-personal-store";
-import { buildEveryoneRows } from "./calendar-everyone";
+import { loadEveryoneRows } from "./calendar-everyone";
 import { buildGlobalFromStore } from "./calendar-service";
 import { initCalendarStoreMaintenance } from "./calendar-store";
 import { isDayString, addDays, type CalendarResponse } from "./calendar-types";
@@ -109,12 +109,7 @@ export function registerCalendarRoutes(
         // Réutilise la liste déjà chargée : arriver depuis « Mes demandes »
         // ne coûte alors aucun appel réseau.
         const rows: MergedRows = everyone
-          ? await cached(
-              "seer:rows:everyone",
-              60_000,
-              () => buildEveryoneRows(prisma, config, warn),
-              { staleMs: 600_000 },
-            )
+          ? await loadEveryoneRows(prisma, config, warn)
           : await cached(
               rowsCacheKey(user.userId),
               60_000,
