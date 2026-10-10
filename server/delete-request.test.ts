@@ -15,9 +15,10 @@ import type { TestDatabase } from "./test-support/sqlite";
  *
  * - Seerr est la source : la demande y est supprimée (DELETE /request/:id),
  *   pour qu'on puisse la redemander tout de suite ; la ligne locale suit.
- * - Le média Seerr n'est JAMAIS supprimé (aucun DELETE /api/v1/media).
- * - Sans l'option `deleteFiles`, le contenu reste : Radarr arrête seulement
- *   de surveiller. Avec l'option, les fichiers sont supprimés, comme aujourd'hui.
+ * - Le média Seerr n'est remis à zéro (DELETE /api/v1/media) que pour un titre
+ *   que Jellyfin n'a plus du tout (seerr-media.ts) — jamais ici.
+ * - Le film est retiré de Radarr (règle du 2026-10-10, cleanup-arr.ts) : sans
+ *   l'option `deleteFiles`, ses fichiers restent ; avec, ils partent avec lui.
  * - Seerr en panne : la demande reste « deleting », le nettoyage est rejoué
  *   plus tard ; après le dernier essai, elle passe « delete_failed ».
  */
@@ -36,11 +37,11 @@ function rules() {
   return [
     (c: FetchCall) => (c.url === `${SEERR}/api/v1/settings/radarr`
       ? json([{ isDefault: true, hostname: "radarr", port: 7878, apiKey: "r", useSsl: false }]) : null),
-    (c: FetchCall) => (c.url === `${SEERR}/api/v1/movie/603` ? json({ mediaInfo: { externalServiceId: 77 } }) : null),
+    (c: FetchCall) => (c.url === `${SEERR}/api/v1/movie/603`
+      ? json({ mediaInfo: { id: 9, status: 5, externalServiceId: 77, requests: [{ id: 42, status: 5 }] } }) : null),
     (c: FetchCall) => (c.url.startsWith("http://radarr:7878/api/v3/queue") ? json({ records: [] }) : null),
-    (c: FetchCall) => (c.url === "http://radarr:7878/api/v3/movie/77" ? json({ id: 77, monitored: true }) : null),
-    (c: FetchCall) => (c.url === "http://radarr:7878/api/v3/moviefile?movieId=77" ? json([{ id: 5 }]) : null),
-    (c: FetchCall) => (c.url === "http://radarr:7878/api/v3/moviefile/5" ? json({}) : null),
+    (c: FetchCall) => (c.method === "DELETE" && c.url.startsWith("http://radarr:7878/api/v3/movie/77?")
+      ? new Response(null, { status: 200 }) : null),
     (c: FetchCall) => {
       if (c.method !== "DELETE" || c.url !== `${SEERR}/api/v1/request/42`) return null;
       if (seerrDeleteStatus === "down") throw new TypeError("fetch failed");
@@ -89,10 +90,9 @@ test("sans l'option : la demande part de Seerr, la ligne locale suit, le contenu
   await processCleanupQueue(db, config);
 
   assert.ok(seen("DELETE", "/api/v1/request/42"), "la demande est supprimée dans Seerr");
-  assert.ok(seen("PUT", "/api/v3/movie/77"), "Radarr arrête de surveiller");
+  assert.ok(seen("DELETE", "/api/v3/movie/77?deleteFiles=false"), "le film est retiré de Radarr, ses fichiers gardés");
   assert.ok(!seen("DELETE", "/api/v3/moviefile/"), "aucun fichier supprimé");
-  assert.ok(!seen("DELETE", "/api/v1/media/"), "le média Seerr n'est jamais supprimé");
-  assert.ok(!seen("DELETE", "/api/v3/movie/77"), "le film reste dans Radarr");
+  assert.ok(!seen("DELETE", "/api/v1/media/"), "le titre est encore dans Jellyfin : le média Seerr reste");
   assert.deepEqual(await rowsOf(`SELECT id FROM seer_requests`), []);
   assert.equal((await rowsOf(`SELECT status FROM seer_cleanup_queue`))[0].status, "completed");
 });
@@ -102,9 +102,8 @@ test("avec l'option : les fichiers sont supprimés, et la disponibilité se rela
   await processCleanupQueue(db, config);
 
   assert.ok(seen("DELETE", "/api/v1/request/42"));
-  assert.ok(seen("DELETE", "/api/v3/moviefile/5"), "le fichier est supprimé");
-  assert.ok(!seen("DELETE", "/api/v1/media/"), "le média Seerr n'est jamais supprimé");
-  assert.ok(!seen("DELETE", "/api/v3/movie/77"), "le film reste dans Radarr");
+  assert.ok(seen("DELETE", "/api/v3/movie/77?deleteFiles=true"), "le film est retiré de Radarr avec ses fichiers");
+  assert.ok(!seen("DELETE", "/api/v1/media/"), "Jellyfin ne l'a pas encore vu partir : le média Seerr reste");
   assert.ok(seen("POST", "/settings/jobs/availability-sync/run"));
   assert.deepEqual(await rowsOf(`SELECT id FROM seer_requests`), []);
   const syncs = await rowsOf(`SELECT action, status FROM seer_cleanup_queue WHERE action = 'sync'`);
