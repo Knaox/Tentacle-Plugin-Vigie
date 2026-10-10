@@ -11,7 +11,8 @@ type Prisma = PrismaClient;
 
 export interface CleanupJob {
   id: string;
-  action: "delete" | "retry" | "sync";
+  /** `forget` : le retrait d'une demande consommée (titre supprimé de Jellyfin, live/auto-forget.ts). */
+  action: "delete" | "forget" | "retry" | "sync";
   mediaType: "movie" | "tv";
   tmdbId: number;
   title: string;
@@ -85,7 +86,7 @@ export async function getPendingCleanups(prisma: Prisma, limit = 25): Promise<Cl
   );
   return rows.map((r) => ({
     id: r.id as string,
-    action: r.action as "delete" | "retry",
+    action: r.action as CleanupJob["action"],
     mediaType: r.media_type as "movie" | "tv",
     tmdbId: r.tmdb_id as number,
     title: r.title as string,

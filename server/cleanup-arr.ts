@@ -14,6 +14,13 @@
  * fichiers »). En retirant une série, son dossier ne part que si Sonarr n'y
  * a plus aucun épisode : jamais les fichiers d'une saison qu'on n'a pas
  * supprimée. Ce qui se télécharge encore est annulé d'abord.
+ *
+ * Le retrait AUTOMATIQUE d'une demande consommée (titre supprimé de
+ * Jellyfin, action `forget`) est plus prudent : « parti de Jellyfin » ne
+ * prouve pas que les fichiers le sont (bibliothèque retirée, saisons
+ * dé-surveillées après téléchargement). Un film dont Radarr a encore le
+ * fichier cesse seulement d'être surveillé ; une série n'est retirée de
+ * Sonarr que s'il n'y a plus aucun épisode.
  */
 
 import type { CleanupJob } from "./db";
@@ -41,7 +48,7 @@ interface Conn {
   seerrApiKey: string;
 }
 
-type Job = Pick<CleanupJob, "mediaType" | "seasons" | "deleteFiles" | "seerrRequestId">;
+type Job = Pick<CleanupJob, "mediaType" | "seasons" | "deleteFiles" | "seerrRequestId"> & { action?: CleanupJob["action"] };
 
 /** Applique la règle à la demande d'un job de suppression ; lève si Radarr ou Sonarr refuse (le job est relancé). */
 export async function cleanArrForJob(config: Conn, job: Job, media: SeerrMediaState | null): Promise<ArrOutcome> {
@@ -56,8 +63,37 @@ async function cleanMovie(server: ArrServerConfig, movieId: number, job: Job, me
   const others = media.requests.filter((r) => r.id !== job.seerrRequestId && !r.is4k && LIVE_REQUEST.has(r.status));
   if (others.length > 0) return "kept";
   await cancelRadarrQueue(server, movieId);
+  if (job.action === "forget") {
+    const kept = await unmonitorRadarrMovieWithFile(server, movieId);
+    if (kept === "failed") throw new Error("Radarr unmonitor failed");
+    if (kept === "unmonitored") return "unmonitored";
+  }
   if (!(await removeRadarrMovie(server, movieId, job.deleteFiles))) throw new Error("Radarr remove failed");
   return "removed";
+}
+
+/**
+ * Radarr a-t-il encore le fichier du film ? Alors il cesse seulement de le
+ * surveiller (« unmonitored »). « no-file » : rien ne le retient.
+ */
+async function unmonitorRadarrMovieWithFile(server: ArrServerConfig, movieId: number): Promise<"unmonitored" | "no-file" | "failed"> {
+  try {
+    const res = await arrFetch(server, `/api/v3/movie/${movieId}`);
+    if (res.status === 404) return "no-file";
+    if (!res.ok) return "failed";
+    const movie = (await res.json()) as { hasFile?: boolean; monitored?: boolean };
+    if (!movie.hasFile) return "no-file";
+    if (movie.monitored === false) return "unmonitored";
+    const put = await arrFetch(server, `/api/v3/movie/${movieId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...movie, monitored: false }),
+    });
+    return put.ok ? "unmonitored" : "failed";
+  } catch (err) {
+    console.warn(`[ArrService] unmonitorRadarrMovieWithFile #${movieId} failed:`, err);
+    return "failed";
+  }
 }
 
 async function cleanSeries(server: ArrServerConfig, seriesId: number, job: Job): Promise<ArrOutcome> {
@@ -66,7 +102,7 @@ async function cleanSeries(server: ArrServerConfig, seriesId: number, job: Job):
   if (job.deleteFiles && !(await deleteSonarrSeasonFiles(server, seriesId, job.seasons))) {
     throw new Error("Sonarr delete season files failed");
   }
-  const outcome = await removeSonarrSeriesIfUnmonitored(server, seriesId, job.deleteFiles);
+  const outcome = await removeSonarrSeriesIfUnmonitored(server, seriesId, job.deleteFiles, job.action === "forget");
   if (outcome === "failed") throw new Error("Sonarr remove failed");
   return outcome === "removed" ? "removed" : "unmonitored";
 }
@@ -85,11 +121,13 @@ export async function removeRadarrMovie(server: ArrServerConfig, movieId: number
 /**
  * Retire une série de Sonarr s'il n'en surveille plus aucune saison. Son
  * dossier ne part qu'avec `deleteFiles` ET plus aucun épisode dedans.
+ * `onlyIfEmpty` : seulement s'il n'y a plus aucun épisode (retrait automatique).
  */
 export async function removeSonarrSeriesIfUnmonitored(
   server: ArrServerConfig,
   seriesId: number,
   deleteFiles: boolean,
+  onlyIfEmpty = false,
 ): Promise<"removed" | "kept" | "failed"> {
   try {
     const res = await arrFetch(server, `/api/v3/series/${seriesId}`);
@@ -101,6 +139,7 @@ export async function removeSonarrSeriesIfUnmonitored(
     };
     if ((series.seasons ?? []).some((s) => s.monitored)) return "kept";
     const empty = series.statistics?.episodeFileCount === 0;
+    if (onlyIfEmpty && !empty) return "kept";
     const del = await arrFetch(
       server,
       `/api/v3/series/${seriesId}?deleteFiles=${deleteFiles && empty}&addImportListExclusion=false`,

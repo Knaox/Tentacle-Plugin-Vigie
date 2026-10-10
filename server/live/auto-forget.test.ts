@@ -40,16 +40,38 @@ test("les candidats : après la grâce, le passé compris, jamais en vague — m
   const old = movieDeparture(1, now - 21 * 86_400_000); // trois semaines : avant cette règle
   const fresh = movieDeparture(2, now - 60_000); // dans la grâce
   const ready = movieDeparture(3, now - FORGET_GRACE_MS - 1);
-  assert.deepEqual(forgetCandidates({ departures: [old, fresh, ready], now }), { ready: [old, ready], held: 0 });
+  const plain = forgetCandidates({ departures: [old, fresh, ready], now });
+  assert.deepEqual([plain.ready, plain.held, plain.waves], [[old, ready], 0, []]);
 
   // Vingt et un départs en vingt minutes, il y a cinq heures : toujours tenus à l'écart.
   const waveAt = now - 5 * 3_600_000;
   const wave = Array.from({ length: MASS_TITLES + 1 }, (_, i) => movieDeparture(100 + i, waveAt + i * 60_000));
-  assert.deepEqual(forgetCandidates({ departures: [...wave, ready], now }), { ready: [ready], held: MASS_TITLES + 1 });
+  const held = forgetCandidates({ departures: [...wave, ready], now });
+  assert.deepEqual([held.ready, held.held], [[ready], MASS_TITLES + 1]);
+  assert.deepEqual(held.waves, [{ start: waveAt, end: waveAt + MASS_TITLES * 60_000 }]);
+  // La plupart sont revenus (disque rebranché) : les derniers absents restent à l'écart.
+  const left = wave.slice(0, 3);
+  assert.deepEqual(forgetCandidates({ departures: left, now }).ready, left, "sans mémoire, ils partiraient");
+  assert.deepEqual(forgetCandidates({ departures: left, now, knownWaves: held.waves }).ready, []);
   // Au seuil, ce n'est pas une vague ; étalés sur plus d'une heure non plus.
   assert.equal(forgetCandidates({ departures: wave.slice(1), now }).held, 0);
   const spread = Array.from({ length: MASS_TITLES + 1 }, (_, i) => movieDeparture(200 + i, waveAt + i * 4 * 60_000));
   assert.equal(forgetCandidates({ departures: spread, now }).held, 0);
+});
+
+test("chaque saison à sa date : une redemande d'une saison partie plus tôt n'est jamais retirée", () => {
+  const day = 86_400_000;
+  // S3 partie au jour 1, redemandée une heure après ; S1 partie au jour 5.
+  const dep: Departure = {
+    mediaType: "tv", tmdbId: 1399, at: 5 * day, seasons: [1, 3], whole: false,
+    seasonAt: new Map([[3, day], [1, 5 * day]]),
+  };
+  const base = { localId: null, jellyfinUserId: "u1" };
+  const jobs = planJobs(dep, [
+    { ...base, seerrRequestId: 30, status: REQUEST.APPROVED, seasons: [3], createdAt: day + 3_600_000 }, // la redemande
+    { ...base, seerrRequestId: 31, status: REQUEST.COMPLETED, seasons: [1], createdAt: 0 }, // consommée
+  ]);
+  assert.deepEqual(jobs.map((j) => j.seerrRequestId), [31]);
 });
 
 test("ce que devient chaque demande d'un titre parti", () => {
@@ -100,8 +122,8 @@ let localRows: Array<Record<string, unknown>>;
 const db = {
   async $queryRawUnsafe(sql: string, ...params: unknown[]) {
     if (/FROM server_config/.test(sql)) return [{ k: "jellyfin_url", v: JELLYFIN }, { k: "jellyfin_api_key", v: "jk" }];
-    if (/FROM seer_cleanup_queue/.test(sql)) {
-      return [{ n: BigInt(jobs.filter((j) => j.status === "pending" && j.seerrRequestId === params[0]).length) }];
+    if (/SELECT id FROM seer_cleanup_queue/.test(sql)) {
+      return jobs.filter((j) => j.status === "pending" && j.seerrRequestId === params[0]).map((j) => ({ id: j.id }));
     }
     if (/FROM seer_requests WHERE media_type = \? AND tmdb_id = \?/.test(sql)) {
       return localRows.filter((r) => r.media_type === params[0] && r.tmdb_id === params[1] && !["deleted", "deleting", "delete_failed"].includes(String(r.status)));

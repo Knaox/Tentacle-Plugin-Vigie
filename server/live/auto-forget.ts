@@ -5,10 +5,12 @@
 /*
  * Appelé après chaque passe de la boucle en direct. Les décisions sont dans
  * auto-forget-plan.ts ; ici, les dernières gardes (Jellyfin redemandé juste
- * avant d'agir, rien qui descende encore chez Sonarr ou Radarr) et les
- * gestes, par la file de nettoyage de Vigie — celle de « Supprimer » : Sonarr
- * ou Radarr cessent de surveiller, la demande Jellyseerr part, la ligne
- * locale aussi. Jamais un fichier supprimé : il l'est déjà.
+ * avant d'agir, rien qui descende encore chez Sonarr ou Radarr, les vagues
+ * retenues) et les gestes, par la file de nettoyage de Vigie — celle de
+ * « Supprimer », avec l'action `forget` (worker-cleanup.ts) : la demande
+ * Jellyseerr part, la ligne locale aussi, Sonarr ou Radarr cessent de
+ * surveiller — sans rien retirer qui y ait encore des fichiers, et jamais ce
+ * qu'une redemande attend. Jamais un fichier supprimé.
  *
  * Redemander un titre parti n'attend rien de tout cela (`forgetSpentNow`) :
  * le geste vaut accord, la demande d'avant part tout de suite.
@@ -25,8 +27,8 @@ import { checkInJellyfin } from "./jellyfin-check";
 import { liveState } from "./live-state";
 import { requestIndex } from "./request-index";
 import { openLocalRequestsFor } from "./local-requests";
-import { isLiveRequest, requestTime } from "./title-truth";
-import { forgetCandidates, madeBefore, planJobs, type ForgetRequest } from "./auto-forget-plan";
+import { requestTime } from "./title-truth";
+import { forgetCandidates, planJobs, spentBy, type ForgetRequest, type WaveWindow } from "./auto-forget-plan";
 import type { Departure } from "./library-keys";
 
 /** Un titre traité n'est pas repris avant que la file de nettoyage ait eu le temps d'agir. */
@@ -34,6 +36,8 @@ const COOLDOWN_MS = 15 * 60_000;
 const WAVE_WARN_EVERY_MS = 6 * 60 * 60_000;
 /** Au plus autant de titres par passe — le reste à la passe suivante. */
 const TITLES_PER_PASS = 5;
+/** Une vague retenue est oubliée avec les départs que le serveur garde (30 jours). */
+const WAVE_MEMORY_MS = 31 * 86_400_000;
 
 async function titleOf(db: PrismaClient, dep: Departure, fallback: string | null): Promise<string> {
   if (fallback) return fallback;
@@ -41,18 +45,18 @@ async function titleOf(db: PrismaClient, dep: Departure, fallback: string | null
   return meta?.get(`${dep.mediaType}:${dep.tmdbId}`)?.title || `${dep.mediaType === "movie" ? "Film" : "Série"} #${dep.tmdbId}`;
 }
 
-async function hasPendingCleanup(db: PrismaClient, seerrRequestId: number): Promise<boolean> {
-  const rows = await db.$queryRawUnsafe<Array<{ n: number | bigint }>>(
-    "SELECT COUNT(*) AS n FROM seer_cleanup_queue WHERE status = 'pending' AND seerr_request_id = ?",
+/** Le nettoyage déjà en file pour cette demande Jellyseerr, s'il y en a un. */
+async function pendingCleanupOf(db: PrismaClient, seerrRequestId: number): Promise<string | null> {
+  const rows = await db.$queryRawUnsafe<Array<{ id: string }>>(
+    "SELECT id FROM seer_cleanup_queue WHERE status = 'pending' AND seerr_request_id = ? ORDER BY created_at DESC LIMIT 1",
     seerrRequestId,
   );
-  return Number(rows[0]?.n ?? 0) > 0;
+  return rows[0]?.id ?? null;
 }
 
 /** Une demande d'avant le départ vit encore : il y a quelque chose à retirer. */
 function hasSpentRequest(dep: Departure): boolean {
-  return (requestIndex.requestsFor(dep.mediaType, dep.tmdbId) ?? [])
-    .some((r) => isLiveRequest(r) && madeBefore(r.createdAt, dep.at));
+  return (requestIndex.requestsFor(dep.mediaType, dep.tmdbId) ?? []).some((r) => spentBy(r, dep));
 }
 
 /**
@@ -70,12 +74,15 @@ export function createAutoForget(db: PrismaClient) {
   const handled = new Map<string, number>();
   let lastWaveWarn = 0;
   let lastWaveSize = 0;
+  // Les vagues vues : un disque revenu en partie ne fait pas de ses derniers absents des suppressions.
+  let waves: WaveWindow[] = [];
 
   return async function autoForget(cfg: WorkerCfg, now: number): Promise<void> {
     if (!requestIndex.ready || !liveState.libraryReadable) return;
     for (const [key, at] of handled) if (now - at > COOLDOWN_MS) handled.delete(key);
 
-    const plan = forgetCandidates({ departures: liveState.departures(), now });
+    const plan = forgetCandidates({ departures: liveState.departures(), now, knownWaves: waves });
+    waves = plan.waves.filter((w) => now - w.end < WAVE_MEMORY_MS);
     if (plan.held > 0 && (plan.held !== lastWaveSize || now - lastWaveWarn > WAVE_WARN_EVERY_MS)) {
       lastWaveWarn = now;
       console.warn(
@@ -123,23 +130,27 @@ export function createAutoForget(db: PrismaClient) {
 /**
  * Redemander un titre parti de Jellyfin : ses demandes d'avant le départ
  * partent TOUT DE SUITE, avant que la nouvelle ne parte — le geste de
- * l'utilisateur vaut accord (ni grâce, ni vague). Seulement ce que Jellyfin a
- * CONFIRMÉ parti. Rend les nettoyages mis en file : la nouvelle demande
- * attend le dernier (`pending_cleanup_id`), sans quoi Jellyseerr la
- * refuserait comme un doublon.
+ * l'utilisateur vaut accord (ni grâce, ni vague), pour ce qu'il redemande
+ * seulement (`seasons` : les saisons demandées d'une série ; aucune : toute
+ * la série). Seulement ce que Jellyfin a CONFIRMÉ parti. Rend les nettoyages
+ * en file : la nouvelle demande attend le dernier (`pending_cleanup_id`),
+ * sans quoi Jellyseerr la refuserait comme un doublon.
  */
-export async function forgetSpentNow(db: PrismaClient, mediaType: "movie" | "tv", tmdbId: number): Promise<string[]> {
+export async function forgetSpentNow(
+  db: PrismaClient, mediaType: "movie" | "tv", tmdbId: number, seasons?: readonly number[] | null,
+): Promise<string[]> {
   if (!requestIndex.ready || !liveState.libraryReadable) return [];
   const dep = liveState.departures().find((d) => d.mediaType === mediaType && d.tmdbId === tmdbId);
   if (!dep) return [];
   const fact = liveState.libraryFact(mediaType, tmdbId);
   let effective: Departure;
   if (fact.state === "gone") effective = dep;
-  else if (fact.state === "present" && mediaType === "tv") {
-    const seasons = dep.seasons.filter((s) => fact.goneSeasons.has(s));
-    if (seasons.length === 0) return [];
-    effective = { ...dep, seasons, whole: false };
-  } else return [];
+  else if (fact.state === "present" && mediaType === "tv") effective = { ...dep, seasons: dep.seasons.filter((s) => fact.goneSeasons.has(s)), whole: false };
+  else return [];
+  if (mediaType === "tv" && seasons && seasons.length > 0) {
+    effective = { ...effective, seasons: effective.seasons.filter((s) => seasons.includes(s)), whole: false };
+  }
+  if (mediaType === "tv" && effective.seasons.length === 0) return [];
   if (!hasSpentRequest(effective)) return [];
   const jobs = await forgetTitle(db, effective, "redemandé");
   if (jobs.length > 0) invalidateRequestCaches();
@@ -165,9 +176,13 @@ async function forgetTitle(db: PrismaClient, dep: Departure, why: string): Promi
   const title = await titleOf(db, dep, locals[0]?.title ?? null);
   const enqueued: string[] = [];
   for (const job of jobs) {
-    if (job.seerrRequestId !== null && await hasPendingCleanup(db, job.seerrRequestId)) continue;
+    const already = job.seerrRequestId !== null ? await pendingCleanupOf(db, job.seerrRequestId) : null;
+    if (already) {
+      enqueued.push(already);
+      continue;
+    }
     const cleanupId = await enqueueCleanup(db, {
-      action: "delete", mediaType: dep.mediaType, tmdbId: dep.tmdbId, title,
+      action: "forget", mediaType: dep.mediaType, tmdbId: dep.tmdbId, title,
       seerrRequestId: job.seerrRequestId, deleteFiles: false, seasons: job.seasons,
       requestId: job.whole ? job.localId : null, jellyfinUserId: job.jellyfinUserId,
     });

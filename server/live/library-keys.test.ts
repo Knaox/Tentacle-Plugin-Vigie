@@ -62,8 +62,8 @@ test("les départs : films, séries entières ou en partie — rien pour un remp
   const deps = departuresOf(snap).sort((a, b) => a.tmdbId - b.tmdbId);
   assert.deepEqual(deps, [
     { mediaType: "movie", tmdbId: 1, at: 10, seasons: [], whole: true },
-    { mediaType: "tv", tmdbId: 3, at: 20, seasons: [1], whole: true },
-    { mediaType: "tv", tmdbId: 4, at: 30, seasons: [2], whole: false },
+    { mediaType: "tv", tmdbId: 3, at: 20, seasons: [1], seasonAt: new Map([[1, 20]]), whole: true },
+    { mediaType: "tv", tmdbId: 4, at: 30, seasons: [2], seasonAt: new Map([[2, 30]]), whole: false },
   ]);
 });
 
