@@ -54,6 +54,12 @@ class LiveState {
   private digest = "";
   readonly checks = new Map<string, JellyfinCheck>();
   policy: ForgetPolicy = { wholeSeries: false };
+  /**
+   * Les fenêtres où un départ est SUSPECT (panne des dossiers, vague) tant
+   * que Jellyfin n'a pas relu sa bibliothèque (departure-watch.ts) : un titre
+   * parti là n'est pas « supprimé » — sa demande d'avant le retient encore.
+   */
+  private suspect: ReadonlyArray<{ start: number; end: number }> = [];
   private gen = 0;
 
   /** Change dès que l'état d'un titre a pu changer (bibliothèque, Jellyfin, demandes). */
@@ -72,9 +78,31 @@ class LiveState {
     this.gen++;
   }
 
+  setSuspect(windows: ReadonlyArray<{ start: number; end: number }>): void {
+    const same = windows.length === this.suspect.length
+      && windows.every((w, i) => w.start === this.suspect[i].start && w.end === this.suspect[i].end);
+    if (same) return;
+    this.suspect = windows.map((w) => ({ ...w }));
+    this.gen++;
+  }
+
+  /** Un départ à cet instant vaut-il suppression (hors de toute fenêtre suspecte) ? */
+  private trusted(at: number): boolean {
+    return !this.suspect.some((w) => at >= w.start && at <= w.end);
+  }
+
+  /** Les départs de saisons qui valent suppression, parmi `seasons` (toutes si absent). */
+  private trustedSeasons(departed: ReadonlyMap<number, number> | undefined, seasons?: ReadonlySet<number>): ReadonlyMap<number, number> | undefined {
+    if (!departed) return undefined;
+    const out = new Map<number, number>();
+    for (const [season, at] of departed) if ((!seasons || seasons.has(season)) && this.trusted(at)) out.set(season, at);
+    return out;
+  }
+
   /** Pour les tests : rien de connu. */
   reset(): void {
     this.policy = { wholeSeries: false };
+    this.suspect = [];
     this.snapshot = emptySnapshot();
     this.libraryReadable = false;
     this.digest = "";
@@ -146,13 +174,13 @@ class LiveState {
         const at = facts.departed.get(season) ?? 0;
         if (this.settled(key, at, now, (c) => !c.presentSeasons?.has(season))) gone.add(season);
       }
-      return { state: "present", goneSeasons: gone, presentSeasons: base.presentSeasons, seasonDepartedAt: departuresOfSeasons(facts.departed, gone) };
+      return { state: "present", goneSeasons: gone, presentSeasons: base.presentSeasons, seasonDepartedAt: this.trustedSeasons(facts.departed, gone) };
     }
 
     if (this.settled(key, base.since, now, (c) => !c.present)) {
       return {
         state: "gone", goneSeasons: base.goneSeasons, presentSeasons: NO_SEASONS,
-        departedAt: base.since, seasonDepartedAt: facts?.departed,
+        departedAt: this.trusted(base.since) ? base.since : null, seasonDepartedAt: this.trustedSeasons(facts?.departed),
       };
     }
     const check = this.checks.get(key);
@@ -160,26 +188,11 @@ class LiveState {
       // Jellyfin l'a encore (fichier remplacé) : il est là, ses saisons sont celles que Jellyfin a.
       const present = check.presentSeasons ?? NO_SEASONS;
       const gone = new Set([...base.goneSeasons].filter((s) => check.presentSeasons && !present.has(s)));
-      return { state: "present", goneSeasons: gone, presentSeasons: present, seasonDepartedAt: departuresOfSeasons(facts?.departed, gone) };
+      return { state: "present", goneSeasons: gone, presentSeasons: present, seasonDepartedAt: this.trustedSeasons(facts?.departed, gone) };
     }
     // Départ tout récent, pas encore confirmé : Jellyseerr garde la parole.
     return UNKNOWN_LIBRARY;
   }
-}
-
-/**
- * Quand chaque saison CONFIRMÉE partie a quitté Jellyfin : une demande faite
- * avant ne la retient plus (title-truth.ts). Un départ pas encore confirmé
- * n'y figure pas.
- */
-function departuresOfSeasons(departed: ReadonlyMap<number, number> | undefined, gone: ReadonlySet<number>): ReadonlyMap<number, number> | undefined {
-  if (!departed || gone.size === 0) return undefined;
-  const out = new Map<number, number>();
-  for (const season of gone) {
-    const at = departed.get(season);
-    if (at !== undefined) out.set(season, at);
-  }
-  return out;
 }
 
 function sameSet(a?: ReadonlySet<number>, b?: ReadonlySet<number>): boolean {

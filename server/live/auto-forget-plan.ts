@@ -16,11 +16,15 @@
  *     son remplaçant n'arrive ; dix minutes couvrent l'attente du serveur.
  *   - Jellyfin redemandé juste avant d'agir, et ce que Sonarr ou Radarr font
  *     encore descendre attend (auto-forget.ts).
- *   - Une VAGUE de départs (un disque débranché, un partage réseau perdu) ne
- *     supprime RIEN : plus de `MASS_TITLES` titres partis à moins d'une heure
- *     les uns des autres — ni pendant l'heure, ni après, ni quand la plupart
- *     sont revenus (la fenêtre de la vague est retenue, auto-forget.ts). Ces
- *     titres-là se redemandent quand même : redemander retire la demande d'avant.
+ *   - Une suppression n'est pas une panne : Vigie demande à Jellyfin si les
+ *     dossiers de ses bibliothèques répondent (storage-health.ts). Pendant
+ *     une panne (NAS débranché, partage perdu, disque mort), RIEN ne part.
+ *   - Ce qui est SUSPECT — parti autour d'une panne (l'heure d'avant
+ *     comprise), ou dans une VAGUE (plus de `MASS_TITLES` titres en une
+ *     heure) — attend que Jellyfin ait relu toute sa bibliothèque APRÈS
+ *     (Vigie lance lui-même cette analyse, dossiers revenus). Ce qui n'est
+ *     toujours pas revenu ensuite a bien été supprimé : ça part, autant de
+ *     titres qu'il y en a.
  *   - Seules les demandes nées AVANT le départ — de CHAQUE saison, à sa date :
  *     une demande faite après est une REDEMANDE, jamais retirée.
  * Le passé compte aussi : la liste du serveur garde trente jours de départs,
@@ -49,20 +53,33 @@ export interface WaveWindow {
 }
 
 export interface PlanInput {
+  /** TOUS les départs : une vague se lit sur l'ensemble, demandes ou non. */
   departures: readonly Departure[];
+  /** Ceux dont on décide (une demande d'avant vit encore) — par défaut, tous. */
+  candidates?: readonly Departure[];
   now: number;
   graceMs?: number;
-  /** Les vagues déjà vues : leurs titres restent à l'écart même revenus en partie. */
+  /** Les vagues déjà vues : leurs titres restent suspects même revenus en partie. */
   knownWaves?: readonly WaveWindow[];
+  /** Les pannes observées (fin = maintenant si elle dure). */
+  outages?: readonly WaveWindow[];
+  /** Les dossiers de Jellyfin, maintenant (défaut : « ok »). */
+  storage?: "ok" | "down" | "unknown";
+  /** Fin de la dernière analyse complète de la bibliothèque par Jellyfin (ms). */
+  lastScanEnd?: number | null;
 }
 
 export interface Candidates {
   /** Les titres partis dont la demande peut être supprimée maintenant. */
   ready: Departure[];
-  /** Combien de titres sont tenus à l'écart : partis dans une vague. */
+  /** Combien de candidats attendent : panne en cours, ou suspects pas encore confirmés. */
   held: number;
   /** Toutes les vagues, connues et nouvelles — à retenir pour la passe suivante. */
   waves: WaveWindow[];
+  /** Les fenêtres suspectes qu'aucune analyse de Jellyfin n'a encore suivies. */
+  unconfirmed: WaveWindow[];
+  /** Une analyse de Jellyfin confirmerait des suspects : à lancer. */
+  scanNeeded: boolean;
 }
 
 /**
@@ -95,14 +112,31 @@ export function mergeWaves(waves: readonly WaveWindow[]): WaveWindow[] {
   return out;
 }
 
-const inWave = (at: number, waves: readonly WaveWindow[]) => waves.some((w) => at >= w.start && at <= w.end);
+export const inWave = (at: number, waves: readonly WaveWindow[]) => waves.some((w) => at >= w.start && at <= w.end);
+
+/**
+ * Les fenêtres suspectes : les vagues, et les pannes élargies à l'heure qui
+ * les précède (Vigie voit la panne une minute après les premiers départs).
+ * Une analyse de Jellyfin finie APRÈS une fenêtre la confirme.
+ */
+export function unconfirmedWindows(waves: readonly WaveWindow[], outages: readonly WaveWindow[], lastScanEnd: number | null): WaveWindow[] {
+  const windows = mergeWaves([...waves, ...outages.map((o) => ({ start: o.start - MASS_WINDOW_MS, end: o.end }))]);
+  return windows.filter((w) => lastScanEnd === null || lastScanEnd <= w.end);
+}
 
 /** Les titres partis dont la demande peut être supprimée maintenant. */
-export function forgetCandidates({ departures, now, graceMs = FORGET_GRACE_MS, knownWaves = [] }: PlanInput): Candidates {
+export function forgetCandidates({
+  departures, candidates = departures, now, graceMs = FORGET_GRACE_MS, knownWaves = [], outages = [],
+  storage = "ok", lastScanEnd = null,
+}: PlanInput): Candidates {
   const waves = mergeWaves([...knownWaves, ...wavesOf(departures)]);
-  const held = departures.filter((d) => inWave(d.at, waves));
-  const ready = departures.filter((d) => !inWave(d.at, waves) && now - d.at >= graceMs);
-  return { ready, held: held.length, waves };
+  const unconfirmed = unconfirmedWindows(waves, outages, lastScanEnd);
+  const graced = candidates.filter((d) => now - d.at >= graceMs);
+  if (storage !== "ok") return { ready: [], held: graced.length, waves, unconfirmed, scanNeeded: false };
+  const ready = graced.filter((d) => !inWave(d.at, unconfirmed));
+  // Une fenêtre finie depuis la grâce (les suppressions ont cessé) : Jellyfin peut relire.
+  const scanNeeded = graced.length > ready.length && unconfirmed.some((w) => now - w.end >= graceMs);
+  return { ready, held: graced.length - ready.length, waves, unconfirmed, scanNeeded };
 }
 
 /** Une demande Jellyseerr du titre, avec sa ligne locale quand Vigie l'a faite. */

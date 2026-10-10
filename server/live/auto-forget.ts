@@ -4,9 +4,10 @@
 
 /*
  * Appelé après chaque passe de la boucle en direct. Les décisions sont dans
- * auto-forget-plan.ts ; ici, les dernières gardes (Jellyfin redemandé juste
- * avant d'agir, rien qui descende encore chez Sonarr ou Radarr, les vagues
- * retenues) et les gestes, par la file de nettoyage de Vigie — celle de
+ * auto-forget-plan.ts ; « suppression ou panne ? » dans departure-watch.ts
+ * (Jellyfin : ses dossiers, sa relecture) ; ici, les dernières gardes
+ * (Jellyfin redemandé juste avant d'agir, rien qui descende encore chez
+ * Sonarr ou Radarr) et les gestes, par la file de nettoyage de Vigie — celle de
  * « Supprimer », avec l'action `forget` (worker-cleanup.ts) : la demande
  * Jellyseerr part, la ligne locale aussi, Sonarr ou Radarr cessent de
  * surveiller — sans rien retirer qui y ait encore des fichiers, et jamais ce
@@ -29,16 +30,14 @@ import { liveState, type ForgetPolicy } from "./live-state";
 import { requestIndex } from "./request-index";
 import { openLocalRequestsFor } from "./local-requests";
 import { requestTime } from "./title-truth";
-import { forgetCandidates, planJobs, spentBy, type ForgetRequest, type WaveWindow } from "./auto-forget-plan";
+import { planJobs, spentBy, type ForgetRequest } from "./auto-forget-plan";
+import { createDepartureWatch, jellyfinWatchDeps, type WatchDeps } from "./departure-watch";
 import type { Departure } from "./library-keys";
 
 /** Un titre traité n'est pas repris avant que la file de nettoyage ait eu le temps d'agir. */
 const COOLDOWN_MS = 15 * 60_000;
-const WAVE_WARN_EVERY_MS = 6 * 60 * 60_000;
 /** Au plus autant de titres par passe — le reste à la passe suivante. */
-const TITLES_PER_PASS = 5;
-/** Une vague retenue est oubliée avec les départs que le serveur garde (30 jours). */
-const WAVE_MEMORY_MS = 31 * 86_400_000;
+const TITLES_PER_PASS = 10;
 
 async function titleOf(db: PrismaClient, dep: Departure, fallback: string | null): Promise<string> {
   if (fallback) return fallback;
@@ -76,12 +75,9 @@ function arriving(queue: QueueResponse | null, dep: Departure): boolean {
     && (dep.mediaType === "movie" || e.seasonNumber === null || dep.seasons.includes(e.seasonNumber)));
 }
 
-export function createAutoForget(db: PrismaClient, readConfig: () => PluginConfig) {
+export function createAutoForget(db: PrismaClient, readConfig: () => PluginConfig, deps: WatchDeps = jellyfinWatchDeps(db)) {
   const handled = new Map<string, number>();
-  let lastWaveWarn = 0;
-  let lastWaveSize = 0;
-  // Les vagues vues : un disque revenu en partie ne fait pas de ses derniers absents des suppressions.
-  let waves: WaveWindow[] = [];
+  const decide = createDepartureWatch(db, deps);
 
   return async function autoForget(cfg: WorkerCfg, now: number): Promise<void> {
     // Le réglage, relu à chaque passe (installed.json peut changer sans passer par l'administration).
@@ -89,21 +85,13 @@ export function createAutoForget(db: PrismaClient, readConfig: () => PluginConfi
     if (!requestIndex.ready || !liveState.libraryReadable) return;
     for (const [key, at] of handled) if (now - at > COOLDOWN_MS) handled.delete(key);
 
-    const plan = forgetCandidates({ departures: liveState.departures(), now, knownWaves: waves });
-    waves = plan.waves.filter((w) => now - w.end < WAVE_MEMORY_MS);
-    if (plan.held > 0 && (plan.held !== lastWaveSize || now - lastWaveWarn > WAVE_WARN_EVERY_MS)) {
-      lastWaveWarn = now;
-      console.warn(
-        `[VigieLive] ${plan.held} titres partis de Jellyfin en moins d'une heure : trop pour être une suppression voulue `
-        + "(disque ou partage débranché ?). Leurs demandes ne sont pas supprimées d'office ; les redemander les remplace.",
-      );
-    }
-    lastWaveSize = plan.held;
-
     // Seulement les titres dont une demande d'AVANT le départ vit encore : une redemande reste.
-    const pending = plan.ready
+    const open = liveState.departures()
       .filter((d) => !handled.has(`${d.mediaType}:${d.tmdbId}`))
       .filter(hasSpentRequest);
+    // Suppression ou panne ? Jellyfin en décide (departure-watch.ts).
+    const plan = await decide(open, now);
+    const pending = plan?.ready ?? [];
     if (pending.length === 0) return;
     // Ce que Sonarr ou Radarr font redescendre attend : on repassera, sans rien marquer.
     const queue = await queueSnapshot(cfg).catch(() => null);

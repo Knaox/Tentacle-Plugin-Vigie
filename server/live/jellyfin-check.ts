@@ -59,13 +59,14 @@ function tmdbOf(ids: Item["ProviderIds"]): string | null {
 
 const typeOf = (t: CheckTarget) => (t.mediaType === "movie" ? "Movie" : "Series");
 
-interface Session {
+export interface Session {
   base: string;
   headers: Record<string, string>;
   userId: string;
 }
 
-async function session(db: PrismaClient): Promise<Session | null> {
+/** Jellyfin, tel que le serveur Tentacle le joint (clé d'administration, un compte administrateur). */
+export async function jellyfinSession(db: PrismaClient): Promise<Session | null> {
   const creds = await jellyfinCredentials(db);
   if (!creds) return null;
   const accounts = await fetchJellyfinAccounts(db);
@@ -142,7 +143,7 @@ export async function checkInJellyfin(db: PrismaClient, targets: readonly CheckT
   const keyOf = (t: CheckTarget) => `${t.mediaType}:${t.tmdbId}`;
   let s: Session | null = null;
   try {
-    s = await session(db);
+    s = await jellyfinSession(db);
   } catch {
     s = null;
   }
