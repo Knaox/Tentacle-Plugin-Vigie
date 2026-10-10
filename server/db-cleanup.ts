@@ -11,8 +11,12 @@ type Prisma = PrismaClient;
 
 export interface CleanupJob {
   id: string;
-  /** `forget` : le retrait d'une demande consommée (titre supprimé de Jellyfin, live/auto-forget.ts). */
-  action: "delete" | "forget" | "retry" | "sync";
+  /**
+   * `forget` : le retrait d'une demande consommée (titre supprimé de
+   * Jellyfin, live/auto-forget.ts) ; `forget-series` : de même, la série
+   * entière (réglage « une série supprimée part en entier »).
+   */
+  action: "delete" | "forget" | "forget-series" | "retry" | "sync";
   mediaType: "movie" | "tv";
   tmdbId: number;
   title: string;
@@ -42,6 +46,11 @@ function parseSeasons(raw: unknown): number[] | null {
     }
   } catch { /* ignore */ }
   return null;
+}
+
+/** Un retrait automatique (titre supprimé de Jellyfin) — plus prudent qu'une suppression demandée. */
+export function isAutoForget(action: string | undefined): boolean {
+  return action === "forget" || action === "forget-series";
 }
 
 /* ── CRUD ─────────────────────────────────────────────────────────── */

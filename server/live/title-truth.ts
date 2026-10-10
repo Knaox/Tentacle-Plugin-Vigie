@@ -77,6 +77,12 @@ export interface TitleFacts {
   queuedSeasons?: ReadonlySet<number>;
   /** Quelque chose descend pour ce titre (Sonarr, Radarr). */
   downloading?: boolean;
+  /**
+   * Réglage de l'administrateur : une série supprimée de Jellyfin part EN
+   * ENTIER — ses demandes d'avant ne retiennent plus rien, même les saisons
+   * et épisodes encore attendus.
+   */
+  wholeSeriesGoes?: boolean;
 }
 
 export const NO_SEASONS: ReadonlySet<number> = new Set();
@@ -126,17 +132,20 @@ function spentAt(r: RequestFact, at: number | null): boolean {
  * Le départ du titre a-t-il CONSOMMÉ cette demande ? Un film parti, une série
  * partie dont chaque saison demandée est partie après la demande. Une saison
  * jamais arrivée la garde vivante : supprimer la saison 1 n'annule pas la 2
- * qui est en route.
+ * qui est en route — sauf réglage « une série supprimée part en entier »
+ * (`wholeSeries`) : alors tout ce qui a été demandé avant part avec elle.
  */
-export function spentRequest(r: RequestFact, library: LibraryFact): boolean {
+export function spentRequest(r: RequestFact, library: LibraryFact, wholeSeries = false): boolean {
   if (library.state !== "gone") return false;
-  if (r.seasons.length === 0) return spentAt(r, library.departedAt ?? null);
+  if (r.seasons.length === 0 || wholeSeries) return spentAt(r, library.departedAt ?? null);
   return r.seasons.every((s) => spentAt(r, seasonDeparture(library, s)));
 }
 
 /** La saison partie de Jellyfin après cette demande ne lui doit plus rien. */
-export function spentSeason(r: RequestFact, library: LibraryFact, season: number): boolean {
-  return spentAt(r, seasonDeparture(library, season));
+export function spentSeason(r: RequestFact, library: LibraryFact, season: number, wholeSeries = false): boolean {
+  const at = seasonDeparture(library, season)
+    ?? (wholeSeries && library.state === "gone" ? library.departedAt ?? null : null);
+  return spentAt(r, at);
 }
 
 /** Le statut « Demandé » à rendre : en cours tant que quelque chose descend, en attente sinon. */
@@ -151,14 +160,14 @@ function requested(facts: TitleFacts, seerr: number | undefined): number {
 export function stillRequested(facts: TitleFacts): boolean | null {
   if (facts.queued) return true;
   if (facts.requests === null) return null;
-  return facts.requests.some((r) => isLiveRequest(r) && !spentRequest(r, facts.library));
+  return facts.requests.some((r) => isLiveRequest(r) && !spentRequest(r, facts.library, facts.wholeSeriesGoes));
 }
 
 /** Une saison est-elle encore demandée — par une demande qui la couvre, ou dans la file ? */
 export function seasonStillRequested(facts: TitleFacts, season: number): boolean | null {
   if (facts.queuedSeasons?.has(season)) return true;
   if (facts.requests === null) return facts.queued ? true : null;
-  return facts.requests.some((r) => isLiveRequest(r) && r.seasons.includes(season) && !spentSeason(r, facts.library, season))
+  return facts.requests.some((r) => isLiveRequest(r) && r.seasons.includes(season) && !spentSeason(r, facts.library, season, facts.wholeSeriesGoes))
     || (facts.queued && !facts.queuedSeasons);
 }
 

@@ -143,3 +143,21 @@ test("saisons d'une série partie en entier : comme ses demandes le disent", () 
   assert.equal(correctSeasonStatus(2, STATUS.AVAILABLE, all), STATUS.DELETED);
   assert.equal(correctSeasonStatus(3, STATUS.UNKNOWN, all), STATUS.UNKNOWN);
 });
+
+test("réglage « une série supprimée part en entier » : même la saison attendue se redemande", () => {
+  const at = 1_000_000;
+  const lib: LibraryFact = {
+    state: "gone", goneSeasons: new Set([1, 2]), presentSeasons: NO_SEASONS,
+    departedAt: at, seasonDepartedAt: new Map([[1, at], [2, at]]),
+  };
+  const waiting = { ...req(REQUEST.APPROVED, [1, 2, 3]), createdAt: at - 3_600_000 };
+  const whole = { wholeSeriesGoes: true };
+  assert.equal(correctMediaStatus("tv", STATUS.PARTIALLY_AVAILABLE, facts(lib, [waiting], whole)), STATUS.DELETED);
+  assert.equal(correctSeasonStatus(3, STATUS.PROCESSING, facts(lib, [waiting], whole)), STATUS.DELETED);
+  // Une redemande, elle, reste demandée.
+  const again = { ...req(REQUEST.PENDING, [3]), createdAt: at + 1 };
+  assert.equal(correctSeasonStatus(3, STATUS.PROCESSING, facts(lib, [waiting, again], whole)), STATUS.PROCESSING);
+  // Une série encore là (une saison supprimée) : le réglage n'y change rien.
+  const partial: LibraryFact = { state: "present", goneSeasons: new Set([1]), presentSeasons: new Set([2]), seasonDepartedAt: new Map([[1, at]]) };
+  assert.equal(correctSeasonStatus(3, STATUS.PROCESSING, facts(partial, [waiting], whole)), STATUS.PROCESSING);
+});

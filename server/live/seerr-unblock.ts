@@ -81,7 +81,7 @@ export async function unblockSeasons(
   const library = liveState.libraryFact("tv", request.tmdbId, now);
   const live = (detail?.mediaInfo?.requests ?? []).some((r) => {
     const fact = { status: r.status, createdAt: r.createdAt, seasons: (r.seasons ?? []).map((s) => s.seasonNumber) };
-    return isLiveRequest(fact) && !spentRequest(fact, library);
+    return isLiveRequest(fact) && !spentRequest(fact, library, liveState.policy.wholeSeries);
   });
   if (mediaId && goneFromJellyfin("tv", request.tmdbId) && !live) {
     const res = await fetch(`${cfg.seerrUrl}/api/v1/media/${mediaId}`, {

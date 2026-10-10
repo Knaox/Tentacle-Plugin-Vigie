@@ -64,6 +64,9 @@ export function normalizeConfig(body: unknown): PluginConfig {
     // Les titres masqués (liste de blocage, mots-clés bloqués) se demandent-ils ?
     // Non par défaut : le masquage est un choix de l'administrateur.
     allowMaskedRequests: input.allowMaskedRequests === true,
+    // Une série supprimée de Jellyfin part-elle en entier, même ce qui est encore
+    // attendu (live/auto-forget-plan.ts) ? Non par défaut : la suite continue d'arriver.
+    deleteWholeSeries: input.deleteWholeSeries === true,
     userLimit: Number.isFinite(limit) && limit > 0 ? limit : 0,
     // Un nom par langue ; l'ancienne forme (un seul nom) est reprise pour les deux.
     navLabels: cleanNavLabels(input.navLabels ?? legacyLabel),

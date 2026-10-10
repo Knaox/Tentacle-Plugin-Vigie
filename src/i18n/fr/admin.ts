@@ -27,6 +27,8 @@ export default {
   toggleAutoApproveDesc: "La demande d'un compte sans droit d'approbation dans Jellyseerr est validée dès son envoi",
   toggleMaskedRequests: "Autoriser la demande de contenu masqué",
   toggleMaskedRequestsDesc: "Un titre que Jellyseerr masque (liste de blocage, mots-clés bloqués) peut être demandé : Vigie le retire de la liste de blocage juste avant d'envoyer la demande",
+  toggleWholeSeries: "Une série supprimée part en entier",
+  toggleWholeSeriesDesc: "Quand une série est supprimée de Jellyfin, sa demande part entièrement, même pour les saisons et épisodes encore attendus : Sonarr cesse de la surveiller, ses prochaines sorties n'arrivent pas. Désactivé, ce qui est encore attendu continue d'arriver",
   admSpecialSeasons: "Épisodes spéciaux",
   admSpecialSeasonsDesc: "La saison 0 se demande si Jellyseerr l'autorise (Paramètres › Général › autoriser les demandes d'épisodes spéciaux)",
   admSpecialSeasonsOn: "Autorisés",

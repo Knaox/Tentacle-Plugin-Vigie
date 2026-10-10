@@ -27,6 +27,8 @@ export default {
   toggleAutoApproveDesc: "A request from an account without approval rights in Jellyseerr is approved as soon as it is sent",
   toggleMaskedRequests: "Allow requesting hidden content",
   toggleMaskedRequestsDesc: "A title Jellyseerr hides (blocklist, blocked keywords) can be requested: Vigie removes it from the blocklist right before sending the request",
+  toggleWholeSeries: "A deleted series goes entirely",
+  toggleWholeSeriesDesc: "When a series is deleted from Jellyfin, its whole request goes, even for seasons and episodes still on their way: Sonarr stops monitoring it, its next releases don't come. Off, what is still on its way keeps coming",
   admSpecialSeasons: "Special episodes",
   admSpecialSeasonsDesc: "Season 0 can be requested when Jellyseerr allows it (Settings › General › allow special episodes requests)",
   admSpecialSeasonsOn: "Allowed",

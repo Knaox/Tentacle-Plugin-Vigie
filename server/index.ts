@@ -31,7 +31,8 @@ import { registerTitleGapRoutes } from "./routes-titles-gaps";
 import { onTitleRequested } from "./titles/request-listener";
 import { markActivity, startLiveSync, stopLiveSync } from "./live/live-sync";
 import { coreLibraryStore } from "./live/library-store";
-import { createAutoForget } from "./live/auto-forget";
+import { createAutoForget, forgetPolicyOf } from "./live/auto-forget";
+import { liveState } from "./live/live-state";
 import { registerLiveRoutes } from "./live/routes-live";
 
 const __pluginDir = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -83,13 +84,14 @@ export default async function seerBackend(
   // Un titre demandé sort des recommandations du compte, côté Tentacle.
   onTitleRequested(ctx.recommendations?.titleRequested ?? null);
 
+  liveState.setPolicy(forgetPolicyOf(getPluginConfig(ctx)));
   startWorker(prisma, () => getWorkerConfig(ctx));
   // Jellyfin et Jellyseerr en direct : suppressions, demandes retirées (live/live-sync.ts).
   startLiveSync({
     db: prisma,
     store: coreLibraryStore(prisma),
     getWorkerConfig: () => getWorkerConfig(ctx),
-    afterPass: createAutoForget(prisma),
+    afterPass: createAutoForget(prisma, () => getPluginConfig(ctx)),
   });
   // Les réglages de Jellyseerr lus d'avance : `GET /config` ne les attend pas.
   void getWorkerConfig(ctx)
@@ -127,6 +129,8 @@ export default async function seerBackend(
   app.put("/config", { preHandler: ctx.requireAdmin }, async (request, reply) => {
     const saved = writePluginConfig(__pluginDir, ctx.pluginId, request.body);
     if (!saved) return reply.status(404).send({ error: "Plugin not found in installed.json" });
+    // « Une série supprimée part en entier » : ce que les fiches disent change tout de suite.
+    liveState.setPolicy(forgetPolicyOf(saved));
     return saved;
   });
 

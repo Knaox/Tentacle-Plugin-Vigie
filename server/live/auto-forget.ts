@@ -18,13 +18,14 @@
 
 import type { PrismaClient } from "@prisma/client";
 import type { WorkerCfg } from "../seerr-unified";
+import type { PluginConfig } from "../plugin-config";
 import { addSeasonsToRequest, enqueueCleanup, updateRequestStatus } from "../db";
 import { getTmdbMetaBulk } from "../tmdb-cache";
 import { invalidateRequestCaches } from "../cache";
 import { kickWorkerNow } from "../worker";
 import { queueSnapshot, type QueueResponse } from "../arr-queue";
 import { checkInJellyfin } from "./jellyfin-check";
-import { liveState } from "./live-state";
+import { liveState, type ForgetPolicy } from "./live-state";
 import { requestIndex } from "./request-index";
 import { openLocalRequestsFor } from "./local-requests";
 import { requestTime } from "./title-truth";
@@ -56,7 +57,12 @@ async function pendingCleanupOf(db: PrismaClient, seerrRequestId: number): Promi
 
 /** Une demande d'avant le départ vit encore : il y a quelque chose à retirer. */
 function hasSpentRequest(dep: Departure): boolean {
-  return (requestIndex.requestsFor(dep.mediaType, dep.tmdbId) ?? []).some((r) => spentBy(r, dep));
+  return (requestIndex.requestsFor(dep.mediaType, dep.tmdbId) ?? []).some((r) => spentBy(r, dep, liveState.policy.wholeSeries));
+}
+
+/** Le réglage de l'administrateur, tel que la règle le lit. */
+export function forgetPolicyOf(config: PluginConfig): ForgetPolicy {
+  return { wholeSeries: config.deleteWholeSeries === true };
 }
 
 /**
@@ -70,7 +76,7 @@ function arriving(queue: QueueResponse | null, dep: Departure): boolean {
     && (dep.mediaType === "movie" || e.seasonNumber === null || dep.seasons.includes(e.seasonNumber)));
 }
 
-export function createAutoForget(db: PrismaClient) {
+export function createAutoForget(db: PrismaClient, readConfig: () => PluginConfig) {
   const handled = new Map<string, number>();
   let lastWaveWarn = 0;
   let lastWaveSize = 0;
@@ -78,6 +84,8 @@ export function createAutoForget(db: PrismaClient) {
   let waves: WaveWindow[] = [];
 
   return async function autoForget(cfg: WorkerCfg, now: number): Promise<void> {
+    // Le réglage, relu à chaque passe (installed.json peut changer sans passer par l'administration).
+    liveState.setPolicy(forgetPolicyOf(readConfig()));
     if (!requestIndex.ready || !liveState.libraryReadable) return;
     for (const [key, at] of handled) if (now - at > COOLDOWN_MS) handled.delete(key);
 
@@ -147,7 +155,8 @@ export async function forgetSpentNow(
   if (fact.state === "gone") effective = dep;
   else if (fact.state === "present" && mediaType === "tv") effective = { ...dep, seasons: dep.seasons.filter((s) => fact.goneSeasons.has(s)), whole: false };
   else return [];
-  if (mediaType === "tv" && seasons && seasons.length > 0) {
+  // Une série qui part en entier (réglage) part en entier, quelle que soit la saison redemandée.
+  if (mediaType === "tv" && seasons && seasons.length > 0 && !(effective.whole && liveState.policy.wholeSeries)) {
     effective = { ...effective, seasons: effective.seasons.filter((s) => seasons.includes(s)), whole: false };
   }
   if (mediaType === "tv" && effective.seasons.length === 0) return [];
@@ -171,7 +180,7 @@ async function forgetTitle(db: PrismaClient, dep: Departure, why: string): Promi
       createdAt: requestTime(r.createdAt),
     };
   });
-  const jobs = planJobs(dep, requests);
+  const jobs = planJobs(dep, requests, liveState.policy.wholeSeries);
   if (jobs.length === 0) return [];
   const title = await titleOf(db, dep, locals[0]?.title ?? null);
   const enqueued: string[] = [];
@@ -182,7 +191,7 @@ async function forgetTitle(db: PrismaClient, dep: Departure, why: string): Promi
       continue;
     }
     const cleanupId = await enqueueCleanup(db, {
-      action: "forget", mediaType: dep.mediaType, tmdbId: dep.tmdbId, title,
+      action: job.wholeSeries ? "forget-series" : "forget", mediaType: dep.mediaType, tmdbId: dep.tmdbId, title,
       seerrRequestId: job.seerrRequestId, deleteFiles: false, seasons: job.seasons,
       requestId: job.whole ? job.localId : null, jellyfinUserId: job.jellyfinUserId,
     });

@@ -34,6 +34,12 @@ import {
  */
 export const SETTLE_MS = 20 * 60_000;
 
+/** Ce que l'administrateur a réglé pour les titres supprimés de Jellyfin. */
+export interface ForgetPolicy {
+  /** Une série supprimée part en entier, même ce qui est encore attendu. */
+  wholeSeries: boolean;
+}
+
 export interface JellyfinCheck {
   /** Quand Jellyfin a répondu (ms). */
   at: number;
@@ -47,6 +53,7 @@ class LiveState {
   libraryReadable = false;
   private digest = "";
   readonly checks = new Map<string, JellyfinCheck>();
+  policy: ForgetPolicy = { wholeSeries: false };
   private gen = 0;
 
   /** Change dès que l'état d'un titre a pu changer (bibliothèque, Jellyfin, demandes). */
@@ -58,8 +65,16 @@ class LiveState {
     this.gen++;
   }
 
+  /** Le réglage a changé : ce qu'on dit des séries parties aussi. */
+  setPolicy(policy: ForgetPolicy): void {
+    if (policy.wholeSeries === this.policy.wholeSeries) return;
+    this.policy = { ...policy };
+    this.gen++;
+  }
+
   /** Pour les tests : rien de connu. */
   reset(): void {
+    this.policy = { wholeSeries: false };
     this.snapshot = emptySnapshot();
     this.libraryReadable = false;
     this.digest = "";
@@ -193,6 +208,7 @@ export function factsFor(mediaType: "movie" | "tv", tmdbId: number, opts: FactsO
     queued: queuedSeasons !== null,
     queuedSeasons: queuedSeasons && queuedSeasons.size > 0 ? queuedSeasons : undefined,
     downloading: opts.downloading,
+    wholeSeriesGoes: mediaType === "tv" && liveState.policy.wholeSeries,
   };
 }
 
