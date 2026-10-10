@@ -19,6 +19,24 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.25.2]
+### FR
+- **Une série dont il ne reste que le dossier n'est plus « En partie »** : Vigie ne compte plus une série que par ses vrais épisodes. Un dossier vide laissé dans Jellyfin la fait passer « Demandé » (ou « Demander »), et l'option « Supprimer la demande avec le titre » agit enfin dessus
+- **Jellyseerr remis d'aplomb** : quand Vigie supprime la dernière demande d'un titre que Jellyfin n'a plus, Jellyseerr cesse de le dire « partiellement disponible » — le titre redevient demandable
+- **Redemander un titre supprimé fonctionne, option active** : seule la demande d'avant la suppression est retirée, jamais une nouvelle
+- **L'option ne retire plus une demande qui attend encore une saison jamais arrivée** : supprimer la saison 1 n'annule plus la saison 2 en route
+- **Sonarr et Radarr restent rangés** : une demande supprimée retire le film de Radarr (sauf si une autre demande l'attend encore) ; pour une série, Sonarr cesse de surveiller ses saisons, et la série est retirée quand plus aucune n'est surveillée. Les fichiers ne partent que si vous l'avez demandé
+- **Nouveau, pour l'administrateur — « Tout le serveur » dans Mes demandes** : les demandes de tous les comptes, avec qui les a faites et quand, une recherche par titre ou par compte, et les mêmes actions que pour les vôtres
+- La suppression groupée supprime aussi les demandes faites directement dans Jellyseerr
+### EN
+- **A series with only its folder left is no longer "Partially available"**: Vigie now counts a series by its real episodes only. An empty folder left in Jellyfin shows it as "Requested" (or "Request"), and the "Delete the request with the title" option finally acts on it
+- **Jellyseerr set straight**: when Vigie deletes the last request of a title Jellyfin no longer has, Jellyseerr stops calling it "partially available" — the title can be requested again
+- **Requesting a deleted title again works with the option on**: only the request made before the deletion is removed, never a new one
+- **The option no longer removes a request still waiting for a season that never arrived**: deleting season 1 no longer cancels season 2 on its way
+- **Sonarr and Radarr stay tidy**: a deleted request removes the movie from Radarr (unless another request still waits for it); for a series, Sonarr stops monitoring its seasons, and the series is removed once none is monitored. Files only go if you asked for it
+- **New, for the administrator — "Whole server" in My requests**: every account's requests, with who made them and when, a search by title or account, and the same actions as your own
+- Bulk delete also deletes requests made directly in Jellyseerr
+
 ## [1.25.1]
 ### FR
 - **Un titre supprimé de Jellyfin n'est plus « Disponible »** : Vigie le voit dès que Jellyfin l'a perdu, sans attendre la synchronisation de Jellyseerr, et le dit « Demandé » tant que sa demande existe — partout : recherche, cartes de Tentacle, catalogue, fiche, Mes demandes
