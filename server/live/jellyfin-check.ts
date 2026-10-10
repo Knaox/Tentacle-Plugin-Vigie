@@ -13,6 +13,12 @@
  * Par l'identifiant TMDB (`AnyProviderIdEquals`), filtré à la réception : un
  * Jellyfin qui ignorerait le filtre rend n'importe quoi, et la recherche se
  * rabat alors sur la liste des films et séries (une fois pour toute la passe).
+ *
+ * Une série n'est là que par ses ÉPISODES : Jellyfin garde la fiche Série et
+ * celles de ses saisons tant que leurs dossiers existent, même vides (mesuré,
+ * 10.11) — une série dont on avait supprimé les fichiers restait « en partie »
+ * et l'option « avec le titre » renonçait. Les épisodes « manquants »
+ * (virtuels : Jellyfin peut montrer ce qui n'est pas sorti) ne comptent pas.
  */
 
 import type { VigieDb } from "../storage/vigie-db";
@@ -28,7 +34,7 @@ export interface CheckTarget {
 
 export interface CheckResult {
   present: boolean;
-  /** Séries trouvées : les saisons qui ont au moins un épisode. */
+  /** Séries : les saisons qui ont au moins un vrai épisode. */
   presentSeasons?: Set<number>;
 }
 
@@ -37,7 +43,11 @@ interface Item {
   Type?: string;
   ParentIndexNumber?: number | null;
   ProviderIds?: Record<string, string | undefined>;
+  /** « Virtual » : un élément sans fichier (épisode manquant ou à venir). */
+  LocationType?: string;
 }
+
+const isReal = (it: Item) => it.LocationType !== "Virtual";
 
 const LIMIT = 50;
 
@@ -105,10 +115,10 @@ async function wholeIndex(s: Session): Promise<Map<string, Item>> {
   return out;
 }
 
-/** Les saisons d'une série qui ont au moins un épisode. */
+/** Les saisons d'une série qui ont au moins un vrai épisode (un fichier). */
 async function seasonsOf(s: Session, seriesId: string): Promise<Set<number>> {
   const params = new URLSearchParams({
-    userId: s.userId, Fields: "", EnableImages: "false", EnableUserData: "false",
+    userId: s.userId, IsMissing: "false", Fields: "", EnableImages: "false", EnableUserData: "false",
   });
   const res = await fetch(`${s.base}/Shows/${encodeURIComponent(seriesId)}/Episodes?${params}`, {
     headers: s.headers,
@@ -117,7 +127,9 @@ async function seasonsOf(s: Session, seriesId: string): Promise<Set<number>> {
   if (!res.ok) throw new Error(`Jellyfin GET /Shows/{id}/Episodes ${res.status}`);
   const data = (await res.json()) as { Items?: Item[] };
   const out = new Set<number>();
-  for (const ep of data.Items ?? []) if (typeof ep.ParentIndexNumber === "number") out.add(ep.ParentIndexNumber);
+  for (const ep of data.Items ?? []) {
+    if (isReal(ep) && typeof ep.ParentIndexNumber === "number") out.add(ep.ParentIndexNumber);
+  }
   return out;
 }
 
@@ -146,12 +158,14 @@ export async function checkInJellyfin(db: VigieDb, targets: readonly CheckTarget
         index ??= await wholeIndex(s);
         item = index.get(keyOf(t)) ?? null;
       }
-      if (!item?.Id) {
+      if (!item?.Id || !isReal(item)) {
         out.set(keyOf(t), { present: false, presentSeasons: t.mediaType === "tv" ? new Set() : undefined });
         continue;
       }
-      if (t.mediaType === "tv" && t.seasons && t.seasons.length > 0) {
-        out.set(keyOf(t), { present: true, presentSeasons: await seasonsOf(s, item.Id) });
+      if (t.mediaType === "tv") {
+        // Une fiche Série sans aucun épisode n'est qu'un dossier vide : la série est partie.
+        const presentSeasons = await seasonsOf(s, item.Id);
+        out.set(keyOf(t), { present: presentSeasons.size > 0, presentSeasons });
       } else {
         out.set(keyOf(t), { present: true });
       }
