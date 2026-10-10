@@ -26,7 +26,7 @@ import { countByGroup } from "../requests/requestGroups";
 export const REQUESTS_PAGE_SIZE = 100;
 
 /* Ce qui attend encore Sonarr ou Radarr : le suivi en direct le surveille. */
-const IN_FLIGHT: ReadonlySet<RequestStatus> = new Set(["approved", "unavailable", "downloading", "partially_available"]);
+export const IN_FLIGHT: ReadonlySet<RequestStatus> = new Set(["approved", "unavailable", "downloading", "partially_available"]);
 const NO_LIVE: ReadonlyMap<string, ProgressItem> = new Map();
 
 /** Des demandes, avec le statut que leur donnent Sonarr et Radarr — il prime sur celui de la liste. */

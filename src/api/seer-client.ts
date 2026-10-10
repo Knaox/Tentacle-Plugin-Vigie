@@ -106,6 +106,12 @@ export async function getMyRequests(
   return backendFetch(`/requests?${params}`);
 }
 
+/** Les demandes de tous les comptes (administrateur) : la même réponse que « Mes demandes ». */
+export async function getAllRequests(page = 1, limit = 20): Promise<LocalRequestsResponse> {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  return backendFetch(`/admin/requests?${params}`);
+}
+
 export async function deleteRequest(
   id: string,
   opts?: { seasons?: number[]; deleteFiles?: boolean },

@@ -20,9 +20,11 @@ import { addDays, today } from "../utils/calendar-groups";
 import { applyLocalDays } from "../utils/calendar-localtime";
 import { episodeLabel } from "../utils/calendar-kind";
 import { shortDayLabel } from "../utils/day-label";
+import type { RequestsScope } from "../hooks/useDownloadProgress";
 import { useHub } from "../hub/HubContext";
 import { withLiveStatus, type HubData } from "../hub/useHubData";
 import { EmptyState } from "../components/EmptyState";
+import { Segmented } from "../components/ui/Segmented";
 import { DownloadsPanel } from "../components/DownloadsPanel";
 import { RequestsBulkBar, BulkRetryModal } from "../components/RequestsBulkUI";
 import { CTA_PRIMARY, CTA_SIZE_MD, CTA_SECONDARY } from "../styles/cta";
@@ -32,6 +34,8 @@ import { RequestRow } from "./RequestRow";
 import { RequestsToolbar, type RequestsFilter, type RequestsType } from "./RequestsToolbar";
 import { useRequestActions } from "./useRequestActions";
 import { useMoreRequests } from "./useMoreRequests";
+import { useAllRequestsData } from "./useAllRequests";
+import { matchesRequestQuery } from "./requestSearch";
 
 const TITLE: Record<RequestGroup, string> = {
   active: "seer:groupActive", partial: "seer:groupPartial", available: "seer:groupAvailable",
@@ -55,22 +59,30 @@ export function RequestsView({ data, active }: { data: HubData; active: boolean 
   const bulkDelete = useBulkDeleteRequests();
   const bulkRetryMutation = useBulkRetryRequests();
 
+  /* L'administrateur voit aussi les demandes de tous les comptes, lues
+   * seulement quand il ouvre cette vue — et les gère comme les siennes. */
+  const [scope, setScope] = useState<RequestsScope>("mine");
+  const everyone = isAdmin && scope === "all";
+  const allAccounts = useAllRequestsData(everyone);
+  const source = everyone ? allAccounts : data;
+
   // Chercher ou filtrer charge TOUTES les pages : on ne rate rien de ce qu'on cherche.
-  const pages = data.requests.data?.pages ?? 1;
+  const pages = source.requests.data?.pages ?? 1;
   const [shownPages, setShownPages] = useState(1);
   const wantAll = query.trim() !== "" || filter !== "all" || type !== "all";
-  const more = useMoreRequests(wantAll ? pages : shownPages);
+  const more = useMoreRequests(wantAll ? pages : shownPages, everyone ? "all" : "mine");
   const all = useMemo(
-    () => [...data.list, ...withLiveStatus(more.requests, data.progress.byId)],
-    [data.list, more.requests, data.progress.byId],
+    () => [...source.list, ...withLiveStatus(more.requests, source.progress.byId)],
+    [source.list, more.requests, source.progress.byId],
   );
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLocaleLowerCase();
-    return all.filter((r) => (type === "all" || r.mediaType === type) && (q === "" || r.title.toLocaleLowerCase().includes(q)));
-  }, [all, type, query]);
+  // Tout le serveur : la recherche porte aussi sur qui a demandé.
+  const filtered = useMemo(
+    () => all.filter((r) => (type === "all" || r.mediaType === type) && matchesRequestQuery(r, query, everyone)),
+    [all, type, query, everyone],
+  );
   // Arrive encore : quelque chose descend ou s'importe — pas seulement un statut qui vient de changer.
-  const isArriving = useCallback((id: string) => Boolean(data.progress.byId.get(id)?.download), [data.progress.byId]);
+  const isArriving = useCallback((id: string) => Boolean(source.progress.byId.get(id)?.download), [source.progress.byId]);
   const groups = useMemo(() => groupRequests(filtered, isArriving), [filtered, isArriving]);
 
   // Le prochain épisode de chaque série suivie, sur un mois.
@@ -90,10 +102,27 @@ export function RequestsView({ data, active }: { data: HubData; active: boolean 
     setSelected((cur) => { const next = new Set(cur); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   }, []);
   const stopSelecting = () => { setSelecting(false); setSelected(new Set()); };
+  const changeScope = (next: RequestsScope) => {
+    setScope(next);
+    setShownPages(1);
+    setFilter((f) => (f === "server" ? f : "all"));
+    stopSelecting();
+  };
 
-  const total = Object.values(data.counts).reduce((a, b) => a + b, 0);
-  const noRequests = !data.requests.isPending && data.list.length === 0;
+  const total = Object.values(source.counts).reduce((a, b) => a + b, 0);
+  const noRequests = !source.requests.isPending && source.list.length === 0;
   const visibleGroups = filter === "all" || filter === "server" ? GROUP_ORDER : [filter];
+
+  const scopeSwitch = isAdmin ? (
+    <Segmented
+      ariaLabel={t("seer:requestsScope")}
+      value={scope}
+      onChange={changeScope}
+      stretch="mobile"
+      // Les mots de l'agenda, que l'administrateur connaît déjà.
+      options={[{ value: "mine", label: t("seer:scopeMine") }, { value: "all", label: t("seer:scopeEveryone") }]}
+    />
+  ) : null;
 
   const renderRow = (request: LocalRequest) => {
     const next = request.mediaType === "tv" ? nextRelease.get(request.tmdbId) ?? null : null;
@@ -101,9 +130,10 @@ export function RequestsView({ data, active }: { data: HubData; active: boolean 
     <RequestRow
       key={request.id}
       request={request}
-      progress={data.progress.byId.get(request.id)}
-      receivedAt={data.progress.updatedAt}
+      progress={source.progress.byId.get(request.id)}
+      receivedAt={source.progress.updatedAt}
       nextRelease={next?.label ?? null}
+      requester={everyone ? request.username || "?" : null}
       onAction={actions.run}
       onMenu={actions.openMenu}
       // La semaine de CETTE sortie, pas la semaine en cours.
@@ -116,21 +146,27 @@ export function RequestsView({ data, active }: { data: HubData; active: boolean 
   };
 
   if (noRequests) {
+    // L'administrateur sans demande à lui garde l'accès à celles des autres.
     return (
-      <EmptyState
-        title={t("seer:requestsEmptyTitle")}
-        subtitle={t("seer:requestsEmptyHint")}
-        action={<button type="button" onClick={() => hub.setTab("discover")} className={`${CTA_PRIMARY} ${CTA_SIZE_MD}`}>{t("seer:discoverButton")}</button>}
-      />
+      <div className="space-y-6">
+        {scopeSwitch}
+        <EmptyState
+          title={t(everyone ? "seer:requestsAllEmptyTitle" : "seer:requestsEmptyTitle")}
+          subtitle={t(everyone ? "seer:requestsAllEmptyHint" : "seer:requestsEmptyHint")}
+          action={<button type="button" onClick={() => hub.setTab("discover")} className={`${CTA_PRIMARY} ${CTA_SIZE_MD}`}>{t("seer:discoverButton")}</button>}
+        />
+      </div>
     );
   }
 
   return (
     <div className="space-y-6">
+      {scopeSwitch}
       <RequestsToolbar
-        filter={filter} onFilter={(f) => { setFilter(f); stopSelecting(); }} counts={data.counts} total={total}
+        filter={filter} onFilter={(f) => { setFilter(f); stopSelecting(); }} counts={source.counts} total={total}
         type={type} onType={setType} query={query} onQuery={setQuery} showServer={isAdmin}
         selecting={selecting} onToggleSelecting={() => (selecting ? stopSelecting() : setSelecting(true))}
+        searchPlaceholder={everyone ? t("seer:searchAllRequestsPlaceholder") : undefined}
       />
 
       {filter === "server" ? <DownloadsPanel active={active} /> : (

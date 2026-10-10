@@ -32,11 +32,14 @@ interface Props {
   showServer: boolean;
   selecting: boolean;
   onToggleSelecting: () => void;
+  /** Ce que la recherche couvre (tous les comptes : le titre ou le compte). */
+  searchPlaceholder?: string;
 }
 
 export const RequestsToolbar = memo(function RequestsToolbar(props: Props) {
   const { filter, onFilter, counts, total, type, onType, query, onQuery, showServer, selecting, onToggleSelecting } = props;
   const { t } = useTranslation("seer");
+  const placeholder = props.searchPlaceholder ?? t("seer:searchRequestsPlaceholder");
   const chips: Array<{ id: RequestsFilter; label: string; count?: number }> = [
     { id: "all", label: t("seer:reqFilterAll"), count: total },
     { id: "active", label: t("seer:reqFilterActive"), count: counts.active },
@@ -97,8 +100,8 @@ export const RequestsToolbar = memo(function RequestsToolbar(props: Props) {
               value={query}
               onChange={(e) => onQuery(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder={t("seer:searchRequestsPlaceholder")}
-              aria-label={t("seer:searchRequestsPlaceholder")}
+              placeholder={placeholder}
+              aria-label={placeholder}
               autoComplete="off"
               autoCorrect="off"
               autoCapitalize="none"

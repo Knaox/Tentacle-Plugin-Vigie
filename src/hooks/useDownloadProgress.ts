@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getRequestsProgress } from "../api/client-releases";
+import { getAllRequestsProgress, getRequestsProgress } from "../api/client-releases";
 import type { DownloadProgress, ProgressItem } from "../api/types-releases";
+
+/** Les demandes du compte, ou celles de tous les comptes (administrateur). */
+export type RequestsScope = "mine" | "all";
 
 /**
  * Suivi en direct, lu dans Sonarr et Radarr — mais uniquement quand il y a
@@ -13,7 +16,7 @@ import type { DownloadProgress, ProgressItem } from "../api/types-releases";
  * Jellyseerr. S'y ajoute la visibilité de l'onglet : page en arrière-plan,
  * plus une seule requête n'est émise. Rien qui attende : aucun appel.
  */
-export function useRequestsProgress(active: boolean) {
+export function useRequestsProgress(active: boolean, scope: RequestsScope = "mine") {
   const [visible, setVisible] = useState(
     () => typeof document === "undefined" || document.visibilityState === "visible",
   );
@@ -25,8 +28,8 @@ export function useRequestsProgress(active: boolean) {
   }, []);
 
   const query = useQuery({
-    queryKey: ["seer-requests-progress"],
-    queryFn: getRequestsProgress,
+    queryKey: ["seer-requests-progress", scope],
+    queryFn: scope === "all" ? getAllRequestsProgress : getRequestsProgress,
     enabled: active && visible,
     staleTime: 8_000,
     gcTime: 60_000,
