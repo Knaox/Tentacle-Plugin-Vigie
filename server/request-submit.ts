@@ -106,7 +106,7 @@ export async function submitRequest(
   // 6) Un titre supprimé de Jellyfin : la demande d'avant, consommée, part
   //    d'abord (Jellyseerr, Vigie) — elle ne compte plus pour un doublon, et
   //    la nouvelle attend la fin de son nettoyage pour partir.
-  const replaced = await forgetSpentNow(db, body.mediaType, body.tmdbId);
+  const replaced = await forgetSpentNow(db, body.mediaType, body.tmdbId, body.seasons);
   const pendingCleanupId = replaced[replaced.length - 1] ?? null;
 
   // 7) TV : fusion saisons (existant)

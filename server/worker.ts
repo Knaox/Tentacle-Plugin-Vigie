@@ -16,24 +16,36 @@ let cycleCount = 0;
 let dbRef: VigieDb | null = null;
 let getConfigRef: (() => Promise<WorkerConfig | null>) | null = null;
 let requestQueueBusy = false;
+/** Demandée pendant qu'elle tournait : la file repasse aussitôt finie. */
+let requestQueueAgain = false;
 let cleanupQueueBusy = false;
 
 /** File d'envoi : jusqu'à 10 demandes par passe (bulk retry, rafale d'ajouts). */
 async function runRequestQueue(db: VigieDb, config: WorkerConfig): Promise<void> {
-  if (requestQueueBusy) return;
+  if (requestQueueBusy) {
+    requestQueueAgain = true;
+    return;
+  }
   requestQueueBusy = true;
   try {
-    // `seen` : une demande repassée en retry_pending pendant la passe n'est pas
-    // re-traitée immédiatement (elle garde son rythme d'un retry par tick).
-    // Celles qui attendent Jellyseerr (live/seerr-unblock.ts) repasseront plus tard.
-    const seen = new Set<string>(deferredRequestIds());
-    for (let i = 0; i < 10; i++) {
-      const processedId = await processNextRequest(db, config, seen);
-      if (!processedId) return;
-      seen.add(processedId);
-    }
+    do {
+      requestQueueAgain = false;
+      await sendQueued(db, config);
+    } while (requestQueueAgain);
   } finally {
     requestQueueBusy = false;
+  }
+}
+
+async function sendQueued(db: VigieDb, config: WorkerConfig): Promise<void> {
+  // `seen` : une demande repassée en retry_pending pendant la passe n'est pas
+  // re-traitée immédiatement (elle garde son rythme d'un retry par tick).
+  // Celles qui attendent Jellyseerr (live/seerr-unblock.ts) repasseront plus tard.
+  const seen = new Set<string>(deferredRequestIds());
+  for (let i = 0; i < 10; i++) {
+    const processedId = await processNextRequest(db, config, seen);
+    if (!processedId) return;
+    seen.add(processedId);
   }
 }
 

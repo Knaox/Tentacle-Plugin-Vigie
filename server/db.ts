@@ -156,14 +156,16 @@ export async function setNotifiedSeasons(
  * La prochaine demande à envoyer. `exclude` : celles déjà vues à cette passe,
  * ou qui attendent Jellyseerr (live/seerr-unblock.ts) — sans quoi la plus
  * ancienne, si elle doit repasser, bloquait toute la file jusqu'à la passe
- * suivante.
+ * suivante. Une demande liée à un nettoyage n'attend que s'il est encore en
+ * file : fini avant qu'elle soit liée, ou retiré, il ne la retient pas.
  */
 export async function getNextQueued(db: VigieDb, exclude: readonly string[] = []): Promise<SeerRequest | null> {
   const skip = exclude.slice(0, 500);
   const rows = await db.query(
     `SELECT * FROM seer_requests
      WHERE status IN ('queued', 'retry_pending')
-       AND (pending_cleanup_id IS NULL)
+       AND (pending_cleanup_id IS NULL OR NOT EXISTS (
+         SELECT 1 FROM seer_cleanup_queue c WHERE c.id = seer_requests.pending_cleanup_id AND c.status = 'pending'))
        ${skip.length > 0 ? `AND id NOT IN (${skip.map(() => "?").join(", ")})` : ""}
      ORDER BY priority DESC, created_at ASC, id ASC
      LIMIT 1`,
