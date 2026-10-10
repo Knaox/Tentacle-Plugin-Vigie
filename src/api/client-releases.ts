@@ -35,6 +35,11 @@ export async function getRequestsProgress(): Promise<RequestsProgressResponse> {
   return backendFetch("/requests/progress");
 }
 
+/** L'avancement de ce qui arrive, pour tous les comptes (administrateur). */
+export async function getAllRequestsProgress(): Promise<RequestsProgressResponse> {
+  return backendFetch("/admin/requests/progress");
+}
+
 export async function getPersonalCalendar(
   from?: string, to?: string, includeSettled = false, everyone = false,
 ): Promise<CalendarResponse> {

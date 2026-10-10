@@ -39,10 +39,12 @@ interface Props {
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: string) => void;
+  /** Vue de tous les comptes : qui l'a demandée (toujours affiché, la date avec). */
+  requester?: string | null;
 }
 
 export const RequestRow = memo(function RequestRow(props: Props) {
-  const { request, progress, receivedAt, nextRelease, onAction, onMenu, onNextRelease, selectable, selected, onToggleSelect } = props;
+  const { request, progress, receivedAt, nextRelease, onAction, onMenu, onNextRelease, selectable, selected, onToggleSelect, requester } = props;
   const { t } = useTranslation("seer");
   const { status, detail } = requestView(request, progress);
   const gaps = useTitleGaps({ id: request.tmdbId, mediaType: request.mediaType });
@@ -117,7 +119,9 @@ export const RequestRow = memo(function RequestRow(props: Props) {
             // Deux lignes au téléphone : l'infobulle du bureau ne s'ouvre pas au doigt.
             <span className="mt-1 line-clamp-2 text-xs text-tentacle-text-quaternary sm:block sm:truncate" title={request.lastError}>{request.lastError}</span>
           )}
-          {!nextRelease && <span className="mt-1 block text-[11px] text-tentacle-text-quaternary">{t("seer:requestedOn", { date })}</span>}
+          {requester ? (
+            <span className="mt-1 block truncate text-xs text-tentacle-text-tertiary">{t("seer:requestedByOn", { name: requester, date })}</span>
+          ) : !nextRelease && <span className="mt-1 block text-[11px] text-tentacle-text-quaternary">{t("seer:requestedOn", { date })}</span>}
         </span>
       </div>
       {nextRelease && !selectable && (
