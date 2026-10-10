@@ -91,7 +91,7 @@ export default async function seerBackend(
     db,
     store: coreLibraryStore(db),
     getWorkerConfig: () => getWorkerConfig(ctx),
-    afterPass: createAutoForget(db, () => getPluginConfig(ctx)),
+    afterPass: createAutoForget(db),
   });
   // Les réglages de Jellyseerr lus d'avance : `GET /config` ne les attend pas.
   void getWorkerConfig(ctx)

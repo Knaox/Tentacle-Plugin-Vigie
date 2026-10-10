@@ -1,67 +1,78 @@
 /* ------------------------------------------------------------------ */
-/*  Vigie — « Supprimer la demande avec le titre » : ce qu'on décide    */
+/*  Vigie — Un titre supprimé de Jellyfin emporte sa demande : décider  */
 /* ------------------------------------------------------------------ */
 
 /*
- * L'option de l'administrateur (désactivée d'office) : quand un titre est
- * supprimé de Jellyfin, sa demande disparaît aussi — de Vigie et de
- * Jellyseerr —, et Sonarr ou Radarr cessent de le surveiller pour qu'il ne
- * revienne pas tout seul. Ce module décide QUOI faire ; auto-forget.ts le
- * fait, par la file de nettoyage de Vigie (la même que « Supprimer »).
+ * Toujours, sans réglage (décision de l'administrateur, 2026-10-10 — c'était
+ * une option, désactivée d'office) : quand un titre est supprimé de Jellyfin,
+ * sa demande disparaît aussi — de Vigie et de Jellyseerr —, Sonarr ou Radarr
+ * cessent de le surveiller, et le titre se redemande, saison par saison s'il
+ * le faut. Gardée, elle le laissait « Demandé » pour toujours : impossible de
+ * le redemander. Ce module décide QUOI faire ; auto-forget.ts le fait, par la
+ * file de nettoyage de Vigie (la même que « Supprimer »).
  *
  * Supprimer est irréversible : chaque garde compte.
- *   - Seulement ce qui est parti APRÈS l'activation de l'option : l'activer
- *     ne purge pas, d'un coup, des semaines de suppressions passées.
  *   - Un délai de grâce : un fichier remplacé (mise à niveau) part avant que
  *     son remplaçant n'arrive ; dix minutes couvrent l'attente du serveur.
- *   - Jellyfin redemandé juste avant d'agir (auto-forget.ts).
- *   - Une vague de départs (un disque débranché, un partage réseau perdu) ne
- *     supprime RIEN : au-delà de `MASS_TITLES` titres partis en une heure,
- *     Vigie s'abstient et le dit dans le journal.
+ *   - Jellyfin redemandé juste avant d'agir, et ce que Sonarr ou Radarr font
+ *     encore descendre attend (auto-forget.ts).
+ *   - Une VAGUE de départs (un disque débranché, un partage réseau perdu) ne
+ *     supprime RIEN : plus de `MASS_TITLES` titres partis à moins d'une heure
+ *     les uns des autres — ni pendant l'heure, ni après. Ces titres-là se
+ *     redemandent quand même : redemander retire la demande d'avant.
  *   - Seules les demandes nées AVANT le départ du titre : une demande faite
- *     après est une REDEMANDE — sans cette garde, redemander un titre supprimé
- *     était impossible, l'option la retirait dans la minute.
+ *     après est une REDEMANDE, jamais retirée.
+ * Le passé compte aussi : la liste du serveur garde trente jours de départs,
+ * et un titre supprimé avant cette règle était justement bloqué.
  */
 
-/** Une demande née avant le départ (ou sans date connue) : celles que l'option peut retirer. */
-export function madeBefore(createdAt: number | null | undefined, at: number): boolean {
-  return createdAt == null || !Number.isFinite(createdAt) || createdAt <= at;
-}
-
 import type { Departure } from "./library-keys";
-import { REQUEST, isLiveRequest } from "./title-truth";
+import { REQUEST, isLiveRequest, madeBefore } from "./title-truth";
+
+export { madeBefore };
 
 export const FORGET_GRACE_MS = 10 * 60_000;
 export const MASS_WINDOW_MS = 60 * 60_000;
 export const MASS_TITLES = 20;
 
-export interface ForgetOptions {
-  enabled: boolean;
-  /** Quand l'option a été activée (ms). */
-  since: number | null;
-}
-
 export interface PlanInput {
   departures: readonly Departure[];
-  options: ForgetOptions;
   now: number;
   graceMs?: number;
 }
 
-export type Candidates =
-  | { kind: "none" }
-  /** Trop de départs d'un coup : rien n'est supprimé. */
-  | { kind: "mass"; count: number }
-  | { kind: "ready"; departures: Departure[] };
+export interface Candidates {
+  /** Les titres partis dont la demande peut être supprimée maintenant. */
+  ready: Departure[];
+  /** Combien de titres sont tenus à l'écart : partis dans une vague. */
+  held: number;
+}
+
+const keyOf = (d: Departure) => `${d.mediaType}:${d.tmdbId}`;
+
+/**
+ * Les titres partis dans une vague : plus de `MASS_TITLES` départs tiennent
+ * dans une même heure. Fenêtre glissante sur les départs triés.
+ */
+export function waveOf(departures: readonly Departure[]): Set<string> {
+  const sorted = [...departures].sort((a, b) => a.at - b.at);
+  const wave = new Set<string>();
+  let start = 0;
+  let markedTo = -1;
+  for (let end = 0; end < sorted.length; end++) {
+    while (sorted[end].at - sorted[start].at > MASS_WINDOW_MS) start++;
+    if (end - start + 1 <= MASS_TITLES) continue;
+    for (let k = Math.max(start, markedTo + 1); k <= end; k++) wave.add(keyOf(sorted[k]));
+    markedTo = end;
+  }
+  return wave;
+}
 
 /** Les titres partis dont la demande peut être supprimée maintenant. */
-export function forgetCandidates({ departures, options, now, graceMs = FORGET_GRACE_MS }: PlanInput): Candidates {
-  if (!options.enabled || options.since === null) return { kind: "none" };
-  const since = options.since;
-  const recent = departures.filter((d) => d.at >= since && now - d.at <= MASS_WINDOW_MS);
-  if (recent.length > MASS_TITLES) return { kind: "mass", count: recent.length };
-  const ready = departures.filter((d) => d.at >= since && now - d.at >= graceMs);
-  return ready.length > 0 ? { kind: "ready", departures: ready } : { kind: "none" };
+export function forgetCandidates({ departures, now, graceMs = FORGET_GRACE_MS }: PlanInput): Candidates {
+  const wave = waveOf(departures);
+  const ready = departures.filter((d) => !wave.has(keyOf(d)) && now - d.at >= graceMs);
+  return { ready, held: wave.size };
 }
 
 /** Une demande Jellyseerr du titre, avec sa ligne locale quand Vigie l'a faite. */

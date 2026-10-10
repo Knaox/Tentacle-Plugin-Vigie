@@ -17,7 +17,7 @@
  * Une série n'est là que par ses ÉPISODES : Jellyfin garde la fiche Série et
  * celles de ses saisons tant que leurs dossiers existent, même vides (mesuré,
  * 10.11) — une série dont on avait supprimé les fichiers restait « en partie »
- * et l'option « avec le titre » renonçait. Les épisodes « manquants »
+ * et sa demande n'était jamais retirée. Les épisodes « manquants »
  * (virtuels : Jellyfin peut montrer ce qui n'est pas sorti) ne comptent pas.
  */
 

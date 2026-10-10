@@ -15,8 +15,8 @@
  *      la page des dernières modifications, ou une relecture complète quand
  *      des demandes ont disparu ;
  *   4. ce qui en découle : la file locale purgée des demandes supprimées,
- *      les listes en cache oubliées, l'option « supprimer la demande avec
- *      le titre » appliquée.
+ *      les listes en cache oubliées, la demande d'un titre supprimé de
+ *      Jellyfin retirée à son tour (auto-forget.ts).
  *
  * Le rythme suit l'usage : toutes les dix secondes tant que quelqu'un se
  * sert de Vigie (ou de ses cartes dans Tentacle), toutes les minutes sinon.
@@ -47,7 +47,7 @@ export interface LiveSyncDeps {
   db: VigieDb;
   store: LibraryStore;
   getWorkerConfig: () => Promise<WorkerCfg | null>;
-  /** L'option « supprimer la demande avec le titre » et ce qu'elle fait (auto-forget.ts). */
+  /** Un titre supprimé de Jellyfin emporte sa demande (auto-forget.ts). */
   afterPass?: (cfg: WorkerCfg, now: number) => Promise<void>;
 }
 
