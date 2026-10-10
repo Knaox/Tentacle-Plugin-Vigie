@@ -6,9 +6,10 @@
  * UNE porte pour toute demande, d'où qu'elle vienne : le hub (`POST
  * /requests`) comme les cartes de Tentacle (`POST /titles/request`). Elle
  * applique les règles du compte dans l'ordre — blocage, titre masqué, type
- * permis (animé compris), quota du jour, fusion des saisons d'une série déjà
- * demandée, doublon — puis met la demande dans la file du worker. Deux
- * portes auraient fini par ne plus appliquer les mêmes règles.
+ * permis (animé compris), quota du jour, demande d'avant d'un titre supprimé
+ * de Jellyfin retirée, fusion des saisons d'une série déjà demandée, doublon
+ * — puis met la demande dans la file du worker. Deux portes auraient fini
+ * par ne plus appliquer les mêmes règles.
  *
  * `origin` : d'où part la demande, déjà lue par la route qui la reçoit
  * (titles/request-origin.ts) — jamais tirée du corps ici : le hub transmet
@@ -32,6 +33,7 @@ import { effectiveDailyLimit } from "./plugin-config";
 import { getBlocklistedTags, isMaskedTitle, parseTagSet } from "./blocklist";
 import type { RequestOrigin } from "./titles/request-origin";
 import { announceTitleRequested } from "./titles/request-listener";
+import { forgetSpentNow } from "./live/auto-forget";
 
 /** Ce que la route renvoie : un code HTTP et son corps, tels quels. */
 export interface SubmitResult {
@@ -101,7 +103,13 @@ export async function submitRequest(
     }
   }
 
-  // 6) TV : fusion saisons (existant)
+  // 6) Un titre supprimé de Jellyfin : la demande d'avant, consommée, part
+  //    d'abord (Jellyseerr, Vigie) — elle ne compte plus pour un doublon, et
+  //    la nouvelle attend la fin de son nettoyage pour partir.
+  const replaced = await forgetSpentNow(prisma, body.mediaType, body.tmdbId);
+  const pendingCleanupId = replaced[replaced.length - 1] ?? null;
+
+  // 7) TV : fusion saisons (existant)
   if (body.mediaType === "tv" && body.seasons?.length) {
     const existing = await findExistingTvRequest(prisma, user.userId, body.tmdbId);
     if (existing) {
@@ -123,6 +131,7 @@ export async function submitRequest(
         profileId: body.profileId ?? existing.profileId,
         isAnime,
         origin,
+        pendingCleanupId,
       });
 
       const updated = await getRequestById(prisma, existing.id);
@@ -134,7 +143,7 @@ export async function submitRequest(
     }
   }
 
-  // 7) Doublon film / 1ère TV
+  // 8) Doublon film / 1ère TV
   const dup = await findDuplicate(prisma, user.userId, body.tmdbId, body.mediaType, body.seasons);
   if (dup) {
     return { status: 409, body: { message: "A request for this media is already active", existing: dup } };
@@ -148,6 +157,7 @@ export async function submitRequest(
     profileId: body.profileId,
     isAnime,
     origin,
+    pendingCleanupId,
   });
 
   invalidateRequestCaches(user.userId);

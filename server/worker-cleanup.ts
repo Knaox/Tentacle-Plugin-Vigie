@@ -22,16 +22,20 @@ const CLEANUP_BATCH = 25;
  * qui faisait durer une suppression groupée de 20 demandes ~20 minutes).
  * Un job qui échoue reçoit un next_retry_at futur et sort du lot suivant —
  * pas de boucle infinie. Cap de sécurité à 4 lots (100 jobs) par passe.
+ * Rend le nombre de jobs traités.
  */
-export async function processCleanupQueue(prisma: PrismaClient, config: WorkerConfig): Promise<void> {
+export async function processCleanupQueue(prisma: PrismaClient, config: WorkerConfig): Promise<number> {
+  let done = 0;
   for (let pass = 0; pass < 4; pass++) {
     const jobs = await getPendingCleanups(prisma, CLEANUP_BATCH);
-    if (jobs.length === 0) return;
+    if (jobs.length === 0) return done;
     for (const job of jobs) {
       await processCleanupJob(prisma, config, job);
+      done++;
     }
-    if (jobs.length < CLEANUP_BATCH) return;
+    if (jobs.length < CLEANUP_BATCH) return done;
   }
+  return done;
 }
 
 /**

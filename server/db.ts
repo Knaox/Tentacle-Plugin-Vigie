@@ -172,18 +172,21 @@ export async function createRequest(
     profileId?: string | null; isAnime?: boolean;
     /** D'où part la demande ; gardée au mieux, à part (db-origin.ts). */
     origin?: RequestOrigin | null;
+    /** Le nettoyage qu'elle attend avant de partir (la demande qu'elle remplace). */
+    pendingCleanupId?: string | null;
   },
 ): Promise<SeerRequest> {
   const id = uuid();
   await prisma.$executeRawUnsafe(
     `INSERT INTO seer_requests
       (id, jellyfin_user_id, username, media_type, tmdb_id, title, poster_path,
-       backdrop_path, overview, year, seasons, status, priority, profile_id, is_anime)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)`,
+       backdrop_path, overview, year, seasons, status, priority, profile_id, is_anime,
+       pending_cleanup_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)`,
     id, data.jellyfinUserId, data.username, data.mediaType, data.tmdbId, data.title,
     data.posterPath || null, data.backdropPath || null, data.overview || null,
     data.year || null, data.seasons ? JSON.stringify(data.seasons) : null, data.priority || 0,
-    data.profileId || null, data.isAnime ? 1 : 0,
+    data.profileId || null, data.isAnime ? 1 : 0, data.pendingCleanupId ?? null,
   );
   if (data.origin) await recordRequestOrigin(prisma, id, data.origin);
   const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(

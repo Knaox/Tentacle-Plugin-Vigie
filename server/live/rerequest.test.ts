@@ -2,7 +2,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import type { PrismaClient } from "@prisma/client";
 import { json, stubFetch, type FetchCall } from "../test-support/fake-http";
-import { findExistingTvRequest, getNextQueued } from "../db";
+import { createRequest, findExistingTvRequest, getNextQueued } from "../db";
 import { liveState } from "./live-state";
 import { requestIndex } from "./request-index";
 import { deferredRequestIds, resetUnblock, staleSeasons, unblockSeasons } from "./seerr-unblock";
@@ -73,4 +73,23 @@ test("la file écarte ce qui attend, et une demande arrivée ne bloque plus une 
   assert.deepEqual(seen[0].params, ["q1", "q2"]);
   await findExistingTvRequest(prisma, "u1", 1399);
   assert.match(seen[1].sql, /status NOT IN \('deleted', 'deleting', 'delete_failed', 'available', 'failed'\)/);
+});
+
+test("une redemande attend le nettoyage de la demande d'avant : posé à sa création, la file le respecte", async () => {
+  const seen: Array<{ sql: string; params: unknown[] }> = [];
+  const prisma = {
+    async $executeRawUnsafe(sql: string, ...params: unknown[]) { seen.push({ sql, params }); return 1; },
+    async $queryRawUnsafe(sql: string, ...params: unknown[]) {
+      seen.push({ sql, params });
+      return /SELECT \* FROM seer_requests WHERE id = \?/.test(sql)
+        ? [{ id: params[0], jellyfin_user_id: "u1", username: "alice", media_type: "movie", tmdb_id: 603, title: "Matrix", status: "queued", pending_cleanup_id: "c1" }]
+        : [];
+    },
+  } as unknown as PrismaClient;
+  await createRequest(prisma, { jellyfinUserId: "u1", username: "alice", mediaType: "movie", tmdbId: 603, title: "Matrix", pendingCleanupId: "c1" });
+  const insert = seen.find((q) => /INSERT INTO seer_requests/.test(q.sql));
+  assert.match(insert!.sql, /pending_cleanup_id\)/);
+  assert.equal(insert!.params.at(-1), "c1");
+  await getNextQueued(prisma);
+  assert.match(seen.at(-1)!.sql, /pending_cleanup_id IS NULL/);
 });

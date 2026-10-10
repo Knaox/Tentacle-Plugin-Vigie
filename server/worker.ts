@@ -40,11 +40,14 @@ async function runRequestQueue(prisma: PrismaClient, config: WorkerConfig): Prom
 async function runCleanupQueue(prisma: PrismaClient, config: WorkerConfig): Promise<void> {
   if (cleanupQueueBusy) return;
   cleanupQueueBusy = true;
+  let done = 0;
   try {
-    await processCleanupQueue(prisma, config);
+    done = await processCleanupQueue(prisma, config);
   } finally {
     cleanupQueueBusy = false;
   }
+  // Une redemande attendait peut-être ce nettoyage (`pending_cleanup_id`) : elle part sans attendre la minute.
+  if (done > 0) await runRequestQueue(prisma, config);
 }
 
 export function startWorker(
