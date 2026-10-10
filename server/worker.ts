@@ -40,11 +40,14 @@ async function runRequestQueue(db: VigieDb, config: WorkerConfig): Promise<void>
 async function runCleanupQueue(db: VigieDb, config: WorkerConfig): Promise<void> {
   if (cleanupQueueBusy) return;
   cleanupQueueBusy = true;
+  let done = 0;
   try {
-    await processCleanupQueue(db, config);
+    done = await processCleanupQueue(db, config);
   } finally {
     cleanupQueueBusy = false;
   }
+  // Une redemande attendait peut-être ce nettoyage (`pending_cleanup_id`) : elle part sans attendre la minute.
+  if (done > 0) await runRequestQueue(db, config);
 }
 
 export function startWorker(

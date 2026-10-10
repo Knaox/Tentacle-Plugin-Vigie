@@ -8,6 +8,8 @@ import { MIGRATIONS } from "../storage/migrations";
 import { findExistingTvRequest, getNextQueued } from "../db";
 import { processNextRequest } from "../worker-send";
 import { syncStatuses } from "../worker-sync";
+import { processCleanupQueue } from "../worker-cleanup";
+import { submitRequest } from "../request-submit";
 import { liveState } from "./live-state";
 import { requestIndex } from "./request-index";
 import { deferredRequestIds, resetUnblock, staleSeasons } from "./seerr-unblock";
@@ -127,4 +129,51 @@ test("la synchro ne déclare pas « disponible » un titre supprimé de Jellyfin
   const [{ status }] = await db.query<{ status: string }>("SELECT status FROM seer_requests WHERE id = 'r1'");
   assert.equal(status, "approved");
   assert.equal(notifications.length, 0);
+});
+
+test("redemander un film supprimé : sa demande d'avant part d'abord, la nouvelle attend ce nettoyage", async () => {
+  const before = LONG_AGO - 86_400_000;
+  liveState.setLibrary([{ key: "m:t:603", present: false, departedAt: LONG_AGO }]);
+  requestIndex.seed([{
+    id: 41, status: 5, is4k: false, mediaType: "movie", tmdbId: 603, seasons: [],
+    requestedBy: { seerrUserId: 1, jellyfinUserId: "u1", name: "alice" },
+    createdAt: new Date(before).toISOString(), updatedAt: null, mediaStatus: 5,
+  }]);
+  await db.execute(
+    `INSERT INTO seer_requests (id, jellyfin_user_id, username, media_type, tmdb_id, title, status, seerr_request_id, created_at, updated_at)
+     VALUES ('old', 'u1', 'alice', 'movie', 603, 'Matrix', 'available', 41, ?, ?)`, before, before,
+  );
+  // Jellyseerr : le film « disponible », sa demande d'avant toujours là.
+  let requests = [{ id: 41, status: 5 }];
+  const deleted: string[] = [];
+  net.restore();
+  net = stubFetch([(c) => {
+    if (!c.url.startsWith(SEERR)) return null;
+    const url = new URL(c.url);
+    if (c.method === "DELETE") {
+      deleted.push(url.pathname);
+      if (url.pathname === "/api/v1/request/41") requests = [];
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/api/v1/movie/603") return json({ id: 603, title: "Matrix", keywords: [], mediaInfo: { id: 9, status: 5, requests } });
+    return json({});
+  }]);
+
+  const res = await submitRequest(db, async () => config, { userId: "u1", username: "alice", isAdmin: false }, {
+    mediaType: "movie", tmdbId: 603, title: "Matrix",
+  });
+  assert.equal(res.status, 201, "pas un doublon : la demande d'avant est consommée");
+  const [{ status: oldStatus }] = await db.query<{ status: string }>("SELECT status FROM seer_requests WHERE id = 'old'");
+  assert.equal(oldStatus, "deleting");
+  const [cleanup] = await db.query<{ id: string; seerr_request_id: number }>("SELECT id, seerr_request_id FROM seer_cleanup_queue");
+  assert.equal(cleanup.seerr_request_id, 41);
+  const newId = (res.body as { id: string }).id;
+  const [{ pending_cleanup_id }] = await db.query<{ pending_cleanup_id: string | null }>("SELECT pending_cleanup_id FROM seer_requests WHERE id = ?", newId);
+  assert.equal(pending_cleanup_id, cleanup.id, "elle attend le nettoyage");
+  assert.equal(await getNextQueued(db), null, "rien ne part avant lui");
+
+  await processCleanupQueue(db, config);
+  assert.ok(deleted.includes("/api/v1/request/41"), "la demande d'avant a quitté Jellyseerr");
+  assert.deepEqual(await db.query("SELECT id FROM seer_requests WHERE id = 'old'"), []);
+  assert.equal((await getNextQueued(db))?.id, newId, "la nouvelle part maintenant");
 });
