@@ -76,6 +76,23 @@ test("ce que devient chaque demande d'un titre parti", () => {
   ]);
 });
 
+test("une série partie en entier : seules les demandes de ce qui est parti suivent", () => {
+  const base = { localId: null, jellyfinUserId: "u1" };
+  // La saison 1 était là, plus rien n'y est ; la saison 2 est encore attendue.
+  const dep: Departure = { mediaType: "tv", tmdbId: 66732, at: 1, seasons: [1], whole: true };
+  const jobs = planJobs(dep, [
+    { ...base, seerrRequestId: 20, status: REQUEST.COMPLETED, seasons: [1] }, // la saison partie : part
+    { ...base, seerrRequestId: 21, status: REQUEST.APPROVED, seasons: [2] }, // jamais arrivée : reste
+    { ...base, seerrRequestId: 22, status: REQUEST.APPROVED, seasons: [1, 2] }, // garde la 2, perd la 1
+    { ...base, seerrRequestId: 23, status: REQUEST.APPROVED, seasons: [] }, // « toute la série » d'avant : part
+  ]);
+  assert.deepEqual(jobs.map((j) => [j.seerrRequestId, j.seasons, j.whole]), [
+    [20, [1], true],
+    [null, [1], false],
+    [23, null, true],
+  ]);
+});
+
 let db: VigieDb;
 let raw: TestDatabase;
 let net: ReturnType<typeof stubFetch>;

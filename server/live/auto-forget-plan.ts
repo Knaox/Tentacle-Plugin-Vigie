@@ -83,11 +83,15 @@ export interface ForgetJob {
 
 /**
  * Ce que devient chaque demande d'un titre parti :
- *   - un film parti, une série partie en entier : la demande part ;
- *   - des saisons parties : une demande qui ne couvrait qu'elles part ; une
- *     demande terminée (ses autres saisons sont déjà là) part aussi ; une
- *     demande qui attend encore d'autres saisons les garde — seules les
- *     saisons parties la quittent.
+ *   - un film parti : la demande part ;
+ *   - des saisons parties (la série entière comprise) : une demande qui ne
+ *     couvrait qu'elles part ; une demande terminée (ses autres saisons sont
+ *     déjà là) part aussi ; une demande qui attend encore d'autres saisons
+ *     les garde — seules les saisons parties la quittent ;
+ *   - une demande qui n'attend QUE des saisons jamais arrivées n'a rien perdu :
+ *     elle reste (supprimer la saison 1 n'annule pas la saison 2 en route) ;
+ *   - une demande sans saison (« toute la série », d'avant) suit la série
+ *     entière.
  * Sonarr ne cesse de surveiller QUE les saisons parties. Refusées, en échec,
  * en 4K : rien.
  */
@@ -100,8 +104,8 @@ export function planJobs(dep: Departure, requests: readonly ForgetRequest[]): Fo
       jobs.push({ ...base, seerrRequestId: r.seerrRequestId, seasons: null, whole: true });
       continue;
     }
-    if (dep.whole) {
-      jobs.push({ ...base, seerrRequestId: r.seerrRequestId, seasons: r.seasons.length > 0 ? [...r.seasons] : null, whole: true });
+    if (r.seasons.length === 0) {
+      if (dep.whole) jobs.push({ ...base, seerrRequestId: r.seerrRequestId, seasons: null, whole: true });
       continue;
     }
     const gone = r.seasons.filter((s) => dep.seasons.includes(s));
