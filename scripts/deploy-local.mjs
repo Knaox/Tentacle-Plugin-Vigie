@@ -45,6 +45,12 @@ mkdirSync(resolve(TARGET, "server"), { recursive: true });
 copyFileSync(bundle, resolve(TARGET, "dist", "plugin-seer.iife.js"));
 copyFileSync(serverModule, resolve(TARGET, "server", "index.mjs"));
 copyFileSync(manifest, resolve(TARGET, "plugin.json"));
+/* hls.js, servi à la demande par le module serveur (server/routes-vendor.ts). */
+mkdirSync(resolve(TARGET, "dist", "vendor"), { recursive: true });
+for (const file of ["hls.min.js", "hls.js.LICENSE"]) {
+  const from = resolve(ROOT, "dist", "vendor", file);
+  if (existsSync(from)) copyFileSync(from, resolve(TARGET, "dist", "vendor", file));
+}
 
 /* Cache-buster : l'URL du bundle est `.../bundle?v=<version d'installed.json>`.
  * Sans cette mise à jour, le navigateur ressert l'ancien bundle indéfiniment. */

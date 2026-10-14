@@ -8800,6 +8800,22 @@ function registerMiscRoutes(app, db, getWorkerConfig2, requireAdmin) {
   });
 }
 
+// server/routes-vendor.ts
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+function registerVendorRoutes(app, pluginDir) {
+  let hls = null;
+  app.get("/vendor/hls.js", async (_request, reply) => {
+    hls ??= readFile(join(pluginDir, "dist", "vendor", "hls.min.js"), "utf8").catch(() => null);
+    const code = await hls;
+    if (code === null) {
+      hls = null;
+      return reply.status(404).send({ message: "hls.js absent" });
+    }
+    return reply.header("Content-Type", "application/javascript; charset=utf-8").header("Cache-Control", "private, max-age=31536000, immutable").send(code);
+  });
+}
+
 // server/routes-proxy.ts
 import { Readable } from "stream";
 
@@ -11189,6 +11205,7 @@ async function seerBackend(app, ctx) {
   registerAllRequestsRoutes(app, db, gwc, ctx.requireAdmin);
   registerCalendarRoutes(app, db, gwc);
   registerMiscRoutes(app, db, gwc, ctx.requireAdmin);
+  registerVendorRoutes(app, __pluginDir);
   await registerSearchRoutes(app, db, gwc);
   registerTitleRoutes(app, db, gwc);
   registerTitleSeasonRoutes(app, db, gwc);

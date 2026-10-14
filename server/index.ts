@@ -24,6 +24,7 @@ import { registerProgressRoutes } from "./routes-progress";
 import { registerAllRequestsRoutes } from "./routes-requests-all";
 import { registerCalendarRoutes } from "./routes-calendar";
 import { registerMiscRoutes } from "./routes-misc";
+import { registerVendorRoutes } from "./routes-vendor";
 import { registerProxyRoutes } from "./routes-proxy";
 import { registerSearchRoutes } from "./routes-search";
 import { registerTitleRoutes } from "./routes-titles";
@@ -161,6 +162,7 @@ export default async function seerBackend(
   registerCalendarRoutes(app, db, gwc);
 
   registerMiscRoutes(app, db, gwc, ctx.requireAdmin);
+  registerVendorRoutes(app, __pluginDir);
   await registerSearchRoutes(app, db, gwc);
   // Le contrat `titles` de Tentacle : l'état et la demande d'un titre, pour ses cartes.
   registerTitleRoutes(app, db, gwc);
