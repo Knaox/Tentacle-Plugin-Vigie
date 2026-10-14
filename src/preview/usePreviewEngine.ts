@@ -119,6 +119,7 @@ export function usePreviewEngine(title: PreviewTitle | null, hovered: boolean): 
         setStream({
           src: backendAbsolute(streamPathFor(preview, window.devicePixelRatio || 1)),
           kind: preview.mimeType === HLS_MIME ? "hls" : "mp4",
+          burnedSubtitles: preview.version === "subtitled",
         });
         dispatch({ type: "found", at: now() });
       } else if (decision.kind === "missing") {

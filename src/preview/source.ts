@@ -35,6 +35,8 @@ export interface TrailerPreviewBody {
   expiresAt: number;
   heights?: number[];
   qualities?: Array<{ height: number; path: string }>;
+  /** La version du catalogue (additif) : une `subtitled` (VOSTFR) a ses sous-titres incrustés. */
+  version?: string;
 }
 
 export type PreviewDecision =

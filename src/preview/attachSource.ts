@@ -23,6 +23,11 @@ import { PREVIEW_TIMING } from "./timing";
 export interface PreviewStream {
   src: string;
   kind: "hls" | "mp4";
+  /**
+   * Une VOSTFR : ses sous-titres sont INCRUSTÉS, souvent dans la bande noire
+   * du bas — jamais rognée, sinon ils disparaissent (même règle que le cœur).
+   */
+  burnedSubtitles?: boolean;
 }
 
 export interface SourceHandlers {
@@ -70,7 +75,8 @@ export function attachPreviewSource(video: HTMLVideoElement, stream: PreviewStre
     ready = true;
     markFlowing();
     // L'image décodée est présentée à l'image suivante : la mesure la lit alors.
-    requestAnimationFrame(() => { if (!released) handlers.onReady(measureVideoCrop(video)); });
+    // Jamais de rognage pour une VOSTFR : ses sous-titres vivent dans la bande du bas.
+    requestAnimationFrame(() => { if (!released) handlers.onReady(stream.burnedSubtitles ? 1 : measureVideoCrop(video)); });
   };
   const onProgress = () => { if (video.buffered.length > 0) markFlowing(); };
   const onPlaying = () => { playedOnce = true; };
