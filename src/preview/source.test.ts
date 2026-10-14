@@ -86,12 +86,13 @@ test("la qualité : 720p sur Retina, 360p sinon, jamais 1080p", () => {
   assert.equal(streamPathFor({ ...BODY, mimeType: "video/mp4", qualities: [] }, 2), BODY.path);
 });
 
-test("la mini-carte : 23 % de la fenêtre (300 à 560 px), centrée sur l'affiche, dans la fenêtre", () => {
+test("la mini-carte : la taille de l'aperçu d'une vignette (300 à 560 px), centrée sur l'affiche, dans la fenêtre", () => {
   const anchor = { left: 600, top: 300, width: 168, height: 252 };
   const p = placePreview(anchor, { width: 1440, height: 900 });
   assert.ok(p);
-  assert.equal(p.width, 331);
-  assert.equal(p.videoHeight, 186);
+  // 1,2 × la vignette moyenne du cœur (345,6 px à 1 440) : plus jamais au plancher de 331.
+  assert.equal(p.width, 415);
+  assert.equal(p.videoHeight, 233);
   assert.ok(p.height >= anchor.height + 16);
   assert.equal(p.left, Math.round(684 - p.width / 2));
   // Collée au bord : rentrée à 16 px, et jamais sous la barre collante.
@@ -99,7 +100,7 @@ test("la mini-carte : 23 % de la fenêtre (300 à 560 px), centrée sur l'affich
   assert.equal(edge?.left, 16);
   assert.equal(edge?.top, 72);
   assert.equal(placePreview(anchor, { width: 4000, height: 2000 })?.width, 560);
-  assert.equal(placePreview(anchor, { width: 800, height: 900 })?.width, 300);
+  assert.equal(placePreview(anchor, { width: 800, height: 900 })?.width, 336);
 });
 
 test("les voisines d'une rangée s'écartent du débord de chaque côté", () => {

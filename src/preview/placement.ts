@@ -5,8 +5,10 @@
 /*
  * JUMEAU de `previewPlacement.ts` du cœur (forme « affiche ») : la
  * mini-carte fait ~23 % de la largeur de la fenêtre, entre 300 et 560 px,
- * jamais moins de 1,2 × la carte ; vidéo 16:9 en haut, bandeau dessous, au
- * moins aussi haute que l'affiche à couvrir. Centrée sur la carte, rentrée
+ * jamais moins de 1,2 × la largeur d'une VIGNETTE moyenne du cœur (sa
+ * `idealCardWidth`) — l'aperçu d'une affiche a la taille de celui d'une
+ * vignette ; il restait au plancher, plus petit. Vidéo 16:9 en haut, bandeau
+ * dessous, au moins aussi haute que l'affiche à couvrir. Centrée sur la carte, rentrée
  * dans la fenêtre (sous la barre d'onglets collante de Vigie), au pixel près.
  * Elle part de l'affiche — la plus grande échelle qui y tient — et grandit.
  */
@@ -62,8 +64,17 @@ export function panelHeight(width: number): number {
   return last[1];
 }
 
+/** La vignette moyenne du cœur (`cardSizes.ts` : `EPISODE_WIDTH.md`, `EPISODE_VW`). */
+const VIGNETTE = { base: 280, lg: 400, vw: 24 };
+
+/** La largeur d'une vignette moyenne du cœur dans cette fenêtre (son `clamp` CSS). */
+export function vignetteWidth(viewportWidth: number): number {
+  return clamp((viewportWidth * VIGNETTE.vw) / 100, VIGNETTE.base, VIGNETTE.lg);
+}
+
 export function previewWidthFor(cardWidth: number, viewportWidth: number): number {
-  const wanted = Math.max(viewportWidth * PREVIEW_SCREEN_SHARE, cardWidth * PREVIEW_MIN_GROWTH);
+  const base = Math.max(cardWidth, vignetteWidth(viewportWidth));
+  const wanted = Math.max(viewportWidth * PREVIEW_SCREEN_SHARE, base * PREVIEW_MIN_GROWTH);
   return clamp(wanted, PREVIEW_MIN_WIDTH, PREVIEW_MAX_WIDTH);
 }
 
