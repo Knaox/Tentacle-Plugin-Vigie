@@ -95,7 +95,8 @@ export function useServerPreviewCapability(enabled: boolean): boolean {
 
 /** La demande au serveur, par le pont de l'hôte (le `fetch` relatif est relayé). */
 export async function requestPreview(title: PreviewTitle, lang: string): Promise<PreviewResponse | null> {
-  const query = new URLSearchParams({ tmdbId: String(title.tmdbId), mediaType: title.mediaType, lang });
+  // `dm=1` : Vigie lit aussi un aperçu AlloCiné (Dailymotion, HLS TS relayé, que hls.js lit).
+  const query = new URLSearchParams({ tmdbId: String(title.tmdbId), mediaType: title.mediaType, lang, dm: "1" });
   // Le pont de l'hôte ignore `signal` : le délai se fait par une course, pas par un abandon.
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<PreviewResponse>((resolve) => {
