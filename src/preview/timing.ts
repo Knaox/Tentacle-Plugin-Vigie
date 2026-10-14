@@ -8,18 +8,21 @@
  * même rendez-vous qu'une affiche de la bibliothèque. Un changement là-bas
  * se reporte ici.
  *
- *   - la demande au serveur part à l'INTENTION : 250 ms de survol ET un
+ *   - la demande au serveur part à l'INTENTION : 200 ms de survol ET un
  *     pointeur arrêté depuis 100 ms (moins de 6 px) — une souris qui balaie
  *     une rangée, une page qui défile ne demandent RIEN ;
- *   - la mini-carte se montre au plus tôt à 800 ms, et seulement avec de quoi
+ *   - la mini-carte se montre au plus tôt à 600 ms, et seulement avec de quoi
  *     montrer : la première image de la vidéo, ou l'image du titre une fois
- *     la bande-annonce vérifiée et son premier fragment reçu.
+ *     la bande-annonce vérifiée et son premier fragment reçu. La vidéo y JOUE
+ *     dès cet instant, agrandissement compris ;
+ *   - le serveur a préparé d'avance l'aperçu des affiches à l'écran
+ *     (`warm.ts`) : sa réponse est immédiate.
  */
 export const PREVIEW_TIMING = {
-  intentMs: 250,
+  intentMs: 200,
   intentStillMs: 100,
   intentMovePx: 6,
-  revealMs: 800,
+  revealMs: 600,
   /** Où l'aperçu commence (s) : quelques secondes après le noir du début. */
   startOffsetS: 4,
   startOffsetMinDurationS: 30,

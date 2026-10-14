@@ -4,8 +4,8 @@
 
 /*
  * Le jumeau de `TrailerPreviewVideo` du cœur : la source se pose CACHÉE et EN
- * PAUSE (attachSource.ts) ; la lecture part quand `playing` est vrai et
- * `hold` faux (l'agrandissement de la mini-carte fini), le son glisse vers
+ * PAUSE (attachSource.ts) ; la lecture part quand `playing` est vrai — dès
+ * que la mini-carte paraît, agrandissement compris —, le son glisse vers
  * 0,6. Un navigateur qui refuse le son : la lecture continue en muet, sans
  * erreur. Une lecture montrée qui attend ses données plus de 5 s s'efface.
  *
@@ -24,7 +24,6 @@ interface PreviewVideoProps {
   playing: boolean;
   /** Le volume visé (0,6 montrée, 0 pendant la sortie) : le son y glisse. */
   volume: number;
-  hold: boolean;
   /** La première image n'est pas encore là : la vidéo reste invisible (l'image du titre se voit). */
   waiting: boolean;
   muted: boolean;
@@ -52,7 +51,7 @@ function rampVolume(video: HTMLVideoElement, target: number, ms: number): () => 
 }
 
 export const PreviewVideo = memo(function PreviewVideo(props: PreviewVideoProps) {
-  const { stream, cycle, playing, volume, hold, waiting, muted, className } = props;
+  const { stream, cycle, playing, volume, waiting, muted, className } = props;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const sessionRef = useRef<SourceSession | null>(null);
   const latest = useRef(props);
@@ -77,7 +76,7 @@ export const PreviewVideo = memo(function PreviewVideo(props: PreviewVideoProps)
     if (playing) sessionRef.current?.unleash();
   }, [playing, cycle]);
 
-  const running = playing && !hold;
+  const running = playing;
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !running) {

@@ -5,18 +5,18 @@ import { IDLE, previewDeadline, reducePreview, type PreviewEvent, type PreviewSt
 /*
  * Les règles de Damien, tenues par la machine : rien ne se demande pendant un
  * balayage ou un défilement, rien ne s'agrandit sans de quoi montrer, jamais
- * avant 800 ms, et un flux bloqué ne montre jamais rien.
+ * avant 600 ms, et un flux bloqué ne montre jamais rien.
  */
 
 const run = (events: PreviewEvent[], from: PreviewState = IDLE) => events.reduce(reducePreview, from);
 
-test("l'intention : 250 ms de survol ET un pointeur arrêté depuis 100 ms", () => {
+test("l'intention : 200 ms de survol ET un pointeur arrêté depuis 100 ms", () => {
   let s = run([{ type: "start", at: 0 }]);
+  assert.equal(previewDeadline(s), 200);
+  s = run([{ type: "move", at: 150 }, { type: "tick", at: 200 }], s);
+  assert.equal(s.phase, "intent", "un mouvement à 150 ms repousse la demande");
   assert.equal(previewDeadline(s), 250);
-  s = run([{ type: "move", at: 200 }, { type: "tick", at: 250 }], s);
-  assert.equal(s.phase, "intent", "un mouvement à 200 ms repousse la demande");
-  assert.equal(previewDeadline(s), 300);
-  s = run([{ type: "tick", at: 300 }], s);
+  s = run([{ type: "tick", at: 250 }], s);
   assert.equal(s.phase, "fetching");
   assert.equal(s.attempt, 1);
 });
@@ -28,13 +28,13 @@ test("un balayage (mouvements continus) ne demande jamais rien", () => {
   assert.equal(s.attempt, 0);
 });
 
-const fetching = () => run([{ type: "start", at: 0 }, { type: "tick", at: 250 }]);
+const fetching = () => run([{ type: "start", at: 0 }, { type: "tick", at: 200 }]);
 
-test("révélée au plus tôt à 800 ms, avec la première image", () => {
+test("révélée au plus tôt à 600 ms, avec la première image", () => {
   let s = run([{ type: "found", at: 300 }, { type: "videoReady", at: 400 }], fetching());
   assert.equal(s.phase, "buffering");
-  assert.equal(previewDeadline(s), 800);
-  s = run([{ type: "tick", at: 800 }], s);
+  assert.equal(previewDeadline(s), 600);
+  s = run([{ type: "tick", at: 600 }], s);
   assert.equal(s.phase, "shown");
 });
 
@@ -66,7 +66,7 @@ test("un refus passager attend l'échéance, deux fois au plus", () => {
 });
 
 test("une erreur de lecture finit l'aperçu et se retient ; la fin aussi, sans échec", () => {
-  const shown = run([{ type: "found", at: 300 }, { type: "videoReady", at: 400 }, { type: "tick", at: 800 }], fetching());
+  const shown = run([{ type: "found", at: 300 }, { type: "videoReady", at: 400 }, { type: "tick", at: 600 }], fetching());
   assert.equal(run([{ type: "fail", at: 900 }], shown).failed, true);
   const ended = run([{ type: "ended", at: 5000 }], shown);
   assert.equal(ended.phase, "over");

@@ -10,8 +10,10 @@
  * l'affiche à la mini-carte ne quitte pas le survol.
  *
  * La mini-carte se pose cachée dès que le flux est trouvé (la vidéo se charge
- * en pause), se montre au rendez-vous en grandissant depuis l'affiche,
- * révélée sur l'image du titre puis la vidéo en fondu. Elle reste accrochée
+ * en pause), se montre au rendez-vous en grandissant depuis l'affiche — la
+ * vidéo JOUE dès cet instant, agrandissement compris —, révélée sur l'image
+ * du titre si la vidéo n'a pas encore sa première image, qui la rejoint
+ * alors en fondu. Elle reste accrochée
  * à sa carte quand la page défile. Dans une rangée, les voisines s'écartent
  * (transform seul) ; dans une grille, elle passe au-dessus.
  */
@@ -32,10 +34,7 @@ import { PreviewPanel } from "./PreviewPanel";
 import { PreviewVideo } from "./PreviewVideo";
 import { injectPreviewStyles } from "./previewStyles";
 import { openRailRoom } from "./railRoom";
-import { PREVIEW_MOTION, PREVIEW_TIMING } from "./timing";
 import { usePreviewEngine } from "./usePreviewEngine";
-
-const REDUCED_MOTION = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
 /** Le bas de la barre d'onglets collante de Vigie : la mini-carte ne passe pas dessous. */
 function safeTopFor(anchorTop: number): number {
@@ -84,7 +83,6 @@ export function PosterPreview(props: PosterPreviewProps) {
   const [soundBlocked, setSoundBlocked] = useState(false);
   const muted = host.muted || soundBlocked;
   const [placement, setPlacement] = useState<Placement | null>(null);
-  const [hold, setHold] = useState(false);
   const still = backdropUrl(item.backdropPath, "w780");
 
   useEffect(() => { injectPreviewStyles(); }, []);
@@ -122,17 +120,6 @@ export function PosterPreview(props: PosterPreviewProps) {
       window.removeEventListener("resize", follow);
     };
   }, [engine.mount, engine.cycle, anchorRef]);
-
-  // La vidéo reste sur sa première image le temps de l'agrandissement.
-  useEffect(() => {
-    if (!engine.visible || REDUCED_MOTION) {
-      setHold(false);
-      return;
-    }
-    setHold(true);
-    const id = setTimeout(() => setHold(false), PREVIEW_MOTION.enterMs);
-    return () => clearTimeout(id);
-  }, [engine.visible]);
 
   useEffect(() => {
     onShown(engine.visible);
@@ -185,7 +172,6 @@ export function PosterPreview(props: PosterPreviewProps) {
             cycle={engine.cycle}
             playing={engine.phase === "shown"}
             volume={engine.visible ? host.volume : 0}
-            hold={hold}
             waiting={!engine.videoReady}
             muted={muted}
             className="vgp-video"
