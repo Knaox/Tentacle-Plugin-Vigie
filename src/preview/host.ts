@@ -17,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 import { isMobileWebView } from "../utils/tentacle-fetch";
 import type { PreviewResponse, PreviewTitle } from "./source";
+import { PREVIEW_TIMING } from "./timing";
 
 export interface HostPreviewEnv {
   enabled: boolean;
@@ -112,13 +113,26 @@ export function useServerPreviewCapability(enabled: boolean): boolean {
 /** La demande au serveur, par le pont de l'hôte (le `fetch` relatif est relayé). */
 export async function requestPreview(title: PreviewTitle, lang: string): Promise<PreviewResponse | null> {
   const query = new URLSearchParams({ tmdbId: String(title.tmdbId), mediaType: title.mediaType, lang });
+  // Le pont de l'hôte ignore `signal` : le délai se fait par une course, pas par un abandon.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<PreviewResponse>((resolve) => {
+    // Notre délai, pas une panne : le serveur décide encore (`decisionOf`).
+    timer = setTimeout(() => resolve({ status: 0, body: null, timedOut: true }), PREVIEW_TIMING.fetchTimeoutMs);
+  });
+  const answer = (async (): Promise<PreviewResponse | null> => {
+    try {
+      const res = await fetch(`/api/trailers/preview?${query}`);
+      let body: unknown = null;
+      try { body = await res.json(); } catch { body = null; }
+      return { status: res.status, body };
+    } catch {
+      return null;
+    }
+  })();
   try {
-    const res = await fetch(`/api/trailers/preview?${query}`);
-    let body: unknown = null;
-    try { body = await res.json(); } catch { body = null; }
-    return { status: res.status, body };
-  } catch {
-    return null;
+    return await Promise.race([answer, late]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 

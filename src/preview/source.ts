@@ -12,6 +12,9 @@
  * titre partagent la même demande, une bande-annonce qui n'a pas pu se lire
  * n'est pas retentée avant 10 min. Un refus passager (429, réseau) se retient
  * jusqu'à son échéance : on ne martèle pas un serveur qui demande d'attendre.
+ * Notre délai expiré (15 s), ou une réponse déjà échue à son arrivée, n'est
+ * pas une panne : on redemande aussitôt — le serveur, qui poursuit sa
+ * décision, y répond sans rien refaire.
  */
 
 import { PREVIEW_TIMING } from "./timing";
@@ -42,6 +45,8 @@ export type PreviewDecision =
 export interface PreviewResponse {
   status: number;
   body: unknown;
+  /** Notre délai a expiré avant la réponse (le serveur décide encore). */
+  timedOut?: boolean;
 }
 
 const T = PREVIEW_TIMING;
@@ -58,8 +63,13 @@ function isPreviewBody(body: unknown): body is TrailerPreviewBody {
 /** Ce que dit une réponse du serveur, au moment `now`. */
 export function decisionOf(response: PreviewResponse | null, now: number): PreviewDecision {
   if (!response) return { kind: "retry", retryAt: now + T.transientFailureMs };
+  if (response.timedOut) return { kind: "retry", retryAt: now + T.timeoutRetryMs };
   const { status, body } = response;
-  if (status === 200) return isPreviewBody(body) ? { kind: "found", preview: body } : { kind: "missing" };
+  if (status === 200) {
+    if (!isPreviewBody(body)) return { kind: "missing" };
+    // Déjà échue à son arrivée (jeton du relais au bout) : on redemande au lieu de la lire.
+    return body.expiresAt - 60_000 <= now ? { kind: "retry", retryAt: now + T.timeoutRetryMs } : { kind: "found", preview: body };
+  }
   if (status === 429) {
     const seconds = (body as { retryAfterS?: unknown } | null)?.retryAfterS;
     const wait = typeof seconds === "number" && seconds > 0 ? seconds * 1000 : T.rateLimitDefaultMs;

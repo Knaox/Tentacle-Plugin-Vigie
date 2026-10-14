@@ -61,6 +61,10 @@ test("429 : on attend Retry-After (borné), puis on redemande", async () => {
   assert.equal(decisionOf({ status: 429, body: { retryAfterS: 600 } }, 0).kind, "retry");
   assert.deepEqual(decisionOf({ status: 429, body: { retryAfterS: 600 } }, 0), { kind: "retry", retryAt: 10_000 });
   assert.deepEqual(decisionOf(null, 0), { kind: "retry", retryAt: 10_000 });
+  // Notre délai expiré n'est pas une panne : le serveur décide encore, on redemande aussitôt.
+  assert.deepEqual(decisionOf({ status: 0, body: null, timedOut: true }, 0), { kind: "retry", retryAt: 1_500 });
+  // Une réponse déjà échue à son arrivée : redemandée, jamais lue.
+  assert.deepEqual(decisionOf({ status: 200, body: { ...BODY, expiresAt: 50_000 } }, 0), { kind: "retry", retryAt: 1_500 });
 });
 
 test("un flux qui ne se lit pas n'est pas retenté avant 10 min", async () => {

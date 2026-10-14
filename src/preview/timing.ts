@@ -40,6 +40,8 @@ export const PREVIEW_TIMING = {
   rateLimitMinMs: 1_000,
   rateLimitMaxMs: 10_000,
   transientFailureMs: 10_000,
+  /** Notre délai (`fetchTimeoutMs`) expiré : le serveur décide encore, on redemande aussitôt. */
+  timeoutRetryMs: 1_500,
   maxRetries: 2,
 } as const;
 
