@@ -129,3 +129,12 @@ function CardGlyph({ className = "h-3.5 w-3.5", filled = false, d }: IconProps &
 }
 export const CardBookmarkGlyph = (p: IconProps & { filled?: boolean }) => <CardGlyph {...p} d={CARD_BOOKMARK_PATH} />;
 export const CardHeartGlyph = (p: IconProps & { filled?: boolean }) => <CardGlyph {...p} d={CARD_HEART_PATH} />;
+
+/* La mini-carte d'aperçu : « Plus d'infos » et le son (les pictogrammes du cœur, Info et Volume2/VolumeX). */
+export const InfoIcon = (p: IconProps) => <Svg {...p} weight={2}><circle cx="12" cy="12" r="9" /><path d="M12 16v-4.5M12 8h.01" /></Svg>;
+export const VolumeOnIcon = (p: IconProps) => (
+  <Svg {...p} weight={2}><path d="M11 5L6 9H2v6h4l5 4z" /><path d="M15.5 8.5a5 5 0 010 7M19 5a10 10 0 010 14" /></Svg>
+);
+export const VolumeOffIcon = (p: IconProps) => (
+  <Svg {...p} weight={2}><path d="M11 5L6 9H2v6h4l5 4z" /><path d="M22 9l-6 6M16 9l6 6" /></Svg>
+);

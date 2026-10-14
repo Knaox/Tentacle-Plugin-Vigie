@@ -113,12 +113,13 @@ export const Rail = memo(function Rail({ title, subtitle, count, action, icon, c
       <div className="relative">
         <div
           ref={scroller}
+          data-vg-rail=""
           className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-px-4 px-4 pb-1 md:-mx-8 md:scroll-px-8 md:px-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {/* `Children.map` garde les clés des cartes : une rangée qui se
               réordonne ne remonte pas ses affiches. */}
           {Children.map(children, (child) => (
-            <div className={`shrink-0 snap-start ${WIDTH[itemWidth]}`}>{child}</div>
+            <div data-vg-rail-item="" className={`shrink-0 snap-start ${WIDTH[itemWidth]}`}>{child}</div>
           ))}
         </div>
         {!edges.start && (

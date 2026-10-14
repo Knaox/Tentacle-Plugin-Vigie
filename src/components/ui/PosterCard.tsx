@@ -24,7 +24,7 @@
  * virtualisée, rien de ce survol n'existe au repos (monté à la demande).
  */
 
-import { memo, useCallback, useContext, useState, type FocusEvent } from "react";
+import { memo, useCallback, useContext, useRef, useState, type FocusEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { SeerrSearchResult } from "../../api/types";
 import { getCurrentLanguage, mediaTitle, mediaYear, posterUrl } from "../../utils/media-helpers";
@@ -44,6 +44,8 @@ import { StateBadge } from "./StateBadge";
 import { MarkPlate, RatingChip, marksText } from "./MarkPlate";
 import { PosterHover } from "./PosterHover";
 import { EyeOffIcon } from "./icons";
+import { PosterPreview } from "../../preview/PosterPreview";
+import { PREVIEW_TIMING } from "../../preview/timing";
 
 /** Pointeur fin (souris) : le survol n'a de sens que là ; au doigt, c'est l'appui long. */
 const FINE_POINTER = typeof window !== "undefined" && window.matchMedia?.("(hover: hover) and (pointer: fine)").matches;
@@ -103,14 +105,34 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
   const bandSaysHere = status?.state === "available" || status?.state === "partial";
   const active = FINE_POINTER && (hovered || focused);
   const layerMounted = useMountWhile(active, 200);
+  // L'aperçu de bande-annonce : sa session n'existe que pendant le survol (et son fondu de sortie).
+  // Le focus ne compte que visible (clavier) ; une fiche ou une demande ouverte le coupe
+  // jusqu'au prochain survol — rien ne joue sous une fenêtre.
+  const [focusVisible, setFocusVisible] = useState(false);
+  const [previewSuppressed, setPreviewSuppressed] = useState(false);
+  const previewActive = FINE_POINTER && !previewSuppressed && (hovered || focusVisible);
+  const previewMounted = useMountWhile(previewActive, PREVIEW_TIMING.exitMs + 120);
+  const [previewShown, setPreviewShown] = useState(false);
+  const posterRef = useRef<HTMLDivElement>(null);
   const longPress = useLongPress(() => hub?.openActions(item, !!onQuickRequest));
   // Une affiche déjà en cache a fini de charger avant que React n'écoute `load`.
   const imgRef = useCallback((node: HTMLImageElement | null) => {
     if (node?.complete && node.naturalWidth > 0) setLoaded(true);
   }, []);
   const onBlur = (e: FocusEvent<HTMLDivElement>) => {
-    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false);
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setFocused(false);
+      setFocusVisible(false);
+    }
   };
+  const openFromCard = () => {
+    setPreviewSuppressed(true);
+    onOpen(item);
+  };
+  const requestFromPreview = onQuickRequest && ((target: SeerrSearchResult) => {
+    setPreviewSuppressed(true);
+    onQuickRequest(target);
+  });
 
   const label = [
     title, item.masked ? t("seer:maskedResultLabel") : "", status ? statusText(status, t) : "",
@@ -121,14 +143,16 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
   return (
     <div
       className="group relative min-w-0"
-      onMouseEnter={FINE_POINTER ? () => setHovered(true) : undefined}
+      // La mini-carte d'aperçu montrée : la carte entière (affiche et légende) s'efface dessous.
+      data-vgp-concealed={previewShown}
+      onMouseEnter={FINE_POINTER ? () => { setHovered(true); setPreviewSuppressed(false); } : undefined}
       onMouseLeave={FINE_POINTER ? () => setHovered(false) : undefined}
-      onFocus={FINE_POINTER ? () => setFocused(true) : undefined}
+      onFocus={FINE_POINTER ? (e) => { setFocused(true); setFocusVisible((e.target as HTMLElement).matches?.(":focus-visible") === true); } : undefined}
       onBlur={FINE_POINTER ? onBlur : undefined}
     >
       <button
         type="button"
-        onClick={() => { if (!longPress.consumeClick()) onOpen(item); }}
+        onClick={() => { if (!longPress.consumeClick()) openFromCard(); }}
         onPointerDown={longPress.onPointerDown}
         onPointerMove={longPress.onPointerMove}
         onPointerUp={longPress.onPointerUp}
@@ -138,7 +162,7 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
         className="block w-full text-left focus-visible:outline-none"
         style={NO_CALLOUT}
       >
-        <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl bg-tentacle-surface-2 ring-1 ring-tentacle-border-subtle transition-shadow group-focus-visible:ring-2 group-focus-visible:ring-[rgba(var(--brand-rgb),0.8)]">
+        <div ref={posterRef} data-vg-poster="" className="relative aspect-[2/3] w-full overflow-hidden rounded-xl bg-tentacle-surface-2 ring-1 ring-tentacle-border-subtle transition-shadow group-focus-visible:ring-2 group-focus-visible:ring-[rgba(var(--brand-rgb),0.8)]">
           {poster ? (
             <img
               src={poster}
@@ -182,7 +206,21 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
       </button>
       {/* Monté au survol, jamais masqué : rien ne se compose hors écran. */}
       {layerMounted && (
-        <HoverLayer item={item} status={status} marks={marks} onQuickRequest={onQuickRequest} name={title} visible={active} />
+        <HoverLayer item={item} status={status} marks={marks} onQuickRequest={onQuickRequest} name={title} visible={active && !previewShown} />
+      )}
+      {previewMounted && (
+        <PosterPreview
+          item={item}
+          hovered={previewActive}
+          anchorRef={posterRef}
+          status={status}
+          marks={marks}
+          onQuickRequest={requestFromPreview}
+          name={title}
+          detail={status ? statusText(status, t) : gap ?? channel?.label ?? null}
+          onOpen={openFromCard}
+          onShown={setPreviewShown}
+        />
       )}
     </div>
   );

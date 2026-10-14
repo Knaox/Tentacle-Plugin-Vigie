@@ -26,4 +26,8 @@ export default {
   gestureRateTitle: "Rate this title",
   gestureRateHint: "Tap a star — its left half counts as half a star.",
   gestureMoreInfo: "More info",
+  // La mini-carte d'aperçu de bande-annonce (src/preview/).
+  previewMute: "Mute",
+  previewUnmute: "Unmute",
+  previewLabel: "Trailer preview — {{title}}",
 } as const;

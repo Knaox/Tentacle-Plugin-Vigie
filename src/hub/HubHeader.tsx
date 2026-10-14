@@ -145,6 +145,7 @@ export const HubHeader = memo(function HubHeader(props: HubHeaderProps) {
 
       <nav
         aria-label={title}
+        data-vg-sticky-top=""
         className="sticky top-0 z-30 border-b border-tentacle-border-subtle bg-tentacle-surface-0 px-4 md:px-8"
       >
         <div className="flex items-center">

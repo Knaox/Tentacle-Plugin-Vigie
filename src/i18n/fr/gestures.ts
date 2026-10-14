@@ -26,4 +26,8 @@ export default {
   gestureRateTitle: "Noter ce titre",
   gestureRateHint: "Touchez une étoile — la moitié gauche vaut une demi-étoile.",
   gestureMoreInfo: "Plus d'infos",
+  // La mini-carte d'aperçu de bande-annonce (src/preview/).
+  previewMute: "Couper le son",
+  previewUnmute: "Activer le son",
+  previewLabel: "Aperçu de la bande-annonce — {{title}}",
 } as const;
