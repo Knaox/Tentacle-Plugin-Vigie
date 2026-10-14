@@ -9,11 +9,14 @@
  * les cartes de Tentacle (`previewSource.ts` du cœur) : hls.js d'abord (lui
  * seul dit quand le premier fragment vidéo arrive et laisse partir à 4 s),
  * l'élément seul en dernier recours, un MP4 lu par plages. Rien ne consomme
- * une fois relâché : hls.js détruit, l'élément vidé.
+ * une fois relâché : hls.js détruit, l'élément vidé. Quittée en cours de
+ * route, la bande-annonce reprend au retour où on l'avait laissée
+ * (`positions.ts`).
  */
 
 import { loadHls, type HlsInstance } from "./hlsLoader";
 import { measureVideoCrop } from "./letterbox";
+import { forgetPosition, rememberPosition, resumePositionFor } from "./positions";
 import { HLS_MIME } from "./source";
 import { PREVIEW_TIMING } from "./timing";
 
@@ -53,6 +56,8 @@ export function attachPreviewSource(video: HTMLVideoElement, stream: PreviewStre
   let ready = false;
   let flowing = false;
   let hls: HlsInstance | null = null;
+  let playedOnce = false;
+  const resumeAt = resumePositionFor(stream.src);
 
   const fail = () => { if (!released) handlers.onError(); };
   const markFlowing = () => {
@@ -68,9 +73,16 @@ export function attachPreviewSource(video: HTMLVideoElement, stream: PreviewStre
     requestAnimationFrame(() => { if (!released) handlers.onReady(measureVideoCrop(video)); });
   };
   const onProgress = () => { if (video.buffered.length > 0) markFlowing(); };
+  const onPlaying = () => { playedOnce = true; };
+  const onEnded = () => forgetPosition(stream.src);
+  // MP4 ou lecture native : la reprise se pose dès que la durée est connue.
+  const onLoadedMetadata = () => { if (resumeAt !== null && !hls) video.currentTime = resumeAt; };
   video.addEventListener("loadeddata", onLoadedData);
   video.addEventListener("progress", onProgress);
   video.addEventListener("error", fail);
+  video.addEventListener("playing", onPlaying);
+  video.addEventListener("ended", onEnded);
+  video.addEventListener("loadedmetadata", onLoadedMetadata);
 
   const nativeSupport = video.canPlayType(stream.kind === "hls" ? HLS_MIME : "video/mp4") !== "";
   const playNatively = () => {
@@ -105,9 +117,9 @@ export function attachPreviewSource(video: HTMLVideoElement, stream: PreviewStre
       });
       hls = instance;
       const { Events } = Hls;
-      instance.on(Events.MANIFEST_PARSED, () => instance.startLoad(PREVIEW_TIMING.startOffsetS));
-      // Le départ à 4 s ne vaut que dans le premier segment d'une vidéo assez longue.
-      let checked = false;
+      instance.on(Events.MANIFEST_PARSED, () => instance.startLoad(resumeAt ?? PREVIEW_TIMING.startOffsetS));
+      // Le départ à 4 s ne vaut que dans le premier segment d'une vidéo assez longue ; une reprise garde sa position.
+      let checked = resumeAt !== null;
       instance.on(Events.LEVEL_LOADED, (_e, data) => {
         if (checked) return;
         checked = true;
@@ -136,9 +148,13 @@ export function attachPreviewSource(video: HTMLVideoElement, stream: PreviewStre
     release() {
       if (released) return;
       released = true;
+      if (ready && playedOnce && !video.ended) rememberPosition(stream.src, video.currentTime, video.duration);
       video.removeEventListener("loadeddata", onLoadedData);
       video.removeEventListener("progress", onProgress);
       video.removeEventListener("error", fail);
+      video.removeEventListener("playing", onPlaying);
+      video.removeEventListener("ended", onEnded);
+      video.removeEventListener("loadedmetadata", onLoadedMetadata);
       hls?.destroy();
       hls = null;
       video.pause();
