@@ -1,19 +1,19 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { parseYouTubeId, type RichTrailer } from "../utils/trailers";
-import { shouldOpenYouTubeExternally, openExternal } from "../utils/external";
 
 interface ExtrasRowProps {
   /** Trailers + extras distants (déjà fusionnés Jellyfin + TMDB, triés langue). */
   trailers: RichTrailer[];
-  /** Ouvre la modale trailer sur l'index cliqué (hors macOS DMG). */
+  /** Lance la bande-annonce cliquée (lecteur complet de l'hôte, sinon sa modale ou la nôtre). */
   onSelect: (index: number) => void;
 }
 
 /**
  * Rangée « Extras » — réplique STRICTE d'ExtrasRow du core (page média détail) :
- * tuiles vignettes YouTube, clic → navigateur système sur macOS DMG, sinon
- * modale d'embed sur le trailer cliqué. Masquée si rien à montrer.
+ * tuiles vignettes (YouTube, Dailymotion), clic → la bande-annonce cliquée ;
+ * sous le titre, ce que le catalogue en dit (« Saison 6 · VF · AlloCiné »).
+ * Masquée si rien à montrer.
  */
 export function ExtrasRow({ trailers, onSelect }: ExtrasRowProps) {
   const { t } = useTranslation("seer");
@@ -29,46 +29,53 @@ export function ExtrasRow({ trailers, onSelect }: ExtrasRowProps) {
         style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(139,92,246,0.3) transparent" }}
         aria-label={t("seer:extras")}
       >
-        {trailers.map((tr, i) => {
-          const yt = parseYouTubeId(tr.Url);
-          return (
-            <ExtraTile
-              key={tr.Url}
-              label={tr.Name || t("seer:watchTrailer")}
-              sublabel={tr.type || "YouTube"}
-              youtubeId={yt ?? undefined}
-              onClick={() => {
-                // macOS DMG : ouverture dans le navigateur système (cf. core TrailerButton).
-                if (shouldOpenYouTubeExternally()) {
-                  openExternal(tr.Url);
-                  return;
-                }
-                onSelect(i);
-              }}
-            />
-          );
-        })}
+        {trailers.map((tr, i) => (
+          <ExtraTile
+            key={tr.Url}
+            label={tr.Name || t("seer:watchTrailer")}
+            sublabel={trailerSublabel(tr, t) || tr.type || "YouTube"}
+            thumb={thumbOf(tr)}
+            onClick={() => onSelect(i)}
+          />
+        ))}
       </div>
     </section>
   );
 }
 
+/** La vignette : YouTube (`hqdefault`), Dailymotion (sa vignette publique), sinon aucune. */
+function thumbOf(tr: RichTrailer): string | undefined {
+  if (tr.playback?.kind === "dailymotion") return `https://www.dailymotion.com/thumbnail/video/${tr.playback.videoId}`;
+  const yt = tr.playback?.kind === "youtube" ? tr.playback.ytId : parseYouTubeId(tr.Url);
+  return yt ? `https://i.ytimg.com/vi/${yt}/hqdefault.jpg` : undefined;
+}
+
+/** Ce que le catalogue dit d'une bande-annonce : portée, version, origine. */
+function trailerSublabel(tr: RichTrailer, t: (key: string, options?: Record<string, unknown>) => string): string {
+  if (!tr.playback) return "";
+  const scope = tr.scope?.kind === "season" ? t("seer:trailerScopeSeason", { season: tr.scope.season })
+    : tr.scope?.kind === "series" ? t("seer:trailerScopeSeries") : null;
+  const version = tr.versionKey ? t(`seer:trailerVersion_${tr.versionKey}`) : null;
+  const origin = t(`seer:trailerOrigin_${tr.source === "allocine" ? "allocine" : tr.playback.kind}`);
+  return [scope, version, origin].filter(Boolean).join(" · ");
+}
+
 function ExtraTile({
   label,
   sublabel,
-  youtubeId,
+  thumb,
   onClick,
 }: {
   label: string;
   sublabel?: string;
-  /** Si présent : vignette YouTube + détection vidéo indisponible/privée. */
-  youtubeId?: string;
+  /** La vignette ; une image grise de 120 px (vidéo retirée ou privée) masque la tuile. */
+  thumb?: string;
   onClick: () => void;
 }) {
   // YouTube renvoie un placeholder gris 120x90 sur hqdefault.jpg pour les vidéos
   // supprimées ou privées → on masque la tuile au chargement de la vignette.
   const [unavailable, setUnavailable] = useState(false);
-  const src = youtubeId ? `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg` : undefined;
+  const src = thumb;
   if (unavailable) return null;
 
   return (

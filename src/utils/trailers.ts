@@ -3,7 +3,12 @@
  * apps/web/src/components/detail/{youtube,trailerLang,mergeTrailers}.ts
  * Fusion RemoteTrailers Jellyfin + vidéos TMDB, dédup par ID YouTube,
  * tri par langue du profil (VF d'abord si interface FR) puis trailer > teaser.
+ *
+ * Ne sert plus qu'à un serveur d'AVANT le catalogue (sans `trailers.catalog`) :
+ * avec lui, la liste vient du serveur, déjà triée (`trailer-catalog.ts`).
  */
+
+import type { CatalogPlayback, CatalogScope, CatalogVersion } from "./trailer-catalog";
 
 export interface RichTrailer {
   Url: string;
@@ -12,6 +17,13 @@ export interface RichTrailer {
   type?: string;
   /** Code langue ISO 639-1 si fourni par TMDB/Jellyseerr (ex: "fr"). */
   lang?: string;
+  /** Une entrée du CATALOGUE du serveur (`trailer-catalog.ts`) : la vidéo, sa version, sa portée, sa source. */
+  playback?: CatalogPlayback;
+  version?: CatalogVersion;
+  scope?: CatalogScope;
+  source?: string;
+  /** Le libellé de version, en clé (`seer:trailerVersion_<clé>` : VF, VOSTFR, VO… selon la langue du serveur). */
+  versionKey?: string;
 }
 
 export interface JellyfinTrailer {

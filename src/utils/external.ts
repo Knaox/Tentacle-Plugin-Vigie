@@ -1,6 +1,7 @@
 /**
- * Comportements plateforme — réplique STRICTE du core web :
- * apps/web/src/components/detail/youtube.ts + apps/web/src/lib/openExternal.ts
+ * Comportements plateforme — ceux du core web (apps/web/src/lib/openExternal.ts,
+ * le lecteur des bandes-annonces). La branche « Mac Tauri » est retirée : le
+ * cœur n'a plus de coquille Tauri, `tauri` y est toujours faux.
  *
  * Le plugin tourne dans une iframe sandboxée (allow-scripts seul) : pas d'accès
  * à __TAURI_INTERNALS__ ni à window.open. Le host injecte `window.__tentacle_env`
@@ -8,39 +9,18 @@
  */
 
 interface TentacleHostEnv {
-  tauri?: boolean;
-  mac?: boolean;
-  prod?: boolean;
   backendUrl?: string;
+  /** L'hôte ouvre son lecteur complet sur le catalogue (`openTrailerFor`) — cœur 1.30.0 et plus. */
+  trailerCatalog?: boolean;
 }
 
 function hostEnv(): TentacleHostEnv {
   return ((window as unknown as Record<string, unknown>).__tentacle_env as TentacleHostEnv) ?? {};
 }
 
-/**
- * DMG macOS : WKWebView strip le Referer pour les iframes sous frame racine
- * tauri:// → YouTube refuse l'embed (erreur 153). Comme le core, on ouvre
- * directement la bande-annonce dans le navigateur système.
- */
-export function shouldOpenYouTubeExternally(): boolean {
-  const env = hostEnv();
-  return !!(env.tauri && env.mac && env.prod);
-}
-
-/**
- * Source de l'iframe d'embed pour `youtubeId` — même logique que le core :
- * macOS Tauri (dev) passe par la page relais `/yt-embed.html` du backend
- * (origine HTTP valide), ailleurs embed `youtube-nocookie` direct.
- */
+/** Source de l'iframe d'embed de `youtubeId` : `youtube-nocookie`, comme le core. */
 export function youtubeEmbedSrc(youtubeId: string): string {
-  const direct = `https://www.youtube-nocookie.com/embed/${youtubeId}?rel=0&autoplay=1`;
-  const env = hostEnv();
-  if (env.tauri && env.mac) {
-    const backend = (env.backendUrl ?? "").replace(/\/$/, "");
-    if (backend) return `${backend}/yt-embed.html?v=${youtubeId}`;
-  }
-  return direct;
+  return `https://www.youtube-nocookie.com/embed/${youtubeId}?rel=0&autoplay=1`;
 }
 
 /** Ouvre une URL dans le navigateur système via le bridge host (repli window.open). */
@@ -85,5 +65,33 @@ export function openTrailersViaHost(
     { openTrailer?: (trailers: Array<{ Url: string; Name?: string }>, index: number) => void } | undefined;
   if (!bridge?.openTrailer || trailers.length === 0) return false;
   bridge.openTrailer(trailers.map((t) => ({ Url: t.Url, Name: t.Name })), index);
+  return true;
+}
+
+/** L'hôte sait-il ouvrir son lecteur COMPLET (sans publicité) sur le catalogue d'un titre ? */
+export function hostPlaysCatalog(): boolean {
+  return hostEnv().trailerCatalog === true;
+}
+
+export interface TrailerCatalogQuery {
+  tmdbId: number;
+  mediaType: "movie" | "tv";
+  season?: number;
+  title?: string;
+  /** La bande-annonce cliquée (`yt:<id>`, `dm:<id>`). */
+  start?: string;
+}
+
+/**
+ * Ouvre le lecteur complet de l'HÔTE sur le catalogue du titre — même ordre,
+ * zéro publicité, même repli que les fiches de Tentacle. `false` si l'hôte ne
+ * sait pas le faire (cœur d'avant, WebView du mobile d'aujourd'hui) :
+ * l'appelant garde `openTrailersViaHost` ou la modale locale.
+ */
+export function openTrailerForViaHost(query: TrailerCatalogQuery): boolean {
+  const bridge = (window as unknown as Record<string, unknown>).__tentacle_bridge as
+    { openTrailerFor?: (query: TrailerCatalogQuery) => void } | undefined;
+  if (!hostPlaysCatalog() || !bridge?.openTrailerFor) return false;
+  bridge.openTrailerFor(query);
   return true;
 }

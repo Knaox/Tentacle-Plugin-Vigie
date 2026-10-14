@@ -14,7 +14,6 @@ import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { MediaType } from "../../api/types";
 import type { RichTrailer } from "../../utils/trailers";
-import { openExternal, shouldOpenYouTubeExternally } from "../../utils/external";
 import { useProfiles } from "../../hooks/useProfiles";
 import { useOpenInLibrary } from "../../hooks/useOpenInLibrary";
 import { CTA_HERO, CTA_HERO_STYLE, CTA_SIZE_LG } from "../../styles/cta";
@@ -70,11 +69,6 @@ export const DetailActions = memo(function DetailActions(props: Props) {
     try { await openInLibrary(tmdbId, mediaType, libraryId); } finally { setNavigating(false); }
   };
 
-  const trailer = () => {
-    // macOS DMG : WKWebView retire le Referer → YouTube refuse l'embed, on ouvre le navigateur.
-    if (shouldOpenYouTubeExternally() && trailers[0]?.Url) { openExternal(trailers[0].Url); return; }
-    onOpenTrailer();
-  };
 
   return (
     <div className="flex flex-col gap-2">
@@ -96,7 +90,7 @@ export const DetailActions = memo(function DetailActions(props: Props) {
           </button>
         )}
         {trailers.length > 0 && (
-          <button type="button" onClick={trailer} className={`${HERO_SECONDARY} ${CTA_SIZE_LG} gap-2`}>
+          <button type="button" onClick={onOpenTrailer} className={`${HERO_SECONDARY} ${CTA_SIZE_LG} gap-2`}>
             <FilmIcon className="h-4 w-4" />
             {t("seer:watchTrailer")}
           </button>

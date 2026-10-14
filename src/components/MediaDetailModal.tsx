@@ -40,7 +40,8 @@ import { requestableSeasons } from "../utils/request-seasons";
 import { useMaskedRequests, useSpecialSeasons } from "../hooks/useIsAdmin";
 import { MEDIA_STATUS_DELETED, isInLibraryStatus } from "../utils/media-status";
 import { libraryIdOf } from "../utils/navigate-media";
-import { openTrailersViaHost } from "../utils/external";
+import { openTrailerForViaHost, openTrailersViaHost } from "../utils/external";
+import { playbackKey } from "../utils/trailer-catalog";
 import { CHROME_BOTTOM } from "../utils/host-chrome";
 import { lockPageScroll } from "../utils/page-scroll";
 import { DetailHero } from "./detail/DetailHero";
@@ -93,7 +94,7 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
   const { data: similar } = useMediaSimilar(mediaType, current.id);
   const { data: providers } = useWatchProviders(mediaType, current.id);
   const mediaStatus = detail?.mediaInfo?.status ?? current.mediaInfo?.status ?? 0;
-  const { data: trailers } = useRichTrailers(mediaType, current.id, mediaStatus);
+  const { data: trailers, catalog } = useRichTrailers(mediaType, current.id, mediaStatus);
   const { data: episodeStates } = useEpisodeStates(current.id, isTv);
   const airTimes = useSeriesAirTimes(current.id, isTv);
   const verdict = useVerdict(mediaType, current.id);
@@ -137,11 +138,17 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
   useSheetSwipe({ panel: scrollRef, scroller: scrollRef, scrim: scrimRef, onDismiss: onClose });
   useEffect(() => { scrollRef.current?.scrollTo({ top: 0 }); }, [current]);
 
-  // Lecture : via la modale de l'HÔTE (l'embed YouTube échoue dans le cadre isolé), sinon ici.
+  // Lecture, dans l'ordre : le lecteur COMPLET de l'hôte sur le catalogue du titre
+  // (sans publicité, comme ses fiches) ; sinon la modale de l'HÔTE (l'embed YouTube
+  // échoue dans le cadre isolé) ; sinon la nôtre (WebView du mobile).
   const openTrailerAt = useCallback((index: number) => {
+    const clicked = trailers?.[index];
+    if (catalog?.fromCatalog && clicked?.playback && openTrailerForViaHost({
+      tmdbId: current.id, mediaType, title, start: playbackKey(clicked.playback),
+    })) return;
     if (openTrailersViaHost(trailers ?? [], index)) return;
     setTrailer(index);
-  }, [trailers]);
+  }, [trailers, catalog, current.id, mediaType, title]);
 
   const payload = {
     tmdbId: current.id, title, posterPath: current.posterPath ?? detail?.posterPath,
