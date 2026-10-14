@@ -19,6 +19,18 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.26.0]
+### FR
+- **L'aperçu de la bande-annonce au survol** : comme sur les affiches de Tentacle, une affiche survolée un instant s'agrandit en mini-carte et lance sa bande-annonce, avec le son — puis « Demander », « Ma liste », « J'aime », la note et « Plus d'infos » sous la vidéo. Dans une rangée, les affiches voisines s'écartent pour lui faire place
+- **Rien ne bouge sans bande-annonce**, rien ne part quand on balaie une rangée ou qu'on fait défiler la page, et repasser sur une affiche ne redemande rien
+- Suit les réglages de Tentacle : aperçus coupés, son coupé, économie de données et hors ligne valent aussi dans Vigie. Pas d'aperçu au doigt (téléphone, tablette)
+- Demande le serveur Tentacle 1.29.0 ou plus récent ; avec un serveur plus ancien, rien ne change
+### EN
+- **Trailer preview on hover**: as on Tentacle's posters, a poster hovered for a moment grows into a mini-card and starts its trailer, with sound — then "Request", "My list", "Like", the rating and "More info" under the video. In a row, the neighbouring posters move aside to make room
+- **Nothing moves without a trailer**, nothing starts while sweeping a row or scrolling the page, and hovering a poster again asks for nothing
+- Follows Tentacle's settings: previews off, sound off, data saver and offline also apply in Vigie. No preview by touch (phone, tablet)
+- Requires Tentacle server 1.29.0 or later; with an older server, nothing changes
+
 ## [1.25.5]
 ### FR
 - **Une panne n'est pas une suppression** : avant de retirer la demande d'un titre parti, Vigie demande à Jellyfin si les dossiers de ses bibliothèques répondent. Un NAS débranché, un partage perdu, un disque en panne : rien n'est retiré, et les titres restent « Demandé »
