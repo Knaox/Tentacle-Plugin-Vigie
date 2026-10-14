@@ -13,9 +13,9 @@
  * aperçus permis, son actif — la capacité du SERVEUR décide seule.
  */
 
-import { useQuery } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 import { isMobileWebView } from "../utils/tentacle-fetch";
+import { useServerCapabilities } from "../utils/server-capabilities";
 import type { PreviewResponse, PreviewTitle } from "./source";
 import { PREVIEW_TIMING } from "./timing";
 
@@ -85,29 +85,12 @@ export function deviceAllowsPreviews(): boolean {
 const CAPABILITY = "trailers.preview";
 
 /**
- * Le serveur sait-il donner un aperçu ? Lu sur `/api/config` → `capabilities`
- * (la liste FERMÉE du cœur) ; un serveur qui ne déclare rien n'en a pas.
- * Faux tant que ce n'est pas prouvé, sans erreur.
+ * Le serveur sait-il donner un aperçu ? Lu dans ses capacités
+ * (`server-capabilities.ts`, la liste FERMÉE du cœur) ; un serveur qui ne
+ * déclare rien n'en a pas. Faux tant que ce n'est pas prouvé, sans erreur.
  */
 export function useServerPreviewCapability(enabled: boolean): boolean {
-  const { data } = useQuery({
-    queryKey: ["vigie", "tentacle-config-capabilities"],
-    enabled,
-    staleTime: Infinity,
-    gcTime: Infinity,
-    retry: false,
-    queryFn: async () => {
-      try {
-        const res = await fetch("/api/config");
-        if (!res.ok) return false;
-        const body = (await res.json()) as { capabilities?: unknown };
-        return Array.isArray(body.capabilities) && body.capabilities.includes(CAPABILITY);
-      } catch {
-        return false;
-      }
-    },
-  });
-  return data === true;
+  return useServerCapabilities(enabled)?.has(CAPABILITY) === true;
 }
 
 /** La demande au serveur, par le pont de l'hôte (le `fetch` relatif est relayé). */
