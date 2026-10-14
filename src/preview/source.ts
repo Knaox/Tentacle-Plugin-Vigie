@@ -110,6 +110,12 @@ export interface PreviewSource {
   known(title: PreviewTitle): PreviewDecision | null;
   /** Le flux trouvé n'a pas pu se lire : plus de tentative avant 10 min. */
   markFailed(title: PreviewTitle): void;
+  /**
+   * Un aperçu déjà prêt, rendu par la préparation des affiches à l'écran
+   * (`warm.ts`) : le survol de ce titre n'aura rien à demander. Sans effet si
+   * une décision vaut déjà, ou si le corps est illisible.
+   */
+  seed(title: PreviewTitle, body: unknown): void;
 }
 
 export function createPreviewSource(
@@ -149,6 +155,13 @@ export function createPreviewSource(
     },
     markFailed(title) {
       memory.set(titleKey(title), { decision: { kind: "missing" }, until: now() + T.failureMemoryMs });
+    },
+    seed(title, body) {
+      if (known(title)) return;
+      const at = now();
+      const decision = decisionOf({ status: 200, body }, at);
+      if (decision.kind !== "found") return;
+      memory.set(titleKey(title), { decision, until: decisionUntil(decision, at) });
     },
   };
 }

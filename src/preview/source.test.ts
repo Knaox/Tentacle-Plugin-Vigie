@@ -111,3 +111,15 @@ test("les voisines d'une rangée s'écartent du débord de chaque côté", () =>
   assert.deepEqual(roomShifts({ left: 600, top: 0, width: 168, height: 252 }, { left: 518, top: 0, width: 331, height: 300 }), { left: 82, right: 81 });
   assert.deepEqual(roomShifts({ left: 16, top: 0, width: 168, height: 252 }, { left: 16, top: 0, width: 331, height: 300 }), { left: 0, right: 163 });
 });
+
+test("un aperçu préparé (warm) sert le survol sans demande ; jamais par-dessus une décision qui vaut", async () => {
+  const { source, calls } = bench([]);
+  source.seed(MATRIX, BODY);
+  assert.deepEqual(await source.decide(MATRIX), { kind: "found", preview: BODY });
+  assert.deepEqual(calls, []);
+  // Un corps illisible ne sert rien ; une décision déjà là reste.
+  source.seed({ tmdbId: 604, mediaType: "movie" }, { path: "https://ailleurs" });
+  assert.equal(source.known({ tmdbId: 604, mediaType: "movie" }), null);
+  source.seed(MATRIX, { ...BODY, path: "/api/trailers/hls/autre/master.m3u8?t=y" });
+  assert.deepEqual(source.known(MATRIX), { kind: "found", preview: BODY });
+});

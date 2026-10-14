@@ -22,8 +22,12 @@ import type { PreviewStream } from "./attachSource";
 
 const now = () => performance.now();
 
-/** UNE source pour toute la page : la mémoire des décisions survit aux cartes. */
-const source = createPreviewSource((title) => requestPreview(title, getCurrentLanguage()));
+/**
+ * UNE source pour toute la page : la mémoire des décisions survit aux cartes ;
+ * la préparation des affiches à l'écran (`warm.ts`) y range les aperçus prêts.
+ */
+export const previewSource = createPreviewSource((title) => requestPreview(title, getCurrentLanguage()));
+const source = previewSource;
 
 export interface PreviewEngine {
   phase: PreviewPhase;

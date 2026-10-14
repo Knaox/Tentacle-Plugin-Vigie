@@ -44,6 +44,7 @@ import { useHubData } from "./useHubData";
 import { useLiveSync } from "./useLiveSync";
 import { TitleStatesProvider } from "./TitleStates";
 import { UserMarksProvider } from "./UserMarks";
+import { usePreviewWarm } from "../preview/warm";
 
 const MIN_SEARCH = 2;
 
@@ -71,6 +72,8 @@ interface CatalogEntry {
 export function VigieHub({ routePath }: { routePath: string }) {
   const { t } = useTranslation("seer");
   const toast = useToast();
+  // Les affiches à l'écran font préparer leur aperçu par le serveur (`warm.ts`).
+  usePreviewWarm();
   const requestMedia = useRequestMedia();
   const entry = useMemo(() => readHubEntry(routePath, hostQuery()), [routePath]);
 

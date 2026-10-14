@@ -24,7 +24,7 @@
  * virtualisée, rien de ce survol n'existe au repos (monté à la demande).
  */
 
-import { memo, useCallback, useContext, useRef, useState, type FocusEvent } from "react";
+import { memo, useCallback, useContext, useEffect, useRef, useState, type FocusEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { SeerrSearchResult } from "../../api/types";
 import { getCurrentLanguage, mediaTitle, mediaYear, posterUrl } from "../../utils/media-helpers";
@@ -46,6 +46,7 @@ import { PosterHover } from "./PosterHover";
 import { EyeOffIcon } from "./icons";
 import { PosterPreview } from "../../preview/PosterPreview";
 import { PREVIEW_TIMING } from "../../preview/timing";
+import { trackPreviewWarm } from "../../preview/warm";
 import type { PreviewExit } from "../../preview/exitGuard";
 
 /** Pointeur fin (souris) : le survol n'a de sens que là ; au doigt, c'est l'appui long. */
@@ -120,6 +121,12 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
   const imgRef = useCallback((node: HTMLImageElement | null) => {
     if (node?.complete && node.naturalWidth > 0) setLoaded(true);
   }, []);
+  // À l'écran, son aperçu se prépare chez le serveur (`warm.ts`) : au survol, la vidéo part aussitôt.
+  useEffect(() => {
+    const element = posterRef.current;
+    if (!FINE_POINTER || !element || (item.mediaType !== "movie" && item.mediaType !== "tv")) return;
+    return trackPreviewWarm(element, { tmdbId: item.id, mediaType: item.mediaType });
+  }, [item.id, item.mediaType]);
   const onBlur = (e: FocusEvent<HTMLDivElement>) => {
     if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
       setFocused(false);
