@@ -25,6 +25,7 @@ import type { TitleStatus } from "../utils/title-state";
 import { usePosterGestures } from "../hooks/usePosterGestures";
 import { backdropUrl } from "../utils/media-helpers";
 import { VolumeOffIcon, VolumeOnIcon } from "../components/ui/icons";
+import { watchPreviewExits, type PreviewExit } from "./exitGuard";
 import { deviceAllowsPreviews, setPreviewMuted, useHostPreviewEnv, useServerPreviewCapability } from "./host";
 import { fromTransform, placePreview, type Placement } from "./placement";
 import { PreviewPanel } from "./PreviewPanel";
@@ -66,10 +67,12 @@ export interface PosterPreviewProps {
   onOpen: () => void;
   /** La mini-carte est vue : l'affiche s'efface dessous, son survol se retire. */
   onShown: (shown: boolean) => void;
+  /** Le pointeur a quitté la page, la fenêtre s'est effacée, ou Échap : la carte coupe l'aperçu. */
+  onExit: (kind: PreviewExit) => void;
 }
 
 export function PosterPreview(props: PosterPreviewProps) {
-  const { item, hovered, anchorRef, name, onShown } = props;
+  const { item, hovered, anchorRef, name, onShown, onExit } = props;
   const { t } = useTranslation("seer");
   const mediaType = item.mediaType === "tv" ? "tv" : "movie";
   const host = useHostPreviewEnv();
@@ -85,6 +88,12 @@ export function PosterPreview(props: PosterPreviewProps) {
   const still = backdropUrl(item.backdropPath, "w780");
 
   useEffect(() => { injectPreviewStyles(); }, []);
+
+  // Le filet : aucune mini-carte orpheline si la sortie du pointeur n'arrive jamais (exitGuard.ts).
+  useEffect(() => {
+    if (!hovered) return;
+    return watchPreviewExits(window, document, onExit);
+  }, [hovered, onExit]);
 
   // La place se prend quand la vidéo se pose (cachée), et suit la carte quand la page défile.
   useLayoutEffect(() => {

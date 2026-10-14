@@ -46,6 +46,7 @@ import { PosterHover } from "./PosterHover";
 import { EyeOffIcon } from "./icons";
 import { PosterPreview } from "../../preview/PosterPreview";
 import { PREVIEW_TIMING } from "../../preview/timing";
+import type { PreviewExit } from "../../preview/exitGuard";
 
 /** Pointeur fin (souris) : le survol n'a de sens que là ; au doigt, c'est l'appui long. */
 const FINE_POINTER = typeof window !== "undefined" && window.matchMedia?.("(hover: hover) and (pointer: fine)").matches;
@@ -125,11 +126,20 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
       setFocusVisible(false);
     }
   };
+  // Pourquoi l'aperçu est coupé : « away » (page quittée, fenêtre effacée) repart au
+  // prochain mouvement sur la carte ; une fiche ouverte ou Échap, au prochain survol.
+  const exitKind = useRef<PreviewExit | null>(null);
+  const onPreviewExit = useCallback((kind: PreviewExit) => {
+    exitKind.current = kind;
+    setPreviewSuppressed(true);
+  }, []);
   const openFromCard = () => {
+    exitKind.current = "escape";
     setPreviewSuppressed(true);
     onOpen(item);
   };
   const requestFromPreview = onQuickRequest && ((target: SeerrSearchResult) => {
+    exitKind.current = "escape";
     setPreviewSuppressed(true);
     onQuickRequest(target);
   });
@@ -145,7 +155,13 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
       className="group relative min-w-0"
       // La mini-carte d'aperçu montrée : la carte entière (affiche et légende) s'efface dessous.
       data-vgp-concealed={previewShown}
-      onMouseEnter={FINE_POINTER ? () => { setHovered(true); setPreviewSuppressed(false); } : undefined}
+      onMouseEnter={FINE_POINTER ? () => { setHovered(true); exitKind.current = null; setPreviewSuppressed(false); } : undefined}
+      onMouseMove={FINE_POINTER ? () => {
+        if (exitKind.current !== "away") return;
+        exitKind.current = null;
+        setHovered(true);
+        setPreviewSuppressed(false);
+      } : undefined}
       onMouseLeave={FINE_POINTER ? () => setHovered(false) : undefined}
       onFocus={FINE_POINTER ? (e) => { setFocused(true); setFocusVisible((e.target as HTMLElement).matches?.(":focus-visible") === true); } : undefined}
       onBlur={FINE_POINTER ? onBlur : undefined}
@@ -220,6 +236,7 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, onQuickReques
           detail={status ? statusText(status, t) : gap ?? channel?.label ?? null}
           onOpen={openFromCard}
           onShown={setPreviewShown}
+          onExit={onPreviewExit}
         />
       )}
     </div>
