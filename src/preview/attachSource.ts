@@ -15,6 +15,7 @@
  */
 
 import { loadHls, type HlsInstance } from "./hlsLoader";
+import { bridgeBlobUrl, bridgeLoaderClass, hostMediaFetch } from "./bridgeLoader";
 import { measureVideoCrop } from "./letterbox";
 import { forgetPosition, rememberPosition, resumePositionFor } from "./positions";
 import { HLS_MIME } from "./source";
@@ -91,12 +92,27 @@ export function attachPreviewSource(video: HTMLVideoElement, stream: PreviewStre
   video.addEventListener("loadedmetadata", onLoadedMetadata);
 
   const nativeSupport = video.canPlayType(stream.kind === "hls" ? HLS_MIME : "video/mp4") !== "";
+  // Le cadre ne joint plus un serveur local : l'hôte lit les octets (`bridgeLoader.ts`).
+  const viaHost = hostMediaFetch();
+  let blobUrl: string | null = null;
   const playNatively = () => {
     video.src = stream.src;
     video.load();
   };
 
-  if (stream.kind === "mp4") {
+  if (stream.kind === "mp4" && viaHost) {
+    // Un MP4 (rare) : entier par l'hôte, puis lu de la mémoire.
+    void bridgeBlobUrl(viaHost, stream.src).then((url) => {
+      if (released || !url) {
+        if (url) URL.revokeObjectURL(url);
+        if (!released) fail();
+        return;
+      }
+      blobUrl = url;
+      video.src = url;
+      video.load();
+    });
+  } else if (stream.kind === "mp4") {
     if (nativeSupport) playNatively();
     else queueMicrotask(fail);
   } else if (typeof MediaSource === "undefined") {
@@ -106,7 +122,8 @@ export function attachPreviewSource(video: HTMLVideoElement, stream: PreviewStre
     void loadHls().then((Hls) => {
       if (released) return;
       if (!Hls || !Hls.isSupported()) {
-        if (nativeSupport) playNatively();
+        // Sans hls.js, la lecture native joindrait le serveur elle-même — bloquée par l'hôte qui relaie.
+        if (nativeSupport && !viaHost) playNatively();
         else fail();
         return;
       }
@@ -120,6 +137,7 @@ export function attachPreviewSource(video: HTMLVideoElement, stream: PreviewStre
         fragLoadPolicy: LOAD_POLICY,
         manifestLoadPolicy: LOAD_POLICY,
         playlistLoadPolicy: LOAD_POLICY,
+        ...(viaHost ? { loader: bridgeLoaderClass(viaHost) } : {}),
       });
       hls = instance;
       const { Events } = Hls;
@@ -166,6 +184,7 @@ export function attachPreviewSource(video: HTMLVideoElement, stream: PreviewStre
       video.pause();
       video.removeAttribute("src");
       video.load();
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
     },
   };
 }

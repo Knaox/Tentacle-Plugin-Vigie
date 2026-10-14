@@ -22,15 +22,21 @@ import { PREVIEW_TIMING } from "./timing";
 export interface HostPreviewEnv {
   enabled: boolean;
   muted: boolean;
+  /** Le volume des aperçus (0 à 1), réglé dans la mini-carte et retenu par l'hôte (Tentacle 1.30.0). */
+  volume: number;
 }
 
 const ENV_EVENT = "tentacle:trailerpreview";
 
 type Env = { backendUrl?: string; trailerPreview?: Partial<HostPreviewEnv> };
+
+const validVolume = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 const env = (): Env => ((window as unknown as { __tentacle_env?: Env }).__tentacle_env ?? {});
 
 /** Le son coupé ici, quand l'hôte ne sait pas le retenir (hôte d'avant). */
 let localMuted: boolean | null = null;
+/** Le volume réglé ici, en attendant que l'hôte le redise (ou pour un hôte d'avant). */
+let localVolume: number | null = null;
 let snapshot: HostPreviewEnv | null = null;
 
 function read(): HostPreviewEnv {
@@ -38,8 +44,9 @@ function read(): HostPreviewEnv {
   const next = {
     enabled: tp?.enabled !== false,
     muted: localMuted ?? tp?.muted === true,
+    volume: localVolume ?? (validVolume(tp?.volume) ? tp.volume : PREVIEW_TIMING.volume),
   };
-  if (!snapshot || snapshot.enabled !== next.enabled || snapshot.muted !== next.muted) snapshot = next;
+  if (!snapshot || snapshot.enabled !== next.enabled || snapshot.muted !== next.muted || snapshot.volume !== next.volume) snapshot = next;
   return snapshot;
 }
 
@@ -58,6 +65,7 @@ function subscribe(listener: () => void): () => void {
 function onHostEnv() {
   // L'hôte a dit le son : sa valeur reprend la main sur la nôtre.
   localMuted = null;
+  localVolume = null;
   notify();
 }
 
@@ -70,6 +78,20 @@ export function setPreviewMuted(muted: boolean): void {
   localMuted = muted;
   const bridge = (window as unknown as { __tentacle_bridge?: { setTrailerPreviewMuted?: (m: boolean) => void } }).__tentacle_bridge;
   bridge?.setTrailerPreviewMuted?.(muted);
+  notify();
+}
+
+/**
+ * Règle le volume des aperçus (0 à 1) — retenu par l'hôte sur l'appareil, comme
+ * la réglette de ses propres cartes : zéro coupe le son, une valeur au-dessus
+ * le rend.
+ */
+export function setPreviewVolume(volume: number): void {
+  if (!validVolume(volume)) return;
+  if (volume > 0) localVolume = volume;
+  localMuted = volume === 0;
+  const bridge = (window as unknown as { __tentacle_bridge?: { setTrailerPreviewVolume?: (v: number) => void } }).__tentacle_bridge;
+  bridge?.setTrailerPreviewVolume?.(volume);
   notify();
 }
 

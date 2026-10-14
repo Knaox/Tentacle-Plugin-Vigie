@@ -24,14 +24,18 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 - **Les bandes-annonces de Tentacle, dans Vigie** : le bouton et les extras d'une fiche montrent la même liste que les fiches de Tentacle — AlloCiné (VF, VOSTFR), TMDB, Jellyfin, Jellyseerr —, dans la langue du serveur d'abord, avec sous chaque vignette la saison, la version (VF, VOSTFR, VO) et l'origine
 - **Le lecteur complet de Tentacle, sans publicité** : un clic ouvre le lecteur de Tentacle sur toute la fenêtre — qualité, sous-titres, liste des bandes-annonces, plein écran —, en partant de celle choisie. Si YouTube bride le serveur, le lecteur officiel de YouTube prend le relais, et le dit
 - **L'aperçu au survol en VF d'AlloCiné** : l'aperçu choisit la même bande-annonce que le bouton, la VF d'AlloCiné comprise quand le serveur est en français
+- **L'aperçu au survol se lance de nouveau** : les navigateurs récents (et l'application de bureau) empêchaient Vigie de lire la vidéo d'un serveur du réseau local — aucun aperçu ne partait. Tentacle la lit désormais pour Vigie
+- **Le volume de l'aperçu se règle dans la mini-carte** : au survol du bouton du son, une réglette ; le réglage est retenu, le même que sur les affiches de Tentacle
 - **L'aperçu au survol, corrigé** : une affiche a désormais un aperçu aussi grand que celui d'une vignette de Tentacle, revenir sur une affiche reprend la bande-annonce là où on l'avait quittée, et un seul survol suffit, même quand le serveur met du temps à répondre
-- Demande le serveur Tentacle 1.30.0 ou plus récent pour la liste et le lecteur ; avec un serveur plus ancien, les bandes-annonces restent celles d'avant
+- Demande Tentacle 1.30.0 ou plus récent pour la liste, le lecteur, le volume et les aperçus sur un serveur local ; avec une version plus ancienne, rien ne change
 ### EN
 - **Tentacle's trailers, in Vigie**: the button and the extras of a title show the same list as Tentacle's pages — AlloCiné (French dub, French subtitles), TMDB, Jellyfin, Jellyseerr —, in the server's language first, with the season, the version and the origin under each thumbnail
 - **Tentacle's full player, without ads**: a click opens Tentacle's player across the whole window — quality, subtitles, the list of trailers, full screen —, starting from the chosen one. If YouTube throttles the server, YouTube's official player takes over, and says so
 - **Hover preview from AlloCiné**: the preview picks the same trailer as the button, AlloCiné's French dub included when the server is in French
+- **Hover previews start again**: recent browsers (and the desktop app) prevented Vigie from reading the video from a server on the local network — no preview ever started. Tentacle now reads it for Vigie
+- **Set the preview volume in the mini-card**: hover the sound button for a slider; the setting is remembered, the same as on Tentacle's posters
 - **Hover preview, fixed**: a poster's preview is now as large as a Tentacle thumbnail's, hovering a poster again resumes the trailer where it was left, and a single hover is enough, even when the server is slow to answer
-- Requires Tentacle server 1.30.0 or later for the list and the player; with an older server, trailers stay as before
+- Requires Tentacle 1.30.0 or later for the list, the player, the volume and previews from a local server; with an older version, nothing changes
 
 ## [1.26.0]
 ### FR

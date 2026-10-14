@@ -26,7 +26,7 @@ import { usePosterGestures } from "../hooks/usePosterGestures";
 import { backdropUrl } from "../utils/media-helpers";
 import { VolumeOffIcon, VolumeOnIcon } from "../components/ui/icons";
 import { watchPreviewExits, type PreviewExit } from "./exitGuard";
-import { deviceAllowsPreviews, setPreviewMuted, useHostPreviewEnv, useServerPreviewCapability } from "./host";
+import { deviceAllowsPreviews, setPreviewMuted, setPreviewVolume, useHostPreviewEnv, useServerPreviewCapability } from "./host";
 import { fromTransform, placePreview, type Placement } from "./placement";
 import { PreviewPanel } from "./PreviewPanel";
 import { PreviewVideo } from "./PreviewVideo";
@@ -184,7 +184,7 @@ export function PosterPreview(props: PosterPreviewProps) {
             stream={engine.stream}
             cycle={engine.cycle}
             playing={engine.phase === "shown"}
-            volume={engine.visible ? PREVIEW_TIMING.volume : 0}
+            volume={engine.visible ? host.volume : 0}
             hold={hold}
             waiting={!engine.videoReady}
             muted={muted}
@@ -196,19 +196,36 @@ export function PosterPreview(props: PosterPreviewProps) {
             onSoundBlocked={() => setSoundBlocked(true)}
           />
           <div className="vgp-veil" aria-hidden />
-          <button
-            type="button"
-            className="vgp-mute"
-            aria-label={t(muted ? "seer:previewUnmute" : "seer:previewMute")}
-            title={t(muted ? "seer:previewUnmute" : "seer:previewMute")}
-            onClick={(e) => {
-              e.stopPropagation();
-              setSoundBlocked(false);
-              setPreviewMuted(!muted);
-            }}
-          >
-            {muted ? <VolumeOffIcon /> : <VolumeOnIcon />}
-          </button>
+          {/* Le son : le bouton et, à sa gauche, la réglette du volume, dépliée au survol ou au
+              focus — retenus par l'hôte pour les aperçus suivants, comme ses propres cartes. */}
+          <div className="vgp-sound" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={muted ? 0 : Math.round(host.volume * 100)}
+              aria-label={t("seer:previewVolume")}
+              onChange={(e) => {
+                setSoundBlocked(false);
+                setPreviewVolume(Number(e.currentTarget.value) / 100);
+              }}
+              className="vgp-volume"
+            />
+            <button
+              type="button"
+              className="vgp-mute"
+              aria-label={t(muted ? "seer:previewUnmute" : "seer:previewMute")}
+              title={t(muted ? "seer:previewUnmute" : "seer:previewMute")}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSoundBlocked(false);
+                setPreviewMuted(!muted);
+              }}
+            >
+              {muted ? <VolumeOffIcon /> : <VolumeOnIcon />}
+            </button>
+          </div>
         </div>
         <PanelWithGestures {...props} />
       </div>

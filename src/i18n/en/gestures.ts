@@ -29,5 +29,6 @@ export default {
   // La mini-carte d'aperçu de bande-annonce (src/preview/).
   previewMute: "Mute",
   previewUnmute: "Unmute",
+  previewVolume: "Preview volume",
   previewLabel: "Trailer preview — {{title}}",
 } as const;

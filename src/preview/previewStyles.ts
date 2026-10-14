@@ -35,7 +35,13 @@ const CSS = `
 .vgp-video[data-waiting=true]{opacity:0;transition:none}
 .vgp-veil{position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(0deg,#1d1d1f 0%,rgb(29 29 31/.5) 7%,rgb(29 29 31/0) 17%)}
-.vgp-mute{position:absolute;top:var(--vgp-edge);right:var(--vgp-edge);z-index:2;display:flex;align-items:center;
+.vgp-sound{position:absolute;top:var(--vgp-edge);right:var(--vgp-edge);z-index:2;display:flex;align-items:center;
+  gap:calc(var(--vgp-mute)*.25)}
+.vgp-volume{width:calc(var(--vgp-mute)*2.6);height:calc(var(--vgp-mute)*.5);margin:0;cursor:pointer;
+  accent-color:var(--brand-light,#c084fc);opacity:0;transform:scaleX(.6);transform-origin:right center;pointer-events:none;
+  transition:opacity 140ms ${EASE_OUT},transform 160ms ${EASE_OUT}}
+.vgp-sound:hover .vgp-volume,.vgp-sound:focus-within .vgp-volume{opacity:1;transform:none;pointer-events:auto}
+.vgp-mute{position:relative;z-index:2;display:flex;align-items:center;
   justify-content:center;width:var(--vgp-mute);aspect-ratio:1;border-radius:9999px;border:0;
   background-color:rgb(28 28 30/.6);color:#fff;transition:transform 150ms ${EASE_OUT}}
 .vgp-mute svg{width:46%;height:46%}
