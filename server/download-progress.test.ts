@@ -93,7 +93,36 @@ test("un épisode bloqué parmi d'autres qui avancent : la demande avance", () =
 test("tout ce qui n'est pas arrivé est bloqué : la demande est bloquée", () => {
   const { summary } = aggregateDownloads([
     item({ status: "warning", episode: { seasonNumber: 4, episodeNumber: 18 } }),
-    item({ sizeLeft: 0, episode: { seasonNumber: 4, episodeNumber: 17 } }),
+    item({ status: "failed", episode: { seasonNumber: 4, episodeNumber: 17 } }),
   ]);
   assert.equal(summary?.stalled, true);
+  assert.equal(summary?.stalledCount, 2);
+});
+
+test("un épisode s'importe, un autre est bloqué : quelque chose avance, la demande n'est pas bloquée", () => {
+  // Règle « le plus avancé gagne » (arrival/arrival-state.ts) : l'importation l'emporte, le bloqué est une nuance.
+  const { summary } = aggregateDownloads([
+    item({ status: "warning", episode: { seasonNumber: 4, episodeNumber: 18 } }),
+    item({ sizeLeft: 0, episode: { seasonNumber: 4, episodeNumber: 17 } }),
+  ]);
+  assert.equal(summary?.stalled, false);
+  assert.equal(summary?.validating, true);
+  assert.equal(summary?.stalledCount, 1);
+});
+
+test("deux copies du même épisode, l'une refusée à l'import : on suit celle qui descend", () => {
+  const ep = { seasonNumber: 2, episodeNumber: 3 };
+  const { summary, items } = aggregateDownloads(
+    [
+      item({ sizeLeft: 0, status: "completed", downloadId: "OLD", episode: ep }),
+      item({ size: 1000, sizeLeft: 900, downloadId: "NEW", episode: ep }),
+    ],
+    (id) => id === "OLD",
+  );
+  assert.equal(summary?.stalled, false);
+  assert.equal(summary?.stalledCount, 0);
+  assert.equal(summary?.status, "downloading");
+  // L'avancement est celui de la copie qui descend, pas une moyenne avec la copie refusée.
+  assert.equal(Math.round(summary!.percent!), 10);
+  assert.equal(items.length, 1);
 });

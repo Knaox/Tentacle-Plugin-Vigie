@@ -8,7 +8,7 @@ function entry(over: Partial<QueueEntry>): QueueEntry {
   return {
     id: "sonarr-1", source: "sonarr", mediaType: "tv", title: "Série", seasonNumber: 1, episodeNumber: 1,
     episodeTitle: null, tmdbId: 42, percent: 50, size: 1000, sizeLeft: 500, etaSeconds: 600,
-    validating: false, paused: false, stalled: false, warning: null, downloadId: null, ...over,
+    validating: false, paused: false, waiting: false, stalled: false, warning: null, downloadId: null, ...over,
   };
 }
 
@@ -44,7 +44,7 @@ test("tout est complet : la demande s'importe, sans temps restant", () => {
   assert.equal(summary.percent, 100);
   assert.equal(summary.etaSeconds, null);
   // Un épisode descend encore : ce n'est pas encore l'importation.
-  assert.equal(summarizeQueue([entry({ validating: true }), entry({ id: "sonarr-9" })])!.summary.validating, false);
+  assert.equal(summarizeQueue([entry({ validating: true }), entry({ id: "sonarr-9", episodeNumber: 2 })])!.summary.validating, false);
 });
 
 test("les fichiers de Sonarr disent si les saisons demandées sont là", () => {
@@ -94,4 +94,23 @@ test("liste et compteurs prennent les mêmes corrections", () => {
   assert.deepEqual(withArrStatus(items, verdicts).map((i) => i.status), ["available", "approved"]);
   const stats = restat({ total: 2, byStatus: { approved: 2 }, byType: { movie: 1, tv: 1 } }, items, verdicts);
   assert.deepEqual(stats.byStatus, { approved: 1, available: 1 });
+});
+
+test("la file : une copie refusée à l'import et une autre qui descend — en route, avancement de celle qui descend", () => {
+  const refused = entry({ id: "sonarr-1", downloadId: "OLD", stalled: true, size: 1000, sizeLeft: 0, percent: 100 });
+  const fresh = entry({ id: "sonarr-2", downloadId: "NEW", size: 1000, sizeLeft: 800, percent: 20 });
+  const { summary, items } = summarizeQueue([refused, fresh])!;
+  assert.equal(summary.stalled, false);
+  assert.equal(summary.status, "downloading");
+  assert.equal(summary.stalledCount, 0);
+  assert.equal(Math.round(summary.percent!), 20);
+  assert.deepEqual(items.map((i) => i.stalled), [false]);
+});
+
+test("la file : rien que des bloqués — bloqué ; en file chez le client — en attente, jamais bloqué", () => {
+  assert.equal(summarizeQueue([entry({ stalled: true }), entry({ id: "sonarr-2", episodeNumber: 2, stalled: true })])!.summary.stalled, true);
+  const waiting = summarizeQueue([entry({ stalled: true }), entry({ id: "sonarr-2", episodeNumber: 2, waiting: true })])!.summary;
+  assert.equal(waiting.stalled, false);
+  assert.equal(waiting.status, "queued");
+  assert.equal(waiting.stalledCount, 1);
 });
