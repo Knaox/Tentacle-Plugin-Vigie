@@ -3,7 +3,10 @@
 /* ------------------------------------------------------------------ */
 
 import type { DownloadProgress } from "./types";
-import { arrivalItemKey, bestCopies, entryState, titleArrival, type ArrivalState } from "./arrival/arrival-state";
+import {
+  arrivalItemKey, bestCopies, entryState, titleArrival, type ArrivalState, type TitleArrivalState,
+} from "./arrival/arrival-state";
+import { classifyBlocked, leadingCause, type BlockedCause } from "./arrival/blocked-causes";
 
 /**
  * Élément de `media.downloadStatus` renvoyé par Jellyseerr (relais de la file
@@ -124,6 +127,7 @@ export function toDownloadProgress(item: SeerrDownloadItem): DownloadProgress | 
     status,
     validating: isValidating(size, sizeLeft, status),
     stalled: isStalledStatus(status),
+    ...(isStalledStatus(status) ? { blockedCause: classifyBlocked({ status, messages: [] }) } : {}),
     title: item.title ?? item.episode?.title ?? null,
     seasonNumber: item.episode?.seasonNumber ?? null,
     episodeNumber: item.episode?.episodeNumber ?? null,
@@ -156,7 +160,7 @@ function relayedState(p: DownloadProgress): ArrivalState {
 export function aggregateDownloads(
   items: readonly SeerrDownloadItem[] | undefined,
   isBlocked?: (downloadId: string) => boolean,
-): { summary: DownloadProgress | null; items: DownloadProgress[] } {
+): { summary: DownloadProgress | null; items: DownloadProgress[]; state?: TitleArrivalState } {
   if (!Array.isArray(items) || items.length === 0) return { summary: null, items: [] };
 
   const parsed: DownloadProgress[] = [];
@@ -167,6 +171,7 @@ export function aggregateDownloads(
       // Un fichier complet que *arr refuse d'importer n'est pas « en vérification ».
       p.stalled = true;
       p.validating = false;
+      p.blockedCause = "importRefused";
     }
     parsed.push(p);
   }
@@ -208,6 +213,9 @@ export function aggregateDownloads(
     validating: arrival.state === "importing",
     stalled: arrival.state === "blocked",
     stalledCount: arrival.blockedItems,
+    ...(arrival.state === "blocked"
+      ? { blockedCause: leadingCause(chosen.map((p) => (p.blockedCause ?? "unknown") as BlockedCause)) ?? "unknown" }
+      : {}),
     title: chosen.length === 1 ? active.title : null,
     seasonNumber: chosen.length === 1 ? active.seasonNumber : null,
     episodeNumber: chosen.length === 1 ? active.episodeNumber : null,
@@ -219,5 +227,5 @@ export function aggregateDownloads(
     .sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1))
     .slice(0, MAX_DETAIL_ITEMS);
 
-  return { summary, items: detail };
+  return { summary, items: detail, state: arrival.state };
 }

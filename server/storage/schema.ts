@@ -128,6 +128,20 @@ export const TABLES: readonly TableSpec[] = [
     primaryKey: ["meta_key"],
     indexes: [],
   },
+  {
+    /*
+     * Les avis déjà envoyés (arrival/notice-store.ts) : un départ, un blocage
+     * par cause — UNE fois par compte et par titre, jusqu'à son arrivée.
+     */
+    name: "seer_notices",
+    columns: [
+      col("jellyfin_user_id", "TEXT NOT NULL"), col("media_type", "TEXT NOT NULL"), col("tmdb_id", "INTEGER NOT NULL"),
+      col("kind", "TEXT NOT NULL"), col("cause", "TEXT NOT NULL DEFAULT ''"), col("request_id", "TEXT"),
+      col("created_at", "DATETIME NOT NULL", "DATETIME"),
+    ],
+    primaryKey: ["jellyfin_user_id", "media_type", "tmdb_id", "kind", "cause"],
+    indexes: [],
+  },
 ];
 
 export function createTableSql(table: TableSpec): string {

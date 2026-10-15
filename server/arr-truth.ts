@@ -101,7 +101,9 @@ const SUMMARY_STATUS: Record<TitleArrivalState, string> = {
  * taille du pack) : une copie refusée à l'import ne gonfle plus l'avancement
  * de celle qui descend.
  */
-export function summarizeQueue(entries: readonly QueueEntry[]): { summary: DownloadProgress; items: DownloadProgress[] } | null {
+export function summarizeQueue(
+  entries: readonly QueueEntry[],
+): { summary: DownloadProgress; items: DownloadProgress[]; state: TitleArrivalState } | null {
   const tagged = entries.map((entry) => ({ item: arrivalItemKey(entry.seasonNumber, entry.episodeNumber), state: queueEntryState(entry), entry }));
   const arrival = titleArrival(tagged);
   if (!arrival) return null;
@@ -143,7 +145,7 @@ export function summarizeQueue(entries: readonly QueueEntry[]): { summary: Downl
   const items = chosen.map(entryProgress)
     .sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1))
     .slice(0, MAX_DETAIL);
-  return { summary, items };
+  return { summary, items, state: arrival.state };
 }
 
 /**
