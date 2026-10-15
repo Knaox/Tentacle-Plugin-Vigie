@@ -19,6 +19,7 @@ import { cached, invalidate } from "./cache";
 import { isStalledStatus, parseTimeSpan } from "./download-progress";
 import { seriesFactsKey } from "./sonarr-episodes";
 import { movieFactsKey } from "./radarr-movies";
+import { classifyBlocked, type BlockedCause } from "./arrival/blocked-causes";
 
 /** Au-delà, la liste ne se lit plus ; le total reste annoncé. */
 const MAX_ITEMS = 60;
@@ -55,6 +56,8 @@ export interface QueueEntry {
   waiting: boolean;
   /** N'avancera plus tout seul — cf. `isStalledRecord`. Jamais un échec. */
   stalled: boolean;
+  /** Pourquoi c'est bloqué (liste fermée) ; `null` quand ça ne l'est pas. */
+  cause: BlockedCause | null;
   /** Message de *arr (« Not an upgrade », « Sample »…), s'il y en a un. */
   warning: string | null;
   /** Empreinte du téléchargement : un pack de saison la partage entre ses épisodes. */
@@ -138,6 +141,14 @@ function firstMessage(r: ArrQueueRecord): string | null {
   return null;
 }
 
+/** Les messages de la file, sans le nom de la release (titre des `statusMessages`). */
+function messagesOf(r: ArrQueueRecord): string[] {
+  const out: string[] = [];
+  if (r.errorMessage) out.push(r.errorMessage);
+  for (const m of r.statusMessages ?? []) out.push(...(m.messages ?? []).filter((t): t is string => typeof t === "string"));
+  return out;
+}
+
 function toEntry(r: ArrQueueRecord, source: "sonarr" | "radarr"): QueueEntry | null {
   if (r.id == null) return null;
 
@@ -167,6 +178,7 @@ function toEntry(r: ArrQueueRecord, source: "sonarr" | "radarr"): QueueEntry | n
     paused: r.status === "paused" || r.status === "delay",
     waiting: r.status === "queued" || r.status === "delay",
     stalled,
+    cause: stalled ? classifyBlocked({ status: r.status, trackedDownloadState: r.trackedDownloadState, messages: messagesOf(r) }) : null,
     warning: stalled || r.status === "warning" || r.status === "failed" ? firstMessage(r) : null,
     downloadId: typeof r.downloadId === "string" && r.downloadId !== "" ? r.downloadId : null,
   };

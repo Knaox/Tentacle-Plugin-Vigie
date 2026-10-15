@@ -20,7 +20,7 @@ function queued(over: Partial<QueueEntry>): QueueEntry {
   return {
     id: "sonarr-1", source: "sonarr", mediaType: "tv", title: "Re:Zero", seasonNumber: 4, episodeNumber: 18,
     episodeTitle: null, tmdbId: 1, percent: 42, size: 100, sizeLeft: 58, etaSeconds: 60, validating: false,
-    paused: false, waiting: false, stalled: false, warning: null, downloadId: "X", ...over,
+    paused: false, waiting: false, stalled: false, cause: null, warning: null, downloadId: "X", ...over,
   };
 }
 

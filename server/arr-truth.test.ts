@@ -8,7 +8,7 @@ function entry(over: Partial<QueueEntry>): QueueEntry {
   return {
     id: "sonarr-1", source: "sonarr", mediaType: "tv", title: "Série", seasonNumber: 1, episodeNumber: 1,
     episodeTitle: null, tmdbId: 42, percent: 50, size: 1000, sizeLeft: 500, etaSeconds: 600,
-    validating: false, paused: false, waiting: false, stalled: false, warning: null, downloadId: null, ...over,
+    validating: false, paused: false, waiting: false, stalled: false, cause: null, warning: null, downloadId: null, ...over,
   };
 }
 

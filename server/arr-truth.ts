@@ -26,6 +26,7 @@ import { goneFromJellyfin, goneSeasonsOf } from "./live/live-state";
 import {
   arrivalItemKey, bestCopies, entryState, titleArrival, type ArrivalState, type TitleArrivalState,
 } from "./arrival/arrival-state";
+import { leadingCause } from "./arrival/blocked-causes";
 
 /** Ce qui attend encore quelque chose de Sonarr ou de Radarr. */
 export const IN_FLIGHT: ReadonlySet<RequestStatus> = new Set([
@@ -75,6 +76,7 @@ function entryProgress(e: QueueEntry): DownloadProgress {
     status: e.validating ? "completed" : e.paused ? "paused" : e.stalled ? "warning" : e.waiting ? "queued" : "downloading",
     validating: e.validating,
     stalled: e.stalled,
+    ...(e.stalled && e.cause ? { blockedCause: e.cause } : {}),
     title: e.episodeTitle,
     seasonNumber: e.seasonNumber,
     episodeNumber: e.episodeNumber,
@@ -133,6 +135,7 @@ export function summarizeQueue(entries: readonly QueueEntry[]): { summary: Downl
     validating: importing,
     stalled: arrival.state === "blocked",
     stalledCount: arrival.blockedItems,
+    ...(arrival.state === "blocked" ? { blockedCause: leadingCause(chosen.map((e) => e.cause ?? "unknown")) ?? "unknown" } : {}),
     title: single?.episodeTitle ?? null,
     seasonNumber: single?.seasonNumber ?? null,
     episodeNumber: single?.episodeNumber ?? null,
