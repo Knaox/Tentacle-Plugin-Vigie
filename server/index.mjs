@@ -157,6 +157,24 @@ var TABLES = [
     ],
     primaryKey: ["meta_key"],
     indexes: []
+  },
+  {
+    /*
+     * Les avis déjà envoyés (arrival/notice-store.ts) : un départ, un blocage
+     * par cause — UNE fois par compte et par titre, jusqu'à son arrivée.
+     */
+    name: "seer_notices",
+    columns: [
+      col("jellyfin_user_id", "TEXT NOT NULL"),
+      col("media_type", "TEXT NOT NULL"),
+      col("tmdb_id", "INTEGER NOT NULL"),
+      col("kind", "TEXT NOT NULL"),
+      col("cause", "TEXT NOT NULL DEFAULT ''"),
+      col("request_id", "TEXT"),
+      col("created_at", "DATETIME NOT NULL", "DATETIME")
+    ],
+    primaryKey: ["jellyfin_user_id", "media_type", "tmdb_id", "kind", "cause"],
+    indexes: []
   }
 ];
 function createTableSql(table) {
@@ -190,6 +208,14 @@ var MIGRATIONS = [
     name: "tables de Vigie (cr\xE9ation ou reconnaissance)",
     up: async (db) => {
       for (const table of TABLES) await reconcileTable(db, table);
+    }
+  },
+  {
+    // Une base déjà passée par la 1 n'a pas la table venue après : même reconnaissance, cette table seule.
+    version: 2,
+    name: "avis d\xE9j\xE0 envoy\xE9s (seer_notices)",
+    up: async (db) => {
+      for (const table of TABLES.filter((t) => t.name === "seer_notices")) await reconcileTable(db, table);
     }
   }
 ];
@@ -1399,6 +1425,119 @@ async function triggerSeerrJob(seerrUrl2, apiKey, jobId) {
   }
 }
 
+// server/arrival/arrival-state.ts
+var ITEM_ORDER = ["blocked", "pending", "downloading", "importing", "imported"];
+var TITLE_ORDER = ["blocked", "pending", "importing", "downloading"];
+function arrivalItemKey(seasonNumber, episodeNumber) {
+  if (seasonNumber != null && episodeNumber != null) return `S${seasonNumber}E${episodeNumber}`;
+  if (seasonNumber != null) return `S${seasonNumber}`;
+  return "whole";
+}
+function rank(order, state2) {
+  return order.indexOf(state2);
+}
+function moreAdvanced(a, b) {
+  return rank(ITEM_ORDER, a) > rank(ITEM_ORDER, b);
+}
+function bestCopy(copies) {
+  let best = null;
+  for (const copy of copies) {
+    if (!best || moreAdvanced(copy.state, best.state)) best = copy;
+  }
+  return best;
+}
+function bestCopies(entries) {
+  const byItem = /* @__PURE__ */ new Map();
+  for (const entry of entries) {
+    const list = byItem.get(entry.item) ?? [];
+    list.push(entry);
+    byItem.set(entry.item, list);
+  }
+  return [...byItem.values()].map((copies) => bestCopy(copies));
+}
+function titleArrival(entries) {
+  const items = bestCopies(entries);
+  if (items.length === 0) return null;
+  const remaining = items.filter((i) => i.state !== "imported");
+  if (remaining.length === 0) return { state: "importing", blockedItems: 0 };
+  let state2 = "blocked";
+  let blockedItems = 0;
+  for (const item of remaining) {
+    const s = item.state;
+    if (s === "blocked") blockedItems++;
+    if (rank(TITLE_ORDER, s) > rank(TITLE_ORDER, state2)) state2 = s;
+  }
+  return { state: state2, blockedItems };
+}
+function entryState(signals) {
+  if (signals.stalled) return "blocked";
+  if (signals.imported) return "imported";
+  if (signals.validating) return "importing";
+  if (signals.waiting) return "pending";
+  return "downloading";
+}
+
+// server/arrival/blocked-causes.ts
+var MIN = 6e4;
+var IMPORT = 2 * MIN;
+var TRANSFER = 10 * MIN;
+var CAUSES = {
+  sample: { phase: "import", resolution: "admin", confirmMs: IMPORT },
+  notUpgrade: { phase: "import", resolution: "admin", confirmMs: IMPORT },
+  alreadyHere: { phase: "import", resolution: "admin", confirmMs: IMPORT },
+  unrecognized: { phase: "import", resolution: "admin", confirmMs: IMPORT },
+  missingEpisodes: { phase: "import", resolution: "admin", confirmMs: IMPORT },
+  notVideo: { phase: "import", resolution: "admin", confirmMs: IMPORT },
+  qualityRejected: { phase: "import", resolution: "admin", confirmMs: IMPORT },
+  diskSpace: { phase: "import", resolution: "admin", confirmMs: IMPORT },
+  fileAccess: { phase: "import", resolution: "admin", confirmMs: IMPORT },
+  // Fichier verrouillé ou encore décompressé : Sonarr réessaie à la lecture suivante.
+  busyFile: { phase: "import", resolution: "self", confirmMs: TRANSFER },
+  // Sonarr attend jusqu'à 24 h le titre d'un épisode tout juste diffusé, puis range seul.
+  awaitingTitle: { phase: "import", resolution: "self", confirmMs: TRANSFER },
+  importRefused: { phase: "import", resolution: "unsure", confirmMs: IMPORT },
+  // Une source morte peut revenir… ou pas : on ne promet rien.
+  noSource: { phase: "transfer", resolution: "unsure", confirmMs: 20 * MIN },
+  // Échec du transfert : la source est écartée, Sonarr ou Radarr en cherchent une autre.
+  transferFailed: { phase: "transfer", resolution: "self", confirmMs: TRANSFER },
+  clientUnreachable: { phase: "transfer", resolution: "unsure", confirmMs: 15 * MIN },
+  paused: { phase: "transfer", resolution: "admin", confirmMs: TRANSFER },
+  notFound: { phase: "search", resolution: "self", confirmMs: TRANSFER },
+  unknown: { phase: "transfer", resolution: "unsure", confirmMs: TRANSFER }
+};
+var PATTERNS = [
+  ["diskSpace", /free space|disk space|disk is full|disk full|no space left|not enough space/],
+  ["fileAccess", /access to the path|access is denied|permission|read-only|not accessible|does not exist|doesn't exist|could not find (the )?path/],
+  ["sample", /\bsample\b/],
+  ["notUpgrade", /not an upgrade|not a custom format upgrade/],
+  ["alreadyHere", /already imported|already exists|destination already/],
+  ["awaitingTitle", /tba title|does not have a title|recently aired/],
+  ["missingEpisodes", /missing from the release|expected in this release|were not imported/],
+  ["notVideo", /no files found are eligible|no video files|unsupported extension|no audio tracks|executable|dangerous file|archive file|not a valid video/],
+  ["unrecognized", /unable to parse|unknown (series|movie)|unable to identify|matched to (series|movie) by id|title mismatch|manual import|automatic import is not possible|invalid season or episode|unexpected considering/],
+  ["qualityRejected", /quality|custom format|language|not wanted|cutoff/],
+  ["noSource", /stalled|no connections|no peers|no seeds|seeders|downloading metadata/],
+  ["clientUnreachable", /unable to (connect|communicate)|client (is )?unavailable|unavailable/],
+  ["transferFailed", /fail|abort|cannot be completed|missing articles|repair/],
+  ["busyFile", /locked|in use|being used|unpack|extract/]
+];
+var IMPORT_STATES = /* @__PURE__ */ new Set(["importBlocked", "importFailed"]);
+var FAILED_STATES = /* @__PURE__ */ new Set(["failed", "failedPending"]);
+function classifyBlocked(signals) {
+  if (signals.status === "paused") return "paused";
+  const text2 = signals.messages.join("\n").toLowerCase();
+  if (text2) {
+    for (const [cause, pattern] of PATTERNS) if (pattern.test(text2)) return cause;
+  }
+  if (signals.status === "downloadClientUnavailable") return "clientUnreachable";
+  if (IMPORT_STATES.has(signals.trackedDownloadState ?? "") || signals.status === "completed") return "importRefused";
+  if (FAILED_STATES.has(signals.trackedDownloadState ?? "") || signals.status === "failed") return "transferFailed";
+  return "unknown";
+}
+function leadingCause(causes) {
+  return causes.find((c) => CAUSES[c].resolution === "admin") ?? causes[0] ?? null;
+}
+
 // server/download-progress.ts
 var STALLED_STATUSES = /* @__PURE__ */ new Set(["warning", "failed", "paused", "downloadClientUnavailable"]);
 function isStalledStatus(status) {
@@ -1455,12 +1594,16 @@ function toDownloadProgress(item) {
     status,
     validating: isValidating(size, sizeLeft, status),
     stalled: isStalledStatus(status),
+    ...isStalledStatus(status) ? { blockedCause: classifyBlocked({ status, messages: [] }) } : {},
     title: item.title ?? item.episode?.title ?? null,
     seasonNumber: item.episode?.seasonNumber ?? null,
     episodeNumber: item.episode?.episodeNumber ?? null
   };
 }
 var MAX_DETAIL_ITEMS = 24;
+function relayedState(p) {
+  return entryState({ stalled: !!p.stalled, validating: p.validating, waiting: p.status === "queued" || p.status === "delay" });
+}
 function aggregateDownloads(items, isBlocked) {
   if (!Array.isArray(items) || items.length === 0) return { summary: null, items: [] };
   const parsed = [];
@@ -1470,16 +1613,20 @@ function aggregateDownloads(items, isBlocked) {
     if (!p.stalled && raw.downloadId && isBlocked?.(raw.downloadId)) {
       p.stalled = true;
       p.validating = false;
+      p.blockedCause = "importRefused";
     }
     parsed.push(p);
   }
-  if (parsed.length === 0) return { summary: null, items: [] };
+  const tagged = parsed.map((p) => ({ item: arrivalItemKey(p.seasonNumber, p.episodeNumber), state: relayedState(p), p }));
+  const arrival = titleArrival(tagged);
+  if (!arrival) return { summary: null, items: [] };
+  const chosen = bestCopies(tagged).map((t) => t.p);
   let totalSize = 0;
   let totalLeft = 0;
   let sized = 0;
   let maxEta = null;
   let latestAt = null;
-  for (const p of parsed) {
+  for (const p of chosen) {
     if (p.size != null && p.sizeLeft != null) {
       totalSize += p.size;
       totalLeft += p.sizeLeft;
@@ -1490,8 +1637,7 @@ function aggregateDownloads(items, isBlocked) {
       latestAt = p.estimatedCompletionAt;
     }
   }
-  const active = parsed.find((p) => p.status === "downloading") ?? parsed[0];
-  const stalledCount = parsed.filter((p) => p.stalled).length;
+  const active = chosen.find((p) => p.status === "downloading") ?? chosen[0];
   const percent = sized > 0 && totalSize > 0 ? Math.min(100, Math.max(0, (totalSize - totalLeft) / totalSize * 100)) : null;
   const summary = {
     percent,
@@ -1499,19 +1645,17 @@ function aggregateDownloads(items, isBlocked) {
     sizeLeft: sized > 0 ? totalLeft : null,
     etaSeconds: maxEta,
     estimatedCompletionAt: latestAt,
-    status: parsed.some((p) => p.status === "downloading") ? "downloading" : active.status,
-    // `every` et non `some` : tant qu'un seul épisode descend encore, la
-    // demande télécharge réellement — ce n'est pas de la validation.
-    validating: parsed.every((p) => p.validating),
-    // Un épisode bloqué parmi d'autres qui avancent : la demande avance.
-    stalled: stalledCount > 0 && parsed.every((p) => p.stalled || p.validating),
-    stalledCount,
-    title: parsed.length === 1 ? active.title : null,
-    seasonNumber: parsed.length === 1 ? active.seasonNumber : null,
-    episodeNumber: parsed.length === 1 ? active.episodeNumber : null
+    status: arrival.state === "downloading" ? "downloading" : active.status,
+    validating: arrival.state === "importing",
+    stalled: arrival.state === "blocked",
+    stalledCount: arrival.blockedItems,
+    ...arrival.state === "blocked" ? { blockedCause: leadingCause(chosen.map((p) => p.blockedCause ?? "unknown")) ?? "unknown" } : {},
+    title: chosen.length === 1 ? active.title : null,
+    seasonNumber: chosen.length === 1 ? active.seasonNumber : null,
+    episodeNumber: chosen.length === 1 ? active.episodeNumber : null
   };
-  const detail = parsed.slice().sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1)).slice(0, MAX_DETAIL_ITEMS);
-  return { summary, items: detail };
+  const detail = chosen.slice().sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1)).slice(0, MAX_DETAIL_ITEMS);
+  return { summary, items: detail, state: arrival.state };
 }
 
 // server/sonarr-schedule.ts
@@ -1773,6 +1917,12 @@ function firstMessage(r) {
   }
   return null;
 }
+function messagesOf(r) {
+  const out = [];
+  if (r.errorMessage) out.push(r.errorMessage);
+  for (const m of r.statusMessages ?? []) out.push(...(m.messages ?? []).filter((t) => typeof t === "string"));
+  return out;
+}
 function toEntry(r, source) {
   if (r.id == null) return null;
   const size = typeof r.size === "number" && r.size > 0 ? r.size : null;
@@ -1795,7 +1945,9 @@ function toEntry(r, source) {
     etaSeconds: parseTimeSpan(r.timeleft),
     validating: isValidating2(r) && !stalled,
     paused: r.status === "paused" || r.status === "delay",
+    waiting: r.status === "queued" || r.status === "delay",
     stalled,
+    cause: stalled ? classifyBlocked({ status: r.status, trackedDownloadState: r.trackedDownloadState, messages: messagesOf(r) }) : null,
     warning: stalled || r.status === "warning" || r.status === "failed" ? firstMessage(r) : null,
     downloadId: typeof r.downloadId === "string" && r.downloadId !== "" ? r.downloadId : null
   };
@@ -2544,18 +2696,31 @@ function entryProgress(e) {
     sizeLeft: e.sizeLeft,
     etaSeconds: e.validating ? null : e.etaSeconds,
     estimatedCompletionAt: null,
-    status: e.validating ? "completed" : e.paused ? "paused" : e.stalled ? "warning" : "downloading",
+    status: e.validating ? "completed" : e.paused ? "paused" : e.stalled ? "warning" : e.waiting ? "queued" : "downloading",
     validating: e.validating,
     stalled: e.stalled,
+    ...e.stalled && e.cause ? { blockedCause: e.cause } : {},
     title: e.episodeTitle,
     seasonNumber: e.seasonNumber,
     episodeNumber: e.episodeNumber
   };
 }
+function queueEntryState(e) {
+  return entryState({ stalled: e.stalled, validating: e.validating, waiting: e.waiting });
+}
+var SUMMARY_STATUS = {
+  downloading: "downloading",
+  importing: "completed",
+  pending: "queued",
+  blocked: "warning"
+};
 function summarizeQueue(entries) {
-  if (entries.length === 0) return null;
+  const tagged = entries.map((entry) => ({ item: arrivalItemKey(entry.seasonNumber, entry.episodeNumber), state: queueEntryState(entry), entry }));
+  const arrival = titleArrival(tagged);
+  if (!arrival) return null;
+  const chosen = bestCopies(tagged).map((t) => t.entry);
   const downloads = /* @__PURE__ */ new Map();
-  for (const e of entries) downloads.set(e.downloadId ?? e.id, e);
+  for (const e of chosen) downloads.set(e.downloadId ?? e.id, e);
   let size = 0;
   let left = 0;
   let sized = 0;
@@ -2566,29 +2731,28 @@ function summarizeQueue(entries) {
       left += e.sizeLeft;
       sized++;
     }
-    if (!e.validating && e.etaSeconds != null && (eta === null || e.etaSeconds > eta)) eta = e.etaSeconds;
+    if (!e.validating && !e.stalled && e.etaSeconds != null && (eta === null || e.etaSeconds > eta)) eta = e.etaSeconds;
   }
-  const importing = entries.every((e) => e.validating);
-  const stalledCount = entries.filter((e) => e.stalled).length;
-  const moving = entries.some((e) => !e.validating && !e.stalled && !e.paused);
-  const single = entries.length === 1 ? entries[0] : null;
+  const importing = arrival.state === "importing";
+  const pending2 = arrival.state === "pending";
+  const single = chosen.length === 1 ? chosen[0] : null;
   const summary = {
     percent: importing ? 100 : sized > 0 && size > 0 ? Math.min(100, Math.max(0, (size - left) / size * 100)) : null,
     size: sized > 0 ? size : null,
     sizeLeft: sized > 0 ? left : null,
     etaSeconds: importing ? null : eta,
     estimatedCompletionAt: null,
-    status: importing ? "completed" : moving ? "downloading" : entries.some((e) => e.paused) ? "paused" : "warning",
+    status: pending2 && chosen.some((e) => e.paused) ? "paused" : SUMMARY_STATUS[arrival.state],
     validating: importing,
-    // Bloquée : tout ce qui n'est pas arrivé est bloqué (même règle que Jellyseerr).
-    stalled: stalledCount > 0 && entries.every((e) => e.stalled || e.validating),
-    stalledCount,
+    stalled: arrival.state === "blocked",
+    stalledCount: arrival.blockedItems,
+    ...arrival.state === "blocked" ? { blockedCause: leadingCause(chosen.map((e) => e.cause ?? "unknown")) ?? "unknown" } : {},
     title: single?.episodeTitle ?? null,
     seasonNumber: single?.seasonNumber ?? null,
     episodeNumber: single?.episodeNumber ?? null
   };
-  const items = entries.map(entryProgress).sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1)).slice(0, MAX_DETAIL);
-  return { summary, items };
+  const items = chosen.map(entryProgress).sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1)).slice(0, MAX_DETAIL);
+  return { summary, items, state: arrival.state };
 }
 function seriesFiles(seasons, facts) {
   if (!seasons?.length || facts.size === 0) return null;
@@ -2663,6 +2827,213 @@ function restat(stats, items, verdicts) {
   return { ...stats, byStatus };
 }
 
+// server/arrival/blocked-texts.ts
+var CAUSE_TEXT = {
+  fr: {
+    sample: "Le fichier re\xE7u n'est qu'un extrait, pas le titre complet.",
+    notUpgrade: "Une version de qualit\xE9 \xE9gale ou meilleure est d\xE9j\xE0 en place : le fichier re\xE7u n'est pas gard\xE9.",
+    alreadyHere: "Ce fichier est d\xE9j\xE0 pr\xE9sent dans la biblioth\xE8que.",
+    unrecognized: "Le serveur ne reconna\xEEt pas le fichier re\xE7u et ne peut pas le ranger seul.",
+    missingEpisodes: "Le fichier re\xE7u ne contient pas tous les \xE9pisodes attendus.",
+    notVideo: "Le fichier re\xE7u n'est pas une vid\xE9o lisible.",
+    qualityRejected: "Le fichier re\xE7u ne correspond pas \xE0 la qualit\xE9 ou \xE0 la langue voulues.",
+    diskSpace: "Le serveur manque d'espace disque pour ranger ce titre.",
+    fileAccess: "Le serveur n'a pas les droits pour ranger le fichier re\xE7u.",
+    busyFile: "Le fichier re\xE7u est encore en cours de pr\xE9paration.",
+    awaitingTitle: "L'\xE9pisode vient de sortir : le serveur attend son titre officiel pour le ranger.",
+    importRefused: "Le fichier est arriv\xE9, mais le serveur refuse de le ranger.",
+    noSource: "Plus personne ne partage ce titre pour l'instant : le transfert est \xE0 l'arr\xEAt.",
+    transferFailed: "Le transfert a \xE9chou\xE9 ; le serveur cherche une autre source.",
+    clientUnreachable: "Le serveur n'arrive plus \xE0 joindre son logiciel de transfert.",
+    paused: "Le transfert a \xE9t\xE9 mis en pause sur le serveur.",
+    notFound: "Aucune source n'a \xE9t\xE9 trouv\xE9e pour ce titre pour l'instant.",
+    unknown: "Quelque chose emp\xEAche ce titre d'arriver."
+  },
+  en: {
+    sample: "The file received is only a sample, not the full title.",
+    notUpgrade: "A version of equal or better quality is already in place, so the new file isn't kept.",
+    alreadyHere: "This file is already in the library.",
+    unrecognized: "The server doesn't recognise the file it received and can't file it on its own.",
+    missingEpisodes: "The file received is missing some of the expected episodes.",
+    notVideo: "The file received isn't a playable video.",
+    qualityRejected: "The file received doesn't match the wanted quality or language.",
+    diskSpace: "The server is out of disk space to store this title.",
+    fileAccess: "The server doesn't have permission to store the file it received.",
+    busyFile: "The file received is still being prepared.",
+    awaitingTitle: "The episode just aired: the server is waiting for its official title before filing it.",
+    importRefused: "The file arrived, but the server won't add it to the library.",
+    noSource: "Nobody is sharing this title right now, so the transfer has stalled.",
+    transferFailed: "The transfer failed; the server is looking for another source.",
+    clientUnreachable: "The server can't reach its transfer software.",
+    paused: "The transfer was paused on the server.",
+    notFound: "No source has been found for this title yet.",
+    unknown: "Something is keeping this title from arriving."
+  }
+};
+var RESOLUTION_TEXT = {
+  fr: {
+    self: "Patientez : le serveur r\xE9essaie tout seul, Vigie vous pr\xE9viendra.",
+    admin: "Un administrateur doit intervenir.",
+    unsure: "Si rien ne bouge, un administrateur devra intervenir."
+  },
+  en: {
+    self: "Hang tight: the server keeps trying on its own, and Vigie will let you know.",
+    admin: "An administrator needs to step in.",
+    unsure: "If nothing changes, an administrator will need to step in."
+  }
+};
+function noticeLang(raw) {
+  return raw?.trim().toLowerCase().startsWith("en") ? "en" : "fr";
+}
+function blockedSentence(cause, lang) {
+  return `${CAUSE_TEXT[lang][cause]} ${RESOLUTION_TEXT[lang][CAUSES[cause].resolution]}`;
+}
+
+// server/arrival/account-lang.ts
+async function accountLang(db, jellyfinUserId) {
+  try {
+    const rows = await db.query("SELECT value FROM server_config WHERE key = ?", `user_lang_${jellyfinUserId}`);
+    return noticeLang(rows[0]?.value);
+  } catch {
+    return "fr";
+  }
+}
+
+// server/arrival/notice-store.ts
+async function claimNotice(db, key, requestId, now = /* @__PURE__ */ new Date()) {
+  const changed = await db.execute(
+    `${db.sql.insertIgnore()} INTO seer_notices (jellyfin_user_id, media_type, tmdb_id, kind, cause, request_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    key.jellyfinUserId,
+    key.mediaType,
+    key.tmdbId,
+    key.kind,
+    key.cause ?? "",
+    requestId,
+    now
+  );
+  return changed > 0;
+}
+async function releaseNotice(db, key) {
+  await db.execute(
+    `DELETE FROM seer_notices WHERE jellyfin_user_id = ? AND media_type = ? AND tmdb_id = ? AND kind = ? AND cause = ?`,
+    key.jellyfinUserId,
+    key.mediaType,
+    key.tmdbId,
+    key.kind,
+    key.cause ?? ""
+  );
+}
+async function forgetTitleNotices(db, jellyfinUserId, mediaType, tmdbId) {
+  await db.execute(
+    `DELETE FROM seer_notices WHERE jellyfin_user_id = ? AND media_type = ? AND tmdb_id = ?`,
+    jellyfinUserId,
+    mediaType,
+    tmdbId
+  );
+}
+
+// server/arrival/notice-watch.ts
+var DEPARTURE_CONFIRM_MS = 3 * 6e4;
+function moved(base, now) {
+  const bytes = base.sizeLeft != null && now.sizeLeft != null;
+  const share = base.percent != null && now.percent != null;
+  if (!bytes && !share) return base.sizeLeft == null && base.percent == null && now.sizeLeft == null && now.percent == null;
+  return bytes && now.sizeLeft < base.sizeLeft || share && now.percent > base.percent;
+}
+function stepDeparture(prev, seen, now) {
+  if (seen.state !== "downloading") return { track: null, confirmed: false };
+  if (!prev) return { track: { since: now, sizeLeft: seen.sizeLeft, percent: seen.percent }, confirmed: false };
+  return { track: prev, confirmed: now - prev.since >= DEPARTURE_CONFIRM_MS && moved(prev, seen) };
+}
+function stepBlocked(prev, seen, now) {
+  if (seen.state !== "blocked") return { track: null, due: null };
+  const cause = seen.cause ?? "unknown";
+  if (!prev || prev.cause !== cause) return { track: { cause, since: now }, due: null };
+  return { track: prev, due: now - prev.since >= CAUSES[cause].confirmMs ? cause : null };
+}
+
+// server/arrival/arrival-notices.ts
+var postToCore = async (db, req, text2, state2) => {
+  await db.core.notification.create({ data: requestNotificationData(req, text2, state2) });
+};
+function departureBody(title) {
+  return `\xAB ${title} \xBB est en route`;
+}
+var departures = /* @__PURE__ */ new Map();
+var blocks = /* @__PURE__ */ new Map();
+var settled = /* @__PURE__ */ new Set();
+function keep(map, id, value) {
+  if (value) map.set(id, value);
+  else map.delete(id);
+}
+function keyOf(req, kind, cause) {
+  return { jellyfinUserId: req.jellyfinUserId, mediaType: req.mediaType, tmdbId: req.tmdbId, kind, cause };
+}
+async function announce(db, req, key, text2, state2, post) {
+  if (!await claimNotice(db, key, req.id)) return false;
+  try {
+    await post(db, req, await text2(), state2);
+    return true;
+  } catch (err) {
+    await releaseNotice(db, key).catch(() => {
+    });
+    throw err;
+  }
+}
+async function watchArrival(db, req, seen, now, post = postToCore) {
+  const out = [];
+  const departure = stepDeparture(departures.get(req.id) ?? null, seen, now);
+  keep(departures, req.id, departure.track);
+  const departureKey = `dep:${req.id}`;
+  if (departure.confirmed && !settled.has(departureKey)) {
+    const nothingAnnounced = (req.notifiedSeasons ?? []).length === 0;
+    if (nothingAnnounced && await announce(
+      db,
+      req,
+      keyOf(req, "departure"),
+      async () => ({ title: req.title, body: departureBody(req.title) }),
+      "progress",
+      post
+    )) out.push("departure");
+    settled.add(departureKey);
+  }
+  const blocked = stepBlocked(blocks.get(req.id) ?? null, seen, now);
+  keep(blocks, req.id, blocked.track);
+  if (!blocked.track) {
+    for (const key of settled) if (key.startsWith(`blk:${req.id}:`)) settled.delete(key);
+  }
+  if (blocked.due) {
+    const cause = blocked.due;
+    const blockedKey = `blk:${req.id}:${cause}`;
+    if (!settled.has(blockedKey)) {
+      const text2 = async () => ({ title: req.title, body: blockedSentence(cause, await accountLang(db, req.jellyfinUserId)) });
+      if (await announce(db, req, keyOf(req, "blocked", cause), text2, "blocked", post)) out.push(cause);
+      settled.add(blockedKey);
+    }
+  }
+  return out;
+}
+function observationOf(arriving3) {
+  if (!arriving3?.summary || !arriving3.state) return { state: null, sizeLeft: null, percent: null };
+  const { summary } = arriving3;
+  return { state: arriving3.state, sizeLeft: summary.sizeLeft, percent: summary.percent, cause: summary.blockedCause ?? null };
+}
+async function arrivalAnnounced(db, req) {
+  forgetWatch(req.id);
+  await forgetTitleNotices(db, req.jellyfinUserId, req.mediaType, req.tmdbId);
+}
+function forgetWatch(id) {
+  departures.delete(id);
+  blocks.delete(id);
+  for (const key of settled) if (key.endsWith(`:${id}`) || key.includes(`:${id}:`)) settled.delete(key);
+}
+function pruneArrivalWatch(alive) {
+  const ids = /* @__PURE__ */ new Set([...departures.keys(), ...blocks.keys()]);
+  for (const key of settled) ids.add(key.split(":")[1]);
+  for (const id of ids) if (!alive.has(id)) forgetWatch(id);
+}
+
 // server/arr-advance-plan.ts
 var PROGRESS_RANK = {
   sent_to_seer: 1,
@@ -2701,21 +3072,13 @@ function seasonFacts(facts, requested2) {
 var NOTHING = {
   status: null,
   completed: false,
-  notifyDownloading: false,
   notifyMovie: false,
   notifySeasons: [],
   notified: null
 };
 function climb(input, target, decision) {
   if (target === input.status || isDowngrade(input.status, target)) return decision;
-  const nothingAnnounced = (input.notifiedSeasons ?? []).length === 0;
-  return {
-    ...decision,
-    status: target,
-    completed: target === "available",
-    // « En cours de téléchargement » : une fois, au départ — jamais après une annonce.
-    notifyDownloading: target === "downloading" && nothingAnnounced
-  };
+  return { ...decision, status: target, completed: target === "available" };
 }
 function decideAdvance(input) {
   if (input.mediaType === "movie") {
@@ -2785,10 +3148,16 @@ async function advanceFromArr(db, cfg) {
   const requests = rows.map(rowToRequest);
   const alive = new Set(requests.map((r) => r.id));
   for (const id of leftQueue.keys()) if (!alive.has(id)) leftQueue.delete(id);
+  pruneArrivalWatch(alive);
   const idleTurn = passCount % IDLE_EVERY_PASSES === 1;
+  const now = Date.now();
   await mapLimit(requests, CONCURRENCY3, async (req) => {
     if (!arrKnows(req.mediaType)) return;
-    const inQueue = matchQueue(req, queue.items).length > 0;
+    const arriving3 = summarizeQueue(matchQueue(req, queue.items));
+    const inQueue = arriving3 !== null;
+    await watchArrival(db, req, observationOf(arriving3), now).then((said) => {
+      if (said.length > 0) console.log(`[SeerArr] "${req.title}" annonc\xE9 : ${said.join(", ")}`);
+    }).catch((err) => console.warn(`[SeerArr] "${req.title}" (annonce) :`, err));
     const recent = justLeft(req.id, inQueue);
     if (!inQueue && !recent && !idleTurn && req.status !== "downloading") return;
     try {
@@ -2825,7 +3194,6 @@ function withoutDeletedSeasons(facts, tmdbId) {
 }
 function arrivalNotifications(req, d) {
   const out = [];
-  if (d.notifyDownloading) out.push({ title: req.title, body: `\xAB ${req.title} \xBB est en route`, state: "progress" });
   if (d.notifyMovie) out.push({ title: req.title, body: `\xAB ${req.title} \xBB ${releasedSuffix("m", false)}`, state: "available" });
   if (d.notifySeasons.length > 0) {
     const requested2 = req.seasons ?? [];
@@ -2846,6 +3214,8 @@ async function apply(db, req, d) {
     await db.core.notification.create({ data: requestNotificationData(req, n, n.state) });
   }
   if (d.notified) await setNotifiedSeasons(db, req.id, d.notified);
+  if (notifications.length > 0) await arrivalAnnounced(db, req).catch(() => {
+  });
   invalidateRequestCaches(req.jellyfinUserId);
   await upsertContentClaim(db, req.tmdbId, req.jellyfinUserId, req.mediaType, req.title, CLAIM_TTL_SECONDS).catch(() => {
   });
@@ -2905,6 +3275,10 @@ async function syncStatuses(db, config) {
         seasons: (data.seasons ?? []).map((s) => s.seasonNumber),
         createdAt: data.createdAt ?? null
       };
+      if (!arrKnows(request.mediaType)) {
+        await watchArrival(db, request, observationOf(aggregateDownloads(data.media?.downloadStatus)), Date.now()).catch(() => {
+        });
+      }
       const facts = factsWithRequest(request.mediaType, request.tmdbId, own, (data.media?.downloadStatus?.length ?? 0) > 0);
       const mediaStatus = correctMediaStatus(request.mediaType, data.media?.status, facts);
       const globalStatus = mapSeerrStatus(data.status, mediaStatus, data.media?.downloadStatus);
@@ -3022,10 +3396,8 @@ async function retryFailedRequests(db) {
 }
 function statusNotification(request, newStatus) {
   switch (newStatus) {
-    // « En route », jamais « téléchargement » : l'application mobile affiche
-    // ces notifications et n'écrit ce mot nulle part (cf. CLAUDE.md du core).
-    case "downloading":
-      return { type: "request_downloading", title: request.title, message: `\xAB ${request.title} \xBB est en route`, state: "progress" };
+    // Le départ (« en route ») n'est plus annoncé au passage du statut : il
+    // attend sa confirmation (arrival/arrival-notices.ts, nourri ci-dessus).
     case "available": {
       const suffix = releasedSuffix(request.mediaType === "movie" ? "m" : "f", false);
       return { type: "request_available", title: request.title, message: `\xAB ${request.title} \xBB ${suffix}`, state: "available" };
@@ -5819,7 +6191,7 @@ async function seasonsOf2(s, seriesId) {
 }
 async function checkInJellyfin(db, targets) {
   const out = /* @__PURE__ */ new Map();
-  const keyOf = (t) => `${t.mediaType}:${t.tmdbId}`;
+  const keyOf2 = (t) => `${t.mediaType}:${t.tmdbId}`;
   let s = null;
   try {
     s = await jellyfinSession(db);
@@ -5827,7 +6199,7 @@ async function checkInJellyfin(db, targets) {
     s = null;
   }
   if (!s) {
-    for (const t of targets) out.set(keyOf(t), null);
+    for (const t of targets) out.set(keyOf2(t), null);
     return out;
   }
   let index = null;
@@ -5836,20 +6208,20 @@ async function checkInJellyfin(db, targets) {
       let item = await findByTmdb(s, t);
       if (item === void 0) {
         index ??= await wholeIndex(s);
-        item = index.get(keyOf(t)) ?? null;
+        item = index.get(keyOf2(t)) ?? null;
       }
       if (!item?.Id || !isReal(item)) {
-        out.set(keyOf(t), { present: false, presentSeasons: t.mediaType === "tv" ? /* @__PURE__ */ new Set() : void 0 });
+        out.set(keyOf2(t), { present: false, presentSeasons: t.mediaType === "tv" ? /* @__PURE__ */ new Set() : void 0 });
         continue;
       }
       if (t.mediaType === "tv") {
         const presentSeasons = await seasonsOf2(s, item.Id);
-        out.set(keyOf(t), { present: presentSeasons.size > 0, presentSeasons });
+        out.set(keyOf2(t), { present: presentSeasons.size > 0, presentSeasons });
       } else {
-        out.set(keyOf(t), { present: true });
+        out.set(keyOf2(t), { present: true });
       }
     } catch {
-      out.set(keyOf(t), null);
+      out.set(keyOf2(t), null);
     }
   }
   return out;
@@ -5890,8 +6262,8 @@ async function openLocalRequestsFor(db, mediaType, tmdbId) {
 var FORGET_GRACE_MS = 10 * 6e4;
 var MASS_WINDOW_MS = 60 * 6e4;
 var MASS_TITLES = 20;
-function wavesOf(departures) {
-  const sorted = [...departures].sort((a, b) => a.at - b.at);
+function wavesOf(departures2) {
+  const sorted = [...departures2].sort((a, b) => a.at - b.at);
   const waves = [];
   let start = 0;
   for (let end = 0; end < sorted.length; end++) {
@@ -5918,8 +6290,8 @@ function unconfirmedWindows(waves, outages, lastScanEnd) {
   return windows.filter((w) => lastScanEnd === null || lastScanEnd <= w.end);
 }
 function forgetCandidates({
-  departures,
-  candidates = departures,
+  departures: departures2,
+  candidates = departures2,
   now,
   graceMs = FORGET_GRACE_MS,
   knownWaves = [],
@@ -5927,7 +6299,7 @@ function forgetCandidates({
   storage = "ok",
   lastScanEnd = null
 }) {
-  const waves = mergeWaves([...knownWaves, ...wavesOf(departures)]);
+  const waves = mergeWaves([...knownWaves, ...wavesOf(departures2)]);
   const unconfirmed = unconfirmedWindows(waves, outages, lastScanEnd);
   const graced = candidates.filter((d) => now - d.at >= graceMs);
   if (storage !== "ok") return { ready: [], held: graced.length, waves, unconfirmed, scanNeeded: false };
@@ -6257,18 +6629,18 @@ function createDepartureWatch(db, deps2) {
     console.warn(`[VigieLive] ${message}`);
   };
   return async function decide2(open, now) {
-    const departures = liveState.departures();
+    const departures2 = liveState.departures();
     if (open.length === 0) {
       liveState.setSuspect([]);
       return null;
     }
     const storage = await deps2.storage(now);
     const windows = outageWindows(await outages.observe(storage.state, now), now);
-    const allWaves = mergeWaves([...waves, ...wavesOf(departures)]);
+    const allWaves = mergeWaves([...waves, ...wavesOf(departures2)]);
     const suspect = open.some((d) => inWave(d.at, unconfirmedWindows(allWaves, windows, null)));
     const scan = suspect ? await deps2.scanState().catch(() => null) : null;
     const plan = forgetCandidates({
-      departures,
+      departures: departures2,
       candidates: open,
       now,
       knownWaves: waves,
@@ -8296,14 +8668,14 @@ async function buildPersonalFromStore(db, cfg, rows, opts, warn) {
     partial: store2.partial || residualPartial
   };
 }
-function rowsSubset(rows, keep) {
+function rowsSubset(rows, keep2) {
   return {
     ...rows,
     seerrRows: rows.seerrRows.filter(
-      (sr) => sr.media?.tmdbId && keep.has(`${sr.media.mediaType}:${sr.media.tmdbId}`)
+      (sr) => sr.media?.tmdbId && keep2.has(`${sr.media.mediaType}:${sr.media.tmdbId}`)
     ),
     localOnly: rows.localOnly.filter(
-      (l) => l.tmdbId && keep.has(`${l.mediaType}:${l.tmdbId}`)
+      (l) => l.tmdbId && keep2.has(`${l.mediaType}:${l.tmdbId}`)
     )
   };
 }
@@ -8403,8 +8775,13 @@ function withoutDeletedFile(fact, tmdbId, season) {
 var NO_FACTS = { byEpisode: /* @__PURE__ */ new Map(), byDay: /* @__PURE__ */ new Map() };
 var NO_QUEUE = { episodes: /* @__PURE__ */ new Map(), movies: /* @__PURE__ */ new Map() };
 function merge(prev, next) {
-  if (!prev) return { stalled: next.stalled, percent: next.percent, validating: next.validating };
-  return { stalled: prev.stalled && next.stalled, percent: prev.percent ?? next.percent, validating: prev.validating && next.validating };
+  const candidate = { stalled: next.stalled, percent: next.percent, validating: next.validating };
+  if (!prev) return candidate;
+  const a = entryState(candidate);
+  const b = entryState(prev);
+  if (moreAdvanced(a, b)) return candidate;
+  if (moreAdvanced(b, a)) return prev;
+  return (candidate.percent ?? -1) > (prev.percent ?? -1) ? candidate : prev;
 }
 function indexQueue(entries) {
   const index = { episodes: /* @__PURE__ */ new Map(), movies: /* @__PURE__ */ new Map() };
@@ -9438,7 +9815,7 @@ var TTL_MS2 = 10 * 6e4;
 var STALE_MS = 60 * 6e4;
 var str = (v) => typeof v === "string" && v !== "" ? v : null;
 var num3 = (v) => typeof v === "number" && Number.isFinite(v) ? v : 0;
-function toRemoteMedia(r, rank = 0) {
+function toRemoteMedia(r, rank2 = 0) {
   const mediaType = r.mediaType === "movie" || r.mediaType === "tv" ? r.mediaType : null;
   const id = num3(r.id);
   if (!mediaType || id <= 0) return null;
@@ -9458,10 +9835,10 @@ function toRemoteMedia(r, rank = 0) {
     genreIds: Array.isArray(r.genreIds) ? r.genreIds.filter((g) => typeof g === "number") : [],
     originalLanguage: str(r.originalLanguage),
     status: typeof info?.status === "number" ? info.status : void 0,
-    rank
+    rank: rank2
   };
 }
-function toRemotePerson(r, rank) {
+function toRemotePerson(r, rank2) {
   const id = num3(r.id);
   const name = str(r.name);
   if (id <= 0 || !name) return null;
@@ -9473,7 +9850,7 @@ function toRemotePerson(r, rank) {
     popularity: num3(r.popularity),
     department: str(r.knownForDepartment),
     knownFor,
-    rank
+    rank: rank2
   };
 }
 async function fetchSearchPage(cfg, text2, page, lang) {
@@ -9489,7 +9866,7 @@ async function remoteSearch(cfg, text2, page, lang, showBlocked, knownSafe = () 
   const key = `vigie:remote:${lang}:${showBlocked ? 1 : 0}:${page}:${foldText(text2)}`;
   const result = await cached(key, TTL_MS2, async () => {
     const raw = await fetchSearchPage(cfg, text2, page, lang);
-    const results = (Array.isArray(raw.results) ? raw.results : []).map((r, rank) => ({ r, rank }));
+    const results = (Array.isArray(raw.results) ? raw.results : []).map((r, rank2) => ({ r, rank: rank2 }));
     const tags = await getBlocklistedTags(cfg.seerrUrl, cfg.seerrApiKey);
     const blocked = parseTagSet(tags);
     let kept = results;
@@ -9506,12 +9883,12 @@ async function remoteSearch(cfg, text2, page, lang, showBlocked, knownSafe = () 
     }
     const media = [];
     const people = [];
-    for (const { r, rank } of kept) {
+    for (const { r, rank: rank2 } of kept) {
       if (r.mediaType === "person") {
-        const person = toRemotePerson(r, rank);
+        const person = toRemotePerson(r, rank2);
         if (person) people.push(person);
       } else {
-        const m = toRemoteMedia(r, rank);
+        const m = toRemoteMedia(r, rank2);
         if (m) media.push(masked.has(r) ? { ...m, masked: true } : m);
       }
     }
@@ -9702,8 +10079,8 @@ function textScore(names, tokens) {
 function popularityScore(voteCount, popularity) {
   return Math.round(70 * Math.log10(1 + voteCount) + 25 * Math.log10(1 + popularity));
 }
-function remoteRankScore(rank) {
-  return rank === null || rank === void 0 ? 0 : Math.max(0, 80 - 4 * rank);
+function remoteRankScore(rank2) {
+  return rank2 === null || rank2 === void 0 ? 0 : Math.max(0, 80 - 4 * rank2);
 }
 function scoreMediaWithText(item, text2, query) {
   let score2 = text2 === 0 && item.remoteRank !== null && item.remoteRank !== void 0 ? 150 : text2;
@@ -10088,8 +10465,8 @@ var NOTABLE_VOTES = 30;
 var NOTABLE_POPULARITY = 3;
 function statusFor(c) {
   const known = correctedStatus(c.mediaType, c.tmdbId, statusOf(c.mediaType, c.tmdbId) ?? c.remoteStatus);
-  const settled = known !== void 0 && known !== MEDIA_STATUS.UNKNOWN && known !== MEDIA_STATUS.DELETED;
-  if (!settled && isLocallyPending(c.key) && !goneFromJellyfin(c.mediaType, c.tmdbId)) return MEDIA_STATUS.PENDING;
+  const settled2 = known !== void 0 && known !== MEDIA_STATUS.UNKNOWN && known !== MEDIA_STATUS.DELETED;
+  if (!settled2 && isLocallyPending(c.key) && !goneFromJellyfin(c.mediaType, c.tmdbId)) return MEDIA_STATUS.PENDING;
   return known;
 }
 function visible(media, showMasked) {
@@ -10768,7 +11145,7 @@ var WAITING3 = /* @__PURE__ */ new Set([
   "unavailable",
   "retry_pending"
 ]);
-var RANK2 = { pending: 1, blocked: 2, importing: 3, arriving: 4 };
+var RANK2 = { blocked: 1, pending: 2, importing: 3, arriving: 4 };
 var still = (state2) => ({ state: state2, percent: null, etaSeconds: null });
 function etaOf(download) {
   const eta = download.etaSeconds;
