@@ -19,6 +19,7 @@ import type { LocalRequest } from "../api/types";
 import type { ProgressItem } from "../api/types-releases";
 import { stateFromRequest, type TitleStatus } from "../utils/title-state";
 import { formatEta } from "../utils/format-bytes";
+import causes from "../i18n/fr/causes";
 
 export type PhraseTone = "brand" | "info" | "success" | "warning" | "error" | "muted";
 
@@ -33,6 +34,16 @@ export interface RequestView {
   status: TitleStatus | null;
   /** La nuance ; `null` quand l'état suffit. */
   detail: RequestPhrase | null;
+}
+
+/**
+ * Bloqué : la cause dite par le serveur (liste fermée), dans les mots des
+ * avis envoyés au compte ; une cause que ce hub ne connaît pas encore (serveur
+ * plus récent) garde la phrase d'avant.
+ */
+export function blockedPhrase(cause: string | undefined): RequestPhrase {
+  const key = `dtBlocked_${cause}`;
+  return cause && key in causes ? { key: `seer:${key}`, tone: "warning" } : { key: "seer:dtStalled", tone: "warning" };
 }
 
 function arrivedOn(request: LocalRequest): string | null {
@@ -59,7 +70,7 @@ export function requestView(request: LocalRequest, progress?: ProgressItem): Req
       return { status, detail: muted("seer:dtRetrySoon", { count: request.retryCount, max: request.maxRetries }) };
     case "downloading":
     case "partially_available": {
-      if (download?.stalled) return { status, detail: { key: "seer:dtStalled", tone: "warning" } };
+      if (download?.stalled) return { status, detail: blockedPhrase(download.blockedCause) };
       // Le badge dit « En cours d'importation », la barre ce qui se range : rien à ajouter.
       if (download?.validating) return { status, detail: null };
       const eta = formatEta(download?.etaSeconds);

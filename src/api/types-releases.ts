@@ -77,6 +77,8 @@ export interface DownloadProgress {
   stalled?: boolean;
   /** Résumé d'une demande : combien de ses éléments sont bloqués. */
   stalledCount?: number;
+  /** Pourquoi c'est bloqué — identifiant de la liste fermée du serveur (arrival/blocked-causes.ts). */
+  blockedCause?: string;
   title: string | null;
   seasonNumber: number | null;
   episodeNumber: number | null;

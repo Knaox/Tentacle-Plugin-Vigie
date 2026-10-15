@@ -3,6 +3,10 @@
 /* ------------------------------------------------------------------ */
 
 import type { DownloadProgress } from "./types";
+import {
+  arrivalItemKey, bestCopies, entryState, titleArrival, type ArrivalState, type TitleArrivalState,
+} from "./arrival/arrival-state";
+import { classifyBlocked, leadingCause, type BlockedCause } from "./arrival/blocked-causes";
 
 /**
  * Élément de `media.downloadStatus` renvoyé par Jellyseerr (relais de la file
@@ -123,6 +127,7 @@ export function toDownloadProgress(item: SeerrDownloadItem): DownloadProgress | 
     status,
     validating: isValidating(size, sizeLeft, status),
     stalled: isStalledStatus(status),
+    ...(isStalledStatus(status) ? { blockedCause: classifyBlocked({ status, messages: [] }) } : {}),
     title: item.title ?? item.episode?.title ?? null,
     seasonNumber: item.episode?.seasonNumber ?? null,
     episodeNumber: item.episode?.episodeNumber ?? null,
@@ -136,12 +141,17 @@ export function toDownloadProgress(item: SeerrDownloadItem): DownloadProgress | 
  */
 const MAX_DETAIL_ITEMS = 24;
 
+/** L'état d'un élément relayé par Jellyseerr (arrival/arrival-state.ts). */
+function relayedState(p: DownloadProgress): ArrivalState {
+  return entryState({ stalled: !!p.stalled, validating: p.validating, waiting: p.status === "queued" || p.status === "delay" });
+}
+
 /**
- * Agrège les téléchargements d'un même média.
- * - `percent` : (Σtaille − Σrestant) / Σtaille sur les seuls éléments dimensionnés.
+ * Agrège les téléchargements d'un même média, selon la règle commune
+ * (arrival/arrival-state.ts) : la meilleure copie de chaque élément, puis le
+ * plus parlant des éléments — « bloqué » seulement quand tout l'est.
+ * - `percent` : (Σtaille − Σrestant) / Σtaille sur les meilleures copies dimensionnées.
  * - `etaSeconds` : le plus long des délais connus (c'est lui qui borne la fin).
- * - `status` : « downloading » dès qu'au moins un l'est.
- * - `stalled` : rien n'avance plus — tout ce qui n'est pas arrivé est bloqué.
  *
  * `isBlocked` lit la file *arr elle-même (par empreinte de téléchargement) :
  * Jellyseerr ne relaie que le statut du client, si bien qu'un import refusé
@@ -150,7 +160,7 @@ const MAX_DETAIL_ITEMS = 24;
 export function aggregateDownloads(
   items: readonly SeerrDownloadItem[] | undefined,
   isBlocked?: (downloadId: string) => boolean,
-): { summary: DownloadProgress | null; items: DownloadProgress[] } {
+): { summary: DownloadProgress | null; items: DownloadProgress[]; state?: TitleArrivalState } {
   if (!Array.isArray(items) || items.length === 0) return { summary: null, items: [] };
 
   const parsed: DownloadProgress[] = [];
@@ -161,10 +171,14 @@ export function aggregateDownloads(
       // Un fichier complet que *arr refuse d'importer n'est pas « en vérification ».
       p.stalled = true;
       p.validating = false;
+      p.blockedCause = "importRefused";
     }
     parsed.push(p);
   }
-  if (parsed.length === 0) return { summary: null, items: [] };
+  const tagged = parsed.map((p) => ({ item: arrivalItemKey(p.seasonNumber, p.episodeNumber), state: relayedState(p), p }));
+  const arrival = titleArrival(tagged);
+  if (!arrival) return { summary: null, items: [] };
+  const chosen = bestCopies(tagged).map((t) => t.p);
 
   let totalSize = 0;
   let totalLeft = 0;
@@ -172,7 +186,7 @@ export function aggregateDownloads(
   let maxEta: number | null = null;
   let latestAt: string | null = null;
 
-  for (const p of parsed) {
+  for (const p of chosen) {
     if (p.size != null && p.sizeLeft != null) {
       totalSize += p.size;
       totalLeft += p.sizeLeft;
@@ -184,8 +198,7 @@ export function aggregateDownloads(
     }
   }
 
-  const active = parsed.find((p) => p.status === "downloading") ?? parsed[0];
-  const stalledCount = parsed.filter((p) => p.stalled).length;
+  const active = chosen.find((p) => p.status === "downloading") ?? chosen[0];
   const percent = sized > 0 && totalSize > 0
     ? Math.min(100, Math.max(0, ((totalSize - totalLeft) / totalSize) * 100))
     : null;
@@ -196,23 +209,23 @@ export function aggregateDownloads(
     sizeLeft: sized > 0 ? totalLeft : null,
     etaSeconds: maxEta,
     estimatedCompletionAt: latestAt,
-    status: parsed.some((p) => p.status === "downloading") ? "downloading" : active.status,
-    // `every` et non `some` : tant qu'un seul épisode descend encore, la
-    // demande télécharge réellement — ce n'est pas de la validation.
-    validating: parsed.every((p) => p.validating),
-    // Un épisode bloqué parmi d'autres qui avancent : la demande avance.
-    stalled: stalledCount > 0 && parsed.every((p) => p.stalled || p.validating),
-    stalledCount,
-    title: parsed.length === 1 ? active.title : null,
-    seasonNumber: parsed.length === 1 ? active.seasonNumber : null,
-    episodeNumber: parsed.length === 1 ? active.episodeNumber : null,
+    status: arrival.state === "downloading" ? "downloading" : active.status,
+    validating: arrival.state === "importing",
+    stalled: arrival.state === "blocked",
+    stalledCount: arrival.blockedItems,
+    ...(arrival.state === "blocked"
+      ? { blockedCause: leadingCause(chosen.map((p) => (p.blockedCause ?? "unknown") as BlockedCause)) ?? "unknown" }
+      : {}),
+    title: chosen.length === 1 ? active.title : null,
+    seasonNumber: chosen.length === 1 ? active.seasonNumber : null,
+    episodeNumber: chosen.length === 1 ? active.episodeNumber : null,
   };
 
   // Les plus avancés d'abord : c'est ce qu'on veut voir en tête de liste.
-  const detail = parsed
+  const detail = chosen
     .slice()
     .sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1))
     .slice(0, MAX_DETAIL_ITEMS);
 
-  return { summary, items: detail };
+  return { summary, items: detail, state: arrival.state };
 }

@@ -90,7 +90,6 @@ export interface AdvanceDecision {
   status: RequestStatus | null;
   /** La demande vient d'arriver au bout. */
   completed: boolean;
-  notifyDownloading: boolean;
   notifyMovie: boolean;
   /** Saisons à annoncer maintenant. */
   notifySeasons: number[];
@@ -99,20 +98,19 @@ export interface AdvanceDecision {
 }
 
 const NOTHING: AdvanceDecision = {
-  status: null, completed: false, notifyDownloading: false, notifyMovie: false, notifySeasons: [], notified: null,
+  status: null, completed: false, notifyMovie: false, notifySeasons: [], notified: null,
 };
 
 /** Monter sur l'échelle seulement ; « disponible » clôt la demande. */
 function climb(input: AdvanceInput, target: RequestStatus, decision: AdvanceDecision): AdvanceDecision {
   if (target === input.status || isDowngrade(input.status, target)) return decision;
-  const nothingAnnounced = (input.notifiedSeasons ?? []).length === 0;
-  return {
-    ...decision,
-    status: target,
-    completed: target === "available",
-    // « En cours de téléchargement » : une fois, au départ — jamais après une annonce.
-    notifyDownloading: target === "downloading" && nothingAnnounced,
-  };
+  /*
+   * Le départ ne s'annonce plus ici : il attend sa confirmation
+   * (arrival/notice-watch.ts). Un titre bloqué dans la file reste une demande
+   * « en route » en base : c'est son avancement (`stalled`, sa cause) qui le
+   * dit « bloqué » partout où il s'affiche — hub, cartes, TV.
+   */
+  return { ...decision, status: target, completed: target === "available" };
 }
 
 export function decideAdvance(input: AdvanceInput): AdvanceDecision {

@@ -46,4 +46,12 @@ export const MIGRATIONS: readonly PluginMigration[] = [
       for (const table of TABLES) await reconcileTable(db, table);
     },
   },
+  {
+    // Une base déjà passée par la 1 n'a pas la table venue après : même reconnaissance, cette table seule.
+    version: 2,
+    name: "avis déjà envoyés (seer_notices)",
+    up: async (db) => {
+      for (const table of TABLES.filter((t) => t.name === "seer_notices")) await reconcileTable(db, table);
+    },
+  },
 ];
