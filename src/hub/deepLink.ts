@@ -9,7 +9,10 @@
  * main à Vigie (`?q=dune`), qu'une filmographie de Tentacle ouvre la sienne
  * (`?person=6384`), qu'un lien mène à un onglet (`?tab=requests`), et
  * qu'une carte de Tentacle demande une série (`?request=tv:1399` : ses
- * saisons libres, prêtes à cocher — cf. le contrat `titles`).
+ * saisons libres, prêtes à cocher — cf. le contrat `titles`), et qu'une
+ * notification de Tentacle mène à SA demande (`?tab=requests&find=<titre>&focus=<id>` :
+ * « Mes demandes » cherchée sur le titre, la demande en évidence — la cible
+ * que Vigie pose sur ses notifications, `server/notify/core-notification.ts`).
  * Le chemin de la route compte aussi : les anciens liens `/requests` et
  * `/releases` ouvrent l'onglet correspondant.
  */
@@ -24,6 +27,24 @@ export interface HubEntry {
   /** Un titre à demander dès l'arrivée : les saisons libres d'une série. */
   request: { mediaType: "movie" | "tv"; id: number } | null;
   query: string;
+  /** Une demande à montrer : la recherche de « Mes demandes », la demande mise en évidence. */
+  requestFocus: RequestFocus | null;
+}
+
+export interface RequestFocus {
+  /** L'identifiant de la demande (Vigie) ; null si seul le titre est connu. */
+  id: string | null;
+  /** Ce que la recherche de « Mes demandes » contient à l'arrivée. */
+  find: string;
+}
+
+const REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+function readRequestFocus(params: URLSearchParams): RequestFocus | null {
+  const rawId = params.get("focus");
+  const id = rawId && REQUEST_ID.test(rawId) ? rawId : null;
+  const find = (params.get("find") ?? "").trim().slice(0, 120);
+  return id || find ? { id, find } : null;
 }
 
 const TABS: Record<string, HubTab> = {
@@ -50,6 +71,7 @@ export function readHubEntry(routePath: string, hostQuery: string | undefined): 
       ? { mediaType: request[1] as "movie" | "tv", id: requestId }
       : null,
     query: (params.get("q") ?? "").slice(0, 120),
+    requestFocus: readRequestFocus(params),
   };
 }
 

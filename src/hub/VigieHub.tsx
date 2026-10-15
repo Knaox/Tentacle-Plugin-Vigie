@@ -252,7 +252,7 @@ export function VigieHub({ routePath }: { routePath: string }) {
               </div>
             )}
             {visited.has("requests") && (
-              <div hidden={!show("requests")}><RequestsView key={`requests:${fresh.requests}`} data={data} active={show("requests")} /></div>
+              <div hidden={!show("requests")}><RequestsView key={`requests:${fresh.requests}`} data={data} active={show("requests")} focus={fresh.requests === 0 ? entry.requestFocus : null} /></div>
             )}
             {visited.has("calendar") && (
               <div hidden={!show("calendar")}><CalendarView key={`calendar:${fresh.calendar}`} active={show("calendar")} focus={calendarFocus} /></div>
