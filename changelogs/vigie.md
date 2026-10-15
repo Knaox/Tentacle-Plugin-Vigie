@@ -19,6 +19,12 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.27.1]
+### FR
+- **Des aperçus presque instantanés** : la mini-carte paraît plus tôt et sa vidéo joue dès qu'elle paraît ; avec Tentacle 1.30.0, les affiches à l'écran font préparer leur aperçu d'avance par le serveur — le survol d'un titre à demander n'attend plus
+### EN
+- **Near-instant previews**: the mini card shows up sooner and its video plays as soon as it does; with Tentacle 1.30.0, the posters on screen have their preview prepared ahead by the server — hovering a title to request no longer waits
+
 ## [1.27.0]
 ### FR
 - **Les bandes-annonces de Tentacle, dans Vigie** : le bouton et les extras d'une fiche montrent la même liste que les fiches de Tentacle — AlloCiné (VF, VOSTFR), TMDB, Jellyfin, Jellyseerr —, dans la langue du serveur d'abord, avec sous chaque vignette la saison, la version (VF, VOSTFR, VO) et l'origine
