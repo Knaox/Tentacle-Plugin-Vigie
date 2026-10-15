@@ -50,6 +50,22 @@ function getToken(): string {
 }
 
 /**
+ * Un refus du relais : le statut, et le `code` que le serveur donne (ex.
+ * `restricted_title` : un titre au-dessus de l'âge du profil). Le message
+ * reste celui d'avant pour qui ne lit que lui.
+ */
+export class SeerrProxyError extends Error {
+  status: number;
+  code?: string;
+  constructor(status: number, code?: string) {
+    super(`Seerr API error: ${status}`);
+    this.name = "SeerrProxyError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/**
  * Transparent streaming proxy to Seerr.
  * GET /api/plugins/seer/seerr/api/v1/... → backend streams Seerr response directly.
  * API key is injected server-side (never exposed to frontend).
@@ -79,7 +95,8 @@ export async function proxyFetch<T>(
 
   const res = await fetch(url, init);
   if (!res.ok) {
-    throw new Error(`Seerr API error: ${res.status}`);
+    const body = (await res.json().catch(() => null)) as { code?: unknown } | null;
+    throw new SeerrProxyError(res.status, typeof body?.code === "string" ? body.code : undefined);
   }
   return res.json() as Promise<T>;
 }

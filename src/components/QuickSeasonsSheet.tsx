@@ -14,6 +14,8 @@ import { useTranslation } from "react-i18next";
 import type { SeerrSearchResult, SeerrTvDetail } from "../api/types";
 import { formatSeerError } from "../api/seer-client";
 import { useMediaDetail } from "../hooks/useMediaDetail";
+import { isRestrictedError } from "../utils/restricted";
+import { RestrictedNotice } from "./detail/RestrictedNotice";
 import { useLocalRequestedSeasons } from "../hooks/useLocalRequestedSeasons";
 import { useRequestMedia } from "../hooks/useRequestMedia";
 import { useToast } from "../hooks/useToast";
@@ -44,7 +46,8 @@ export function QuickSeasonsSheet({ item, onClose, onOpenDetail }: {
   const toast = useToast();
   const requestMedia = useRequestMedia();
   const specialSeasons = useSpecialSeasons();
-  const { data, isPending } = useMediaDetail("tv", item.id);
+  const { data, isPending, error } = useMediaDetail("tv", item.id);
+  const restricted = isRestrictedError(error);
   const detail = data as SeerrTvDetail | undefined;
   const { data: localSeasons } = useLocalRequestedSeasons("tv", item.id);
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
@@ -97,15 +100,17 @@ export function QuickSeasonsSheet({ item, onClose, onOpenDetail }: {
   );
 
   return (
-    <Sheet open onClose={onClose} title={title} size="sm" footer={footer}>
-      <div className="flex items-center gap-3">
+    <Sheet open onClose={onClose} title={restricted ? t("seer:restrictedTitle") : title} size="sm" footer={restricted ? undefined : footer}>
+      {!restricted && <div className="flex items-center gap-3">
         <span className="block h-[72px] w-12 shrink-0 overflow-hidden rounded-lg bg-tentacle-surface-2 ring-1 ring-tentacle-border-subtle">
           {poster && <img src={poster} alt="" className="h-full w-full object-cover" />}
         </span>
         <p className="text-sm text-tentacle-text-tertiary">{t("seer:quickSeasonsHint")}</p>
-      </div>
+      </div>}
 
-      {isPending ? (
+      {restricted ? (
+        <RestrictedNotice compact />
+      ) : isPending ? (
         <div className="mt-4 space-y-2" aria-hidden>
           {[0, 1, 2].map((i) => <div key={i} className="h-14 rounded-2xl bg-tentacle-fill-subtle" />)}
         </div>

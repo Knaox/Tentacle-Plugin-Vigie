@@ -18,8 +18,8 @@
  *     titre « demandé » dans ce cache) se voit aussitôt dans la grille.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { BROWSE_PAGE_SIZE, MAX_BROWSE_PAGES } from "../api/client-browse";
 import type { SeerrPagedResponse, SeerrSearchResult } from "../api/types";
 
@@ -49,6 +49,25 @@ function totalOf(first: SeerrPagedResponse | undefined): number | null {
   if (!first) return null;
   const pages = Math.min(first.totalPages || 1, MAX_BROWSE_PAGES);
   return Math.min(first.totalResults ?? 0, pages * BROWSE_PAGE_SIZE);
+}
+
+/**
+ * La page « pleine » la plus récemment reçue du parcours, s'il en a : un profil
+ * restreint reçoit des pages dont le total grandit avec la lecture du serveur
+ * (contrôle parental) — c'est la dernière arrivée qui le dit. Sans elles
+ * (compte libre), la première page fait foi, comme avant.
+ */
+function latestDense(qc: QueryClient, key: string): SeerrPagedResponse | undefined {
+  let latest: SeerrPagedResponse | undefined;
+  let at = -1;
+  for (const q of qc.getQueryCache().findAll({ queryKey: [ROOT, key] })) {
+    const data = q.state.data as SeerrPagedResponse | undefined;
+    if (data?.vigieDense && q.state.dataUpdatedAt > at) {
+      latest = data;
+      at = q.state.dataUpdatedAt;
+    }
+  }
+  return latest;
 }
 
 type PageLoader = (page: number) => Promise<SeerrPagedResponse>;
@@ -138,7 +157,10 @@ export function useSparseCatalog(key: string, fetchPage: PageLoader, enabled = t
   }, [pump]);
 
   const first = pageData(1);
-  const total = enabled ? totalOf(first) : 0;
-  const capped = total !== null && (first?.totalResults ?? 0) > total;
+  // `version` change à chaque page arrivée : le total d'un profil restreint la suit.
+  const dense = useMemo(() => latestDense(qc, key), [qc, key, version]); // eslint-disable-line react-hooks/exhaustive-deps
+  const head = dense ?? first;
+  const total = enabled ? totalOf(head) : 0;
+  const capped = total !== null && (head?.totalResults ?? 0) > total;
   return { total, capped, version, itemAt, ensureRange, error: enabled && error, retry };
 }
