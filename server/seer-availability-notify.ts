@@ -7,6 +7,7 @@ import type { SeerRequest } from "./types";
 import { evaluateSeasons, seasonNotification, releasedSuffix, goneSeasons } from "./season-availability";
 import { setNotifiedSeasons, addSeasonsToRequest, updateRequestStatus } from "./db";
 import { invalidateRequestCaches } from "./cache";
+import { requestNotificationData } from "./notify/core-notification";
 
 /**
  * TV : évalue la dispo PAR-SAISON, notifie le DELTA de saisons devenues dispo
@@ -28,10 +29,7 @@ export async function notifyAvailableSeasons(
   if (newly.length > 0) {
     const n = seasonNotification(request, newly, ev.available.length);
     await db.core.notification.create({
-      data: {
-        jellyfinUserId: request.jellyfinUserId, type: "request_status",
-        title: n.title, body: n.message, refId: request.id,
-      },
+      data: requestNotificationData(request, { title: n.title, body: n.message }, "available"),
     });
     // Union, pas remplacement : Sonarr a pu annoncer une saison que
     // Jellyseerr ne voit pas encore (arr-advance.ts) — l'oublier la
@@ -49,12 +47,10 @@ export async function notifyMovieAvailable(
 ): Promise<void> {
   if ((request.notifiedSeasons ?? []).length > 0) return; // déjà notifié
   await db.core.notification.create({
-    data: {
-      jellyfinUserId: request.jellyfinUserId, type: "request_status",
+    data: requestNotificationData(request, {
       title: request.title,
       body: `« ${request.title} » ${releasedSuffix("m", false)}`,
-      refId: request.id,
-    },
+    }, "available"),
   });
   await setNotifiedSeasons(db, request.id, [0]); // flag « film notifié »
   console.log(`[SeerWorker] "${request.title}" (film) dispo → notif`);

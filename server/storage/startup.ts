@@ -5,6 +5,7 @@
 import type { CorePrisma } from "./contract";
 import { MIGRATIONS } from "./migrations";
 import { createVigieDb, usableStorage, type VigieDb } from "./vigie-db";
+import { coreNotifications } from "../notify/core-notification";
 
 /*
  * Vigie ne tourne que sur la base SQLite que Tentacle ≥ 1.25.0 prête
@@ -17,6 +18,8 @@ import { createVigieDb, usableStorage, type VigieDb } from "./vigie-db";
 export interface StorageHost {
   storage?: unknown;
   getPrisma?: () => unknown;
+  /** Les colonnes additives de `notifications` que le cœur connaît (≥ 1.30.0). */
+  notificationFields?: readonly string[];
 }
 
 export async function openVigieDb(ctx: StorageHost): Promise<VigieDb | null> {
@@ -31,7 +34,7 @@ export async function openVigieDb(ctx: StorageHost): Promise<VigieDb | null> {
   if (applied.length > 0) console.log(`[SeerDB] Migrations appliquées : ${applied.join(", ")}`);
   const core = (ctx.getPrisma?.() ?? null) as CorePrisma | null;
   if (!core) throw new Error("[SeerBackend] Client du cœur absent (getPrisma) : notifications impossibles");
-  const db = createVigieDb(ctx.storage, core);
+  const db = createVigieDb(ctx.storage, coreNotifications(core, ctx.notificationFields));
   const [{ cnt }] = await db.query<{ cnt: number }>("SELECT COUNT(*) AS cnt FROM seer_requests");
   console.log(`[SeerDB] Base prête — ${cnt} demande(s)`);
   return db;

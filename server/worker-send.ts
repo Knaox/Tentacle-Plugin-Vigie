@@ -17,6 +17,7 @@ import type { SeerProfile } from "./types";
 import { MEDIA_STATUS_BLOCKLISTED, liftBlocklist } from "./blocklist";
 import { refusedForStaleSeasons, staleSeasons, unblockSeasons } from "./live/seerr-unblock";
 import { triggerSeerrJob } from "./arr-service";
+import { requestNotificationData } from "./notify/core-notification";
 
 /* ── Process next queued request ───────────────────────────────────── */
 
@@ -210,12 +211,10 @@ export async function processNextRequest(
         lastError: errMsg, retryCount: newRetryCount,
       });
       await db.core.notification.create({
-        data: {
-          jellyfinUserId: request.jellyfinUserId, type: "request_status",
+        data: requestNotificationData(request, {
           title: request.title,
           body: `Votre demande pour « ${request.title} » a échoué après ${newRetryCount} tentatives`,
-          refId: request.id,
-        },
+        }, "failed"),
       });
       console.warn(`[SeerWorker] Request for "${request.title}" FAILED after ${newRetryCount} retries: ${errMsg}`);
     } else {

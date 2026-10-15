@@ -46,6 +46,8 @@ interface PluginBackendContext {
   getPrisma: () => unknown;
   /** La base SQLite de Tentacle ≥ 1.25.0 ; absente d'un serveur d'avant : Vigie ne démarre pas. */
   storage?: PluginStorage;
+  /** Les colonnes additives de `notifications` que le cœur connaît (≥ 1.30.0 : cible, état). */
+  notificationFields?: readonly string[];
   requireAuth: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   requireAdmin: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   /** Venu après dans Tentacle : absent d'un cœur d'avant (cf. titles/request-listener.ts). */
