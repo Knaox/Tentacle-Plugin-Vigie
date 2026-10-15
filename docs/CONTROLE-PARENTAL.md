@@ -133,3 +133,28 @@ compris, applique sa politique.
   cachés cette fois et lus en fond. Les pages pleines appellent le pont page de Jellyseerr par
   page (20 titres) : elles restent dans le budget. Une grande liste d'un coup (calendrier
   d'une plateforme, recherche complète) peut montrer moins de titres à sa première ouverture.
+
+## De bout en bout, contre une vraie bibliothèque (lot « droits 2 », 2026-10-15)
+
+Éprouvé par le banc du contrôle parental du cœur (`apps/backend/test/parental-bench/` du dépôt
+Tentacle-TV, `pnpm --filter @tentacle-tv/backend bench:parental`) : Vigie de cette branche
+installée devant un faux Jellyseerr dont les listes ne portent que de VRAIS identifiants TMDB
+(titres de la bibliothèque, permis ou non, et titres extérieurs), le cœur relisant les vraies
+classifications chez TMDB, un oracle du banc les relisant de son côté.
+
+- **Ce qui fuyait venait du pont du cœur, pas de Vigie** : un titre de la BIBLIOTHÈQUE caché au
+  compte (classé plus haut que sa note, étiqueté, non classé, ou dans une bibliothèque refusée)
+  passait le pont — sa classification TMDB, elle, était « tous publics » — et Vigie le montrait
+  comme titre à demander, fiche comprise. Corrigé dans le cœur (`contentPolicy/extensionBridge.ts`) :
+  le pont applique la règle de « Pour vous » (caché par la bibliothèque = jamais ; une version vue =
+  Jellyfin a jugé ; sinon TMDB). **Rien à changer dans Vigie.**
+- **`isRestricted` vaut aussi pour des bibliothèques bornées** (cœur, même correction) : un compte
+  sans note maximale mais privé d'une bibliothèque passe désormais par les pages pleines et le
+  filtre — il ne se voit plus proposer les titres de la bibliothèque qu'il ne voit pas.
+- Relevé (compte « 6 ans », compte « Films seule », invité de la Famille sur une Apple TV, compte
+  libre en témoin) : découverte films / séries / tendances, recherche (hub, barre du cœur, saga),
+  semblables, saga, filmographie, fiche et saisons (403 `restricted_title`), `titles.state`,
+  `titles.gaps`, `titles.mine`, « Mes demandes », avancement, calendrier : aucun titre refusé par
+  l'oracle ; demander un titre interdit (hub ou carte) : refusé, aucune demande chez Jellyseerr.
+  Restriction levée puis remise par l'administration : les demandes faites entre-temps disparaissent
+  aussitôt de « Mes demandes », des titres attendus et du calendrier.
