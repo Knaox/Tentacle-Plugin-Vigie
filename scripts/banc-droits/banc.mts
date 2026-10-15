@@ -21,6 +21,7 @@ const { containerState, docker, startJellyfin } = await import(`${T}/docker.ts`)
 const { JellyfinHttp } = await import(`${T}/jellyfinHttp.ts`);
 const { waitForServer, completeWizard, authenticate, ensureApiKey, ensureUser, COMPAT_PASSWORD } = await import(`${T}/provision.ts`);
 const { startDatabase, seedBackendConfig, startBackend } = await import(`${T}/backendEnv.ts`);
+const { openSqlite } = await import(`${REPO}/apps/backend/src/services/database/nodeSqlite.ts`);
 
 const JF_PORT = 18141, SEERR = "http://127.0.0.1:18142", PORT = 3141;
 const log = (l: string) => console.log(`[banc] ${l}`);
@@ -44,6 +45,22 @@ log("comptes : enfant (MaxParentalRating=10), adulte (libre)");
 mkdirSync(RUN, { recursive: true });
 const db = startDatabase(RUN, log);
 seedBackendConfig(db, { jellyfinUrl: jfUrl, apiKey, adminUserId: admin.id });
+/* Certifications SIMULÉES (aucun appel à TMDB) dans le cache des fiches du cœur : film n
+ * → FR « U » si n % 3 = 1 (permis à une note max de 10), « 12 » si n % 3 = 2, « 18 » sinon.
+ * Avant le démarrage du backend, dans CE processus : jamais à côté de son Prisma. */
+const certOf = (n: number) => (n % 3 === 1 ? "U" : n % 3 === 2 ? "12" : "18");
+const sqlite = openSqlite(db.path);
+try {
+  const insert = sqlite.prepare(`INSERT INTO "tmdb_meta_cache" ("mediaType", "tmdbId", "payload", "fetchedAt", "expiresAt") VALUES ('movie', ?, ?, ?, ?)`);
+  const now = Date.now();
+  for (let n = 1; n <= 1100; n++) {
+    const payload = { id: n, adult: false, release_dates: { results: [{ iso_3166_1: "FR", release_dates: [{ certification: certOf(n) }] }] } };
+    insert.run(n, JSON.stringify(payload), now, now + 30 * 86400_000);
+  }
+} finally {
+  sqlite.close();
+}
+log("certifications simulées : 1100 films (FR U / 12 / 18)");
 const plugins = join(db.dataDir, "plugins");
 mkdirSync(join(plugins, "seer", "server"), { recursive: true });
 cpSync(`${VIGIE}/plugin.json`, join(plugins, "seer", "plugin.json"));
@@ -73,25 +90,32 @@ async function call(token: string, method: string, path: string, body?: unknown)
 }
 const rows: Array<Record<string, unknown>> = [];
 const posted = async () => ((await (await fetch(`${SEERR}/__posted`)).json()) as { posted: unknown[] }).posted.length;
+const ids = (r: any) => (r.json?.results ?? []).map((x: any) => x.id) as number[];
+const allU = (list: number[]) => list.every((n) => n % 3 === 1);
 for (const who of ["adulte", "enfant"]) {
   const tok = await login(who);
   const p1 = await call(tok, "GET", "/seerr/api/v1/discover/movies?page=1&_lang=fr");
   const p2 = await call(tok, "GET", "/seerr/api/v1/discover/movies?page=2&_lang=fr");
-  const fiche = await call(tok, "GET", "/seerr/api/v1/movie/7?_lang=fr");
+  const similar = await call(tok, "GET", "/seerr/api/v1/movie/7/similar?page=1&_lang=fr");
+  const ficheU = await call(tok, "GET", "/seerr/api/v1/movie/7?_lang=fr");
+  const fiche12 = await call(tok, "GET", "/seerr/api/v1/movie/8?_lang=fr");
   const saga = await call(tok, "GET", "/seerr/api/v1/collection/9?_lang=fr");
-  const state = await call(tok, "GET", "/titles/state?keys=movie:7&lang=fr");
+  const state = await call(tok, "GET", "/titles/state?keys=movie:7,movie:8&lang=fr");
   const before = await posted();
-  const hub = await call(tok, "POST", "/requests", { mediaType: "movie", tmdbId: 7, title: "Film 7" });
-  const card = await call(tok, "POST", "/titles/request", { mediaType: "movie", tmdbId: 8, lang: "fr" });
+  const hubU = await call(tok, "POST", "/requests", { mediaType: "movie", tmdbId: 10, title: "Film 10" });
+  const hub18 = await call(tok, "POST", "/requests", { mediaType: "movie", tmdbId: 9, title: "Film 9" });
+  const card12 = await call(tok, "POST", "/titles/request", { mediaType: "movie", tmdbId: who === "adulte" ? 11 : 8, lang: "fr" });
+  const i1 = ids(p1), i2 = ids(p2);
   rows.push({
     compte: who,
-    "découverte p1": `${p1.status} · ${p1.json?.results?.length} titres · total ${p1.json?.totalResults}${p1.json?.vigieDense ? " (pleine)" : ""}`,
-    "découverte p2": `${p2.status} · ${p2.json?.results?.length} titres`,
-    fiche: `${fiche.status}${fiche.json?.code ? ` ${fiche.json.code}` : ` « ${fiche.json?.title} »`}`,
-    saga: `${saga.status} · ${saga.json?.parts?.length} volets`,
-    "titles.state": JSON.stringify(state.json?.items?.["movie:7"]?.request ?? null),
-    "demande hub": `${hub.status}${hub.json?.code ? ` ${hub.json.code}` : ""}`,
-    "demande carte": card.json?.ok ? "ok" : `refus : ${card.json?.message}`,
+    "découverte p1": `${i1.length} titres ${i1[0]}…${i1.at(-1)} · total ${p1.json?.totalResults}${allU(i1) ? " · tous U" : ""}`,
+    "découverte p2": `${i2.length} titres, dès ${i2[0]}${allU(i2) ? " · tous U" : ""}`,
+    semblables: `${ids(similar).length} titres`,
+    "fiche U / 12": `${ficheU.status} / ${fiche12.status}${fiche12.json?.code ? ` ${fiche12.json.code}` : ""}`,
+    "saga (1 U, 2 « 12 »)": (saga.json?.parts ?? []).map((x: any) => x.id).join(",") || "vide",
+    "titles.state 8": JSON.stringify(state.json?.items?.["movie:8"]?.request ?? null),
+    "demande U / 18": `${hubU.status} / ${hub18.status}${hub18.json?.code ? ` ${hub18.json.code}` : ""}`,
+    "carte « 12 »": card12.json?.ok ? "ok" : `refus : ${card12.json?.message}`,
     "POST Jellyseerr": (await posted()) - before,
   });
 }

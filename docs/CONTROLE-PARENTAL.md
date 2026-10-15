@@ -114,13 +114,22 @@ compris, applique sa politique.
   un Jellyfin 10.11 JETABLE (`droits-vigie-jf`, 18141), un faux Jellyseerr déterministe (18142,
   aucune sortie vers TMDB), Vigie installée depuis `server/index.mjs`. Lancement : voir l'en-tête
   de `banc.mts` (`REPO`, `VIGIE`, `RUN`, depuis `apps/backend` du dépôt Tentacle, par `npx tsx`).
-  Relevé du 2026-10-15 :
+  Le cœur réel lit les certifications dans son cache des fiches (`tmdb_meta_cache`) : le banc
+  y sème des certifications françaises SIMULÉES (film n : « U » si n % 3 = 1, « 12 » si
+  n % 3 = 2, « 18 » sinon) — aucun appel à TMDB. Relevé final du 2026-10-15, cœur
+  `lot-droits/base` 3fc3e0084 (étape D, pont réel), compte `enfant` à la note max 10 :
 
-  | Cœur | Compte | Découverte p1 | Fiche | Saga | Demande hub | Demande carte |
-  |---|---|---|---|---|---|---|
-  | socle (pont, étape A) | adulte | 20 titres, total 100 | 200 | 2 volets | 201 | acceptée |
-  | socle (pont, étape A) | enfant (note max 10) | 0 titre, total 0 | 403 `restricted_title` | 0 volet | 403 `restricted_title` | « Ce titre n'est pas disponible pour ce profil. » |
-  | d'avant (sans pont) | enfant | 20 titres, total 100 | 200 | 2 volets | 201 | acceptée |
+  | Compte | Découverte p1 | p2 | Semblables | Fiche U / 12 | Saga (1 U, 2 « 12 ») | Demande U / 18 | Carte « 12 » |
+  |---|---|---|---|---|---|---|---|
+  | adulte | 20 titres (1…20), total 100 | 20, dès 21 | 20 | 200 / 200 | 1, 2 | 201 / 201 | acceptée |
+  | enfant | 20 titres, tous « U » (1…58), total 40 | 14, dès 61, tous « U » | 13 | 200 / 403 `restricted_title` | 1 | 201 / 403 `restricted_title` | « Ce titre n'est pas disponible pour ce profil. » |
 
-  À l'étape A, le pont du cœur ne laisse AUCUN titre extérieur à un compte restreint : les
-  pages en partie permises (le flux qui remplit) ne se prouvent encore que par les tests.
+  Les 34 titres « U » du catalogue simulé arrivent en deux pages pleines, à la suite, sans
+  trou ni doublon ; le total annoncé (40 : une page d'avance) devient exact (34) à la fin.
+  Relevés précédents : à l'étape A (pont provisoire), l'enfant n'avait aucun titre ; face à
+  un cœur SANS pont (165d09d70), il voyait tout, comme avant.
+
+  **Budget du cœur** : le pont lit au plus 24 titres chez TMDB par appel ; les autres sont
+  cachés cette fois et lus en fond. Les pages pleines appellent le pont page de Jellyseerr par
+  page (20 titres) : elles restent dans le budget. Une grande liste d'un coup (calendrier
+  d'une plateforme, recherche complète) peut montrer moins de titres à sa première ouverture.
