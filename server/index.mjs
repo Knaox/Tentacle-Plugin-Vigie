@@ -226,6 +226,53 @@ function usableStorage(storage) {
   return s.dialect === "sqlite" && typeof s.query === "function" && typeof s.execute === "function" && typeof s.transaction === "function" && typeof s.migrate === "function" && !!s.sql;
 }
 
+// server/notify/core-notification.ts
+var PLUGIN_ID = "seer";
+var HUB_PATH = "/discover";
+var MAX_FIND = 120;
+function requestPageTarget(req) {
+  return {
+    kind: "extension",
+    pluginId: PLUGIN_ID,
+    path: HUB_PATH,
+    params: { tab: "requests", find: req.title.slice(0, MAX_FIND), focus: req.id }
+  };
+}
+function titleTarget(req) {
+  if (!Number.isSafeInteger(req.tmdbId) || req.tmdbId <= 0) return requestPageTarget(req);
+  return { kind: "title", mediaType: req.mediaType, tmdbId: req.tmdbId, fallback: requestPageTarget(req) };
+}
+function requestNotificationExtras(req, state2) {
+  const target = state2 === "available" ? titleTarget(req) : requestPageTarget(req);
+  return { target: JSON.stringify(target), state: state2 };
+}
+function requestNotificationData(req, text2, state2) {
+  return {
+    jellyfinUserId: req.jellyfinUserId,
+    type: "request_status",
+    title: text2.title,
+    body: text2.body,
+    refId: req.id,
+    ...requestNotificationExtras(req, state2)
+  };
+}
+var EXTRA_FIELDS = ["target", "state"];
+function coreNotifications(core, announced) {
+  const known = new Set(announced ?? []);
+  const dropped = EXTRA_FIELDS.filter((f) => !known.has(f));
+  if (dropped.length === 0) return core;
+  return {
+    ...core,
+    notification: {
+      create: (args) => {
+        const data = { ...args.data };
+        for (const field of dropped) delete data[field];
+        return core.notification.create({ ...args, data });
+      }
+    }
+  };
+}
+
 // server/storage/startup.ts
 async function openVigieDb(ctx) {
   if (!usableStorage(ctx.storage)) {
@@ -238,7 +285,7 @@ async function openVigieDb(ctx) {
   if (applied.length > 0) console.log(`[SeerDB] Migrations appliqu\xE9es : ${applied.join(", ")}`);
   const core = ctx.getPrisma?.() ?? null;
   if (!core) throw new Error("[SeerBackend] Client du c\u0153ur absent (getPrisma) : notifications impossibles");
-  const db = createVigieDb(ctx.storage, core);
+  const db = createVigieDb(ctx.storage, coreNotifications(core, ctx.notificationFields));
   const [{ cnt }] = await db.query("SELECT COUNT(*) AS cnt FROM seer_requests");
   console.log(`[SeerDB] Base pr\xEAte \u2014 ${cnt} demande(s)`);
   return db;
@@ -1166,13 +1213,7 @@ async function notifyAvailableSeasons(db, request, mediaSeasons) {
   if (newly.length > 0) {
     const n = seasonNotification(request, newly, ev.available.length);
     await db.core.notification.create({
-      data: {
-        jellyfinUserId: request.jellyfinUserId,
-        type: "request_status",
-        title: n.title,
-        body: n.message,
-        refId: request.id
-      }
+      data: requestNotificationData(request, { title: n.title, body: n.message }, "available")
     });
     await setNotifiedSeasons(db, request.id, [.../* @__PURE__ */ new Set([...notified, ...ev.available])].sort((a, b) => a - b));
     console.log(`[SeerWorker] "${request.title}" saisons dispo [${newly.join(",")}] \u2192 notif`);
@@ -1182,13 +1223,10 @@ async function notifyAvailableSeasons(db, request, mediaSeasons) {
 async function notifyMovieAvailable(db, request) {
   if ((request.notifiedSeasons ?? []).length > 0) return;
   await db.core.notification.create({
-    data: {
-      jellyfinUserId: request.jellyfinUserId,
-      type: "request_status",
+    data: requestNotificationData(request, {
       title: request.title,
-      body: `\xAB ${request.title} \xBB ${releasedSuffix("m", false)}`,
-      refId: request.id
-    }
+      body: `\xAB ${request.title} \xBB ${releasedSuffix("m", false)}`
+    }, "available")
   });
   await setNotifiedSeasons(db, request.id, [0]);
   console.log(`[SeerWorker] "${request.title}" (film) dispo \u2192 notif`);
@@ -2787,13 +2825,13 @@ function withoutDeletedSeasons(facts, tmdbId) {
 }
 function arrivalNotifications(req, d) {
   const out = [];
-  if (d.notifyDownloading) out.push({ title: req.title, body: `\xAB ${req.title} \xBB est en route` });
-  if (d.notifyMovie) out.push({ title: req.title, body: `\xAB ${req.title} \xBB ${releasedSuffix("m", false)}` });
+  if (d.notifyDownloading) out.push({ title: req.title, body: `\xAB ${req.title} \xBB est en route`, state: "progress" });
+  if (d.notifyMovie) out.push({ title: req.title, body: `\xAB ${req.title} \xBB ${releasedSuffix("m", false)}`, state: "available" });
   if (d.notifySeasons.length > 0) {
     const requested2 = req.seasons ?? [];
     const arrived = (d.notified ?? req.notifiedSeasons ?? []).filter((s) => requested2.includes(s)).length;
     const n = seasonNotification(req, d.notifySeasons, arrived);
-    out.push({ title: n.title, body: n.message });
+    out.push({ title: n.title, body: n.message, state: "available" });
   }
   return out;
 }
@@ -2805,9 +2843,7 @@ async function apply(db, req, d) {
     console.log(`[SeerArr] "${req.title}" status: ${req.status} \u2192 ${d.status}`);
   }
   for (const n of notifications) {
-    await db.core.notification.create({
-      data: { jellyfinUserId: req.jellyfinUserId, type: "request_status", title: n.title, body: n.body, refId: req.id }
-    });
+    await db.core.notification.create({ data: requestNotificationData(req, n, n.state) });
   }
   if (d.notified) await setNotifiedSeasons(db, req.id, d.notified);
   invalidateRequestCaches(req.jellyfinUserId);
@@ -2901,13 +2937,7 @@ async function syncGlobal(db, request, newStatus, mediaStatus) {
   const notif = statusNotification(request, newStatus);
   if (notif) {
     await db.core.notification.create({
-      data: {
-        jellyfinUserId: request.jellyfinUserId,
-        type: "request_status",
-        title: notif.title,
-        body: notif.message,
-        refId: request.id
-      }
+      data: requestNotificationData(request, { title: notif.title, body: notif.message }, notif.state)
     });
   }
   console.log(`[SeerWorker] "${request.title}" status: ${request.status} \u2192 ${newStatus}`);
@@ -2964,13 +2994,10 @@ async function handleFailedSync(db, config, request, data) {
       retryCount: retryN
     });
     await db.core.notification.create({
-      data: {
-        jellyfinUserId: request.jellyfinUserId,
-        type: "request_status",
+      data: requestNotificationData(request, {
         title: request.title,
-        body: `\xC9chec d\xE9finitif pour \xAB ${request.title} \xBB apr\xE8s ${request.maxRetries} tentatives`,
-        refId: request.id
-      }
+        body: `\xC9chec d\xE9finitif pour \xAB ${request.title} \xBB apr\xE8s ${request.maxRetries} tentatives`
+      }, "failed")
     });
     console.log(`[SeerWorker] "${request.title}" PERMANENTLY FAILED after ${request.maxRetries} retries`);
   }
@@ -2998,13 +3025,13 @@ function statusNotification(request, newStatus) {
     // « En route », jamais « téléchargement » : l'application mobile affiche
     // ces notifications et n'écrit ce mot nulle part (cf. CLAUDE.md du core).
     case "downloading":
-      return { type: "request_downloading", title: request.title, message: `\xAB ${request.title} \xBB est en route` };
+      return { type: "request_downloading", title: request.title, message: `\xAB ${request.title} \xBB est en route`, state: "progress" };
     case "available": {
       const suffix = releasedSuffix(request.mediaType === "movie" ? "m" : "f", false);
-      return { type: "request_available", title: request.title, message: `\xAB ${request.title} \xBB ${suffix}` };
+      return { type: "request_available", title: request.title, message: `\xAB ${request.title} \xBB ${suffix}`, state: "available" };
     }
     case "failed":
-      return { type: "request_declined", title: request.title, message: `Votre demande pour \xAB ${request.title} \xBB a \xE9t\xE9 refus\xE9e` };
+      return { type: "request_declined", title: request.title, message: `Votre demande pour \xAB ${request.title} \xBB a \xE9t\xE9 refus\xE9e`, state: "declined" };
     default:
       return null;
   }
@@ -3825,13 +3852,10 @@ async function processNextRequest(db, config, skipIds) {
         retryCount: newRetryCount
       });
       await db.core.notification.create({
-        data: {
-          jellyfinUserId: request.jellyfinUserId,
-          type: "request_status",
+        data: requestNotificationData(request, {
           title: request.title,
-          body: `Votre demande pour \xAB ${request.title} \xBB a \xE9chou\xE9 apr\xE8s ${newRetryCount} tentatives`,
-          refId: request.id
-        }
+          body: `Votre demande pour \xAB ${request.title} \xBB a \xE9chou\xE9 apr\xE8s ${newRetryCount} tentatives`
+        }, "failed")
       });
       console.warn(`[SeerWorker] Request for "${request.title}" FAILED after ${newRetryCount} retries: ${errMsg}`);
     } else {

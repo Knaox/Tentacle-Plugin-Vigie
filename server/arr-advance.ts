@@ -29,6 +29,7 @@ import { sonarrSeriesFacts } from "./sonarr-episodes";
 import { mapLimit } from "./concurrency";
 import { decideAdvance, seasonFacts, type AdvanceDecision } from "./arr-advance-plan";
 import { releasedSuffix, seasonNotification } from "./season-availability";
+import { requestNotificationData, type CoreNotificationState } from "./notify/core-notification";
 
 const CANDIDATES = ["sent_to_seer", "approved", "unavailable", "downloading", "partially_available"];
 const CONCURRENCY = 4;
@@ -136,15 +137,17 @@ function withoutDeletedSeasons<T extends { hasFile: boolean }>(facts: ReadonlyMa
  * « en route » — jamais « téléchargement », que l'application mobile
  * n'affiche nulle part.
  */
-export function arrivalNotifications(req: SeerRequest, d: AdvanceDecision): Array<{ title: string; body: string }> {
-  const out: Array<{ title: string; body: string }> = [];
-  if (d.notifyDownloading) out.push({ title: req.title, body: `« ${req.title} » est en route` });
-  if (d.notifyMovie) out.push({ title: req.title, body: `« ${req.title} » ${releasedSuffix("m", false)}` });
+export function arrivalNotifications(
+  req: SeerRequest, d: AdvanceDecision,
+): Array<{ title: string; body: string; state: CoreNotificationState }> {
+  const out: Array<{ title: string; body: string; state: CoreNotificationState }> = [];
+  if (d.notifyDownloading) out.push({ title: req.title, body: `« ${req.title} » est en route`, state: "progress" });
+  if (d.notifyMovie) out.push({ title: req.title, body: `« ${req.title} » ${releasedSuffix("m", false)}`, state: "available" });
   if (d.notifySeasons.length > 0) {
     const requested = req.seasons ?? [];
     const arrived = (d.notified ?? req.notifiedSeasons ?? []).filter((s) => requested.includes(s)).length;
     const n = seasonNotification(req, d.notifySeasons, arrived);
-    out.push({ title: n.title, body: n.message });
+    out.push({ title: n.title, body: n.message, state: "available" });
   }
   return out;
 }
@@ -160,9 +163,7 @@ async function apply(db: VigieDb, req: SeerRequest, d: AdvanceDecision): Promise
   // Annonce d'abord, mémoire ensuite : un échec entre les deux réannoncerait
   // plutôt que de taire une arrivée.
   for (const n of notifications) {
-    await db.core.notification.create({
-      data: { jellyfinUserId: req.jellyfinUserId, type: "request_status", title: n.title, body: n.body, refId: req.id },
-    });
+    await db.core.notification.create({ data: requestNotificationData(req, n, n.state) });
   }
   if (d.notified) await setNotifiedSeasons(db, req.id, d.notified);
   invalidateRequestCaches(req.jellyfinUserId);
