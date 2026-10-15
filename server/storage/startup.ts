@@ -6,6 +6,7 @@ import type { CorePrisma } from "./contract";
 import { MIGRATIONS } from "./migrations";
 import { createVigieDb, usableStorage, type VigieDb } from "./vigie-db";
 import { coreNotifications } from "../notify/core-notification";
+import { gateNotifications } from "../policy/notification-gate";
 
 /*
  * Vigie ne tourne que sur la base SQLite que Tentacle ≥ 1.25.0 prête
@@ -34,7 +35,8 @@ export async function openVigieDb(ctx: StorageHost): Promise<VigieDb | null> {
   if (applied.length > 0) console.log(`[SeerDB] Migrations appliquées : ${applied.join(", ")}`);
   const core = (ctx.getPrisma?.() ?? null) as CorePrisma | null;
   if (!core) throw new Error("[SeerBackend] Client du cœur absent (getPrisma) : notifications impossibles");
-  const db = createVigieDb(ctx.storage, coreNotifications(core, ctx.notificationFields));
+  // Dehors, le contrôle parental : il lit l'objet même que `requestNotificationData` a rendu.
+  const db = createVigieDb(ctx.storage, gateNotifications(coreNotifications(core, ctx.notificationFields)));
   const [{ cnt }] = await db.query<{ cnt: number }>("SELECT COUNT(*) AS cnt FROM seer_requests");
   console.log(`[SeerDB] Base prête — ${cnt} demande(s)`);
   return db;

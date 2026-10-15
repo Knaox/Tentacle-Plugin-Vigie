@@ -88,6 +88,7 @@ flux gardés en mémoire dix minutes, par compte, en nombre limité.
 | `DELETE /requests/:id`, `forget`, `mark`, `bulk-delete`, `retry-delete` | gestes sur ses demandes | — (rien ne s'obtient) |
 | `GET /config`, `/profiles*`, `/queue/status`, `/stats`, `/sync/state`, `/vendor/*` | réglages, compteurs | — |
 | `/admin/*`, `/downloads`, `PUT /config`, `/worker/trigger` | administration | **A** |
+| *(aucune route)* notifications des demandes (arrivée, en route, bloquée, refusée, échec) | avis écrits chez le cœur | **L** : un avis d'un titre interdit au DESTINATAIRE n'est pas écrit (`policy/notification-gate.ts`, autour du client du cœur ; format inchangé) |
 
 **Administration non filtrée** : les pages d'administration (toutes les demandes,
 comptes, file) servent à GÉRER les demandes de tous ; un administrateur qui se serait

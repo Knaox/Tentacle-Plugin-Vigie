@@ -20,6 +20,7 @@
  */
 
 import type { CorePrisma } from "../storage/contract";
+import { noteNotificationTitle } from "../policy/notification-gate";
 
 /** L'état d'une demande, dans le vocabulaire FERMÉ du cœur. */
 export type CoreNotificationState = "available" | "progress" | "pending" | "blocked" | "declined" | "failed";
@@ -65,11 +66,14 @@ export function requestNotificationData(
   text: { title: string; body: string },
   state: CoreNotificationState,
 ): Record<string, unknown> {
-  return {
+  const data = {
     jellyfinUserId: req.jellyfinUserId, type: "request_status",
     title: text.title, body: text.body, refId: req.id,
     ...requestNotificationExtras(req, state),
   };
+  // Le contrôle parental du destinataire se lit à l'écriture (policy/notification-gate.ts).
+  noteNotificationTitle(data, { mediaType: req.mediaType, tmdbId: req.tmdbId });
+  return data;
 }
 
 const EXTRA_FIELDS = ["target", "state"] as const;
