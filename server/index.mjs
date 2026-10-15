@@ -252,6 +252,116 @@ function usableStorage(storage) {
   return s.dialect === "sqlite" && typeof s.query === "function" && typeof s.execute === "function" && typeof s.transaction === "function" && typeof s.migrate === "function" && !!s.sql;
 }
 
+// server/policy/content-gate.ts
+var bridge = null;
+function setContentPolicy(next) {
+  const complete = next && typeof next.isRestricted === "function" && typeof next.filterExternalTitles === "function" && typeof next.allowsExternalTitle === "function";
+  bridge = complete ? next : null;
+}
+function titleKey(t) {
+  return `${t.mediaType}:${t.tmdbId}`;
+}
+function asTitle(mediaType, tmdbId) {
+  if (mediaType !== "movie" && mediaType !== "tv") return null;
+  const id = Number(tmdbId);
+  return Number.isSafeInteger(id) && id > 0 ? { mediaType, tmdbId: id } : null;
+}
+function titleFromKey(key) {
+  if (typeof key !== "string") return null;
+  const at = key.indexOf(":");
+  return at < 0 ? null : asTitle(key.slice(0, at), key.slice(at + 1));
+}
+function warn(what, err) {
+  console.warn(`[vigie-policy] ${what} : pont en \xE9chec, refus (${err instanceof Error ? err.name : "erreur"})`);
+}
+function restrictionOf(b, userId) {
+  return {
+    async filter(items, keyOf2) {
+      const keys2 = items.map(keyOf2);
+      const unique = /* @__PURE__ */ new Map();
+      for (const k of keys2) if (k) unique.set(titleKey(k), k);
+      if (unique.size === 0) return items.filter((_, i) => keys2[i] === null);
+      let allowed;
+      try {
+        const kept = await b.filterExternalTitles(userId, [...unique.values()]);
+        allowed = new Set((Array.isArray(kept) ? kept : []).flatMap((t) => {
+          const k = asTitle(t?.mediaType, t?.tmdbId);
+          return k ? [titleKey(k)] : [];
+        }));
+      } catch (err) {
+        warn("filterExternalTitles", err);
+        allowed = /* @__PURE__ */ new Set();
+      }
+      return items.filter((_, i) => {
+        const k = keys2[i];
+        return k === null || allowed.has(titleKey(k));
+      });
+    },
+    async allows(title) {
+      try {
+        return await b.allowsExternalTitle(userId, title) === true;
+      } catch (err) {
+        warn("allowsExternalTitle", err);
+        return false;
+      }
+    }
+  };
+}
+var CLOSED = {
+  async filter(items, keyOf2) {
+    return items.filter((item) => keyOf2(item) === null);
+  },
+  async allows() {
+    return false;
+  }
+};
+async function restrictionFor(userId) {
+  const b = bridge;
+  if (!b) return null;
+  if (typeof userId !== "string" || userId === "") return CLOSED;
+  try {
+    if (await b.isRestricted(userId) === false) return null;
+  } catch (err) {
+    warn("isRestricted", err);
+    return CLOSED;
+  }
+  return restrictionOf(b, userId);
+}
+async function allowsTitle(userId, title) {
+  const r = await restrictionFor(userId);
+  return r === null || r.allows(title);
+}
+async function allowsRawTitle(userId, raw) {
+  const t = asTitle(raw.mediaType, raw.tmdbId);
+  return t ? allowsTitle(userId, t) : await restrictionFor(userId) === null;
+}
+async function filterTitles(userId, items, keyOf2) {
+  const r = await restrictionFor(userId);
+  return r === null ? items : r.filter(items, keyOf2);
+}
+
+// server/policy/notification-gate.ts
+var titles = /* @__PURE__ */ new WeakMap();
+function noteNotificationTitle(data, title) {
+  if (Number.isSafeInteger(title.tmdbId) && title.tmdbId > 0) titles.set(data, title);
+}
+function gateNotifications(core) {
+  return {
+    ...core,
+    notification: {
+      async create(args) {
+        const title = titles.get(args.data);
+        const userId = args.data.jellyfinUserId;
+        if (title && !await allowsTitle(typeof userId === "string" ? userId : "", title)) {
+          console.log("[vigie-policy] notification tue : titre interdit au destinataire");
+          return null;
+        }
+        return core.notification.create(args);
+      }
+    }
+  };
+}
+
 // server/notify/core-notification.ts
 var PLUGIN_ID = "seer";
 var HUB_PATH = "/discover";
@@ -273,7 +383,7 @@ function requestNotificationExtras(req, state2) {
   return { target: JSON.stringify(target), state: state2 };
 }
 function requestNotificationData(req, text2, state2) {
-  return {
+  const data = {
     jellyfinUserId: req.jellyfinUserId,
     type: "request_status",
     title: text2.title,
@@ -281,6 +391,8 @@ function requestNotificationData(req, text2, state2) {
     refId: req.id,
     ...requestNotificationExtras(req, state2)
   };
+  noteNotificationTitle(data, { mediaType: req.mediaType, tmdbId: req.tmdbId });
+  return data;
 }
 var EXTRA_FIELDS = ["target", "state"];
 function coreNotifications(core, announced) {
@@ -311,7 +423,7 @@ async function openVigieDb(ctx) {
   if (applied.length > 0) console.log(`[SeerDB] Migrations appliqu\xE9es : ${applied.join(", ")}`);
   const core = ctx.getPrisma?.() ?? null;
   if (!core) throw new Error("[SeerBackend] Client du c\u0153ur absent (getPrisma) : notifications impossibles");
-  const db = createVigieDb(ctx.storage, coreNotifications(core, ctx.notificationFields));
+  const db = createVigieDb(ctx.storage, gateNotifications(coreNotifications(core, ctx.notificationFields)));
   const [{ cnt }] = await db.query("SELECT COUNT(*) AS cnt FROM seer_requests");
   console.log(`[SeerDB] Base pr\xEAte \u2014 ${cnt} demande(s)`);
   return db;
@@ -5688,13 +5800,13 @@ function filterAndPaginate(items, query) {
 
 // server/requests-page.ts
 var PAGE_META_BUDGET = 20;
-async function requestsPage(db, config, rows, viewer, query, requesterOf, keep) {
+async function requestsPage(db, config, rows, viewer, query, requesterOf, keep2) {
   const refs = collectTmdbRefs(rows);
   const { meta, missing } = await resolveTmdbMeta(db, config, refs, { maxFetch: 0 });
   const hydrated = hydrateRows(rows, meta, viewer, requesterOf);
   const verdicts = await arrVerdicts(config, hydrated).catch(() => /* @__PURE__ */ new Map());
   let items = withArrStatus(hydrated, verdicts);
-  if (keep) items = await keep(items);
+  if (keep2) items = await keep2(items);
   let result = filterAndPaginate(items, query);
   if (missing.length > 0) {
     const visible2 = new Set(result.results.map((r) => tmdbKey({ mediaType: r.mediaType, tmdbId: r.tmdbId })));
@@ -5703,7 +5815,7 @@ async function requestsPage(db, config, rows, viewer, query, requesterOf, keep) 
       const filled = await resolveTmdbMeta(db, config, onPage, { maxFetch: PAGE_META_BUDGET });
       for (const [k, v] of filled.meta) meta.set(k, v);
       items = withArrStatus(hydrateRows(rows, meta, viewer, requesterOf), verdicts);
-      if (keep) items = await keep(items);
+      if (keep2) items = await keep2(items);
       result = filterAndPaginate(items, query);
     }
     scheduleTmdbBackfill(db, config, missing);
@@ -5742,94 +5854,6 @@ async function localRequestedSeasons(db, userId, tmdbId) {
   return [...seasons].sort((a, b) => a - b);
 }
 
-// server/policy/content-gate.ts
-var bridge = null;
-function setContentPolicy(next) {
-  const complete = next && typeof next.isRestricted === "function" && typeof next.filterExternalTitles === "function" && typeof next.allowsExternalTitle === "function";
-  bridge = complete ? next : null;
-}
-function titleKey(t) {
-  return `${t.mediaType}:${t.tmdbId}`;
-}
-function asTitle(mediaType, tmdbId) {
-  if (mediaType !== "movie" && mediaType !== "tv") return null;
-  const id = Number(tmdbId);
-  return Number.isSafeInteger(id) && id > 0 ? { mediaType, tmdbId: id } : null;
-}
-function titleFromKey(key) {
-  if (typeof key !== "string") return null;
-  const at = key.indexOf(":");
-  return at < 0 ? null : asTitle(key.slice(0, at), key.slice(at + 1));
-}
-function warn(what, err) {
-  console.warn(`[vigie-policy] ${what} : pont en \xE9chec, refus (${err instanceof Error ? err.name : "erreur"})`);
-}
-function restrictionOf(b, userId) {
-  return {
-    async filter(items, keyOf) {
-      const keys2 = items.map(keyOf);
-      const unique = /* @__PURE__ */ new Map();
-      for (const k of keys2) if (k) unique.set(titleKey(k), k);
-      if (unique.size === 0) return items.filter((_, i) => keys2[i] === null);
-      let allowed;
-      try {
-        const kept = await b.filterExternalTitles(userId, [...unique.values()]);
-        allowed = new Set((Array.isArray(kept) ? kept : []).flatMap((t) => {
-          const k = asTitle(t?.mediaType, t?.tmdbId);
-          return k ? [titleKey(k)] : [];
-        }));
-      } catch (err) {
-        warn("filterExternalTitles", err);
-        allowed = /* @__PURE__ */ new Set();
-      }
-      return items.filter((_, i) => {
-        const k = keys2[i];
-        return k === null || allowed.has(titleKey(k));
-      });
-    },
-    async allows(title) {
-      try {
-        return await b.allowsExternalTitle(userId, title) === true;
-      } catch (err) {
-        warn("allowsExternalTitle", err);
-        return false;
-      }
-    }
-  };
-}
-var CLOSED = {
-  async filter(items, keyOf) {
-    return items.filter((item) => keyOf(item) === null);
-  },
-  async allows() {
-    return false;
-  }
-};
-async function restrictionFor(userId) {
-  const b = bridge;
-  if (!b) return null;
-  if (typeof userId !== "string" || userId === "") return CLOSED;
-  try {
-    if (await b.isRestricted(userId) === false) return null;
-  } catch (err) {
-    warn("isRestricted", err);
-    return CLOSED;
-  }
-  return restrictionOf(b, userId);
-}
-async function allowsTitle(userId, title) {
-  const r = await restrictionFor(userId);
-  return r === null || r.allows(title);
-}
-async function allowsRawTitle(userId, raw) {
-  const t = asTitle(raw.mediaType, raw.tmdbId);
-  return t ? allowsTitle(userId, t) : await restrictionFor(userId) === null;
-}
-async function filterTitles(userId, items, keyOf) {
-  const r = await restrictionFor(userId);
-  return r === null ? items : r.filter(items, keyOf);
-}
-
 // server/routes-requests-read.ts
 var ROWS_TTL_MS = 6e4;
 var ROWS_STALE_MS = 6e5;
@@ -5850,8 +5874,8 @@ function registerRequestReadRoutes(app, db, getWorkerConfig2) {
       return { ...local, results: await filterTitles(user.userId, local.results.map(localToUnified), (r) => r) };
     }
     const rows = await loadRows(config, user);
-    const keep = (items) => filterTitles(user.userId, items, (r) => r);
-    return requestsPage(db, config, rows, user, { page, limit, status: query.status, type: query.type, q: query.q }, void 0, keep);
+    const keep2 = (items) => filterTitles(user.userId, items, (r) => r);
+    return requestsPage(db, config, rows, user, { page, limit, status: query.status, type: query.type, q: query.q }, void 0, keep2);
   });
   app.get("/requests/stats", async (request) => {
     const user = getUser(request);
@@ -9539,7 +9563,7 @@ function streamFor(key, now) {
   }
   return s;
 }
-async function fill(s, need, load, keep) {
+async function fill(s, need, load, keep2) {
   let scanned = 0;
   while (!s.done && s.kept.length < need && scanned < SCAN_BUDGET) {
     const up = await load(s.next);
@@ -9549,19 +9573,19 @@ async function fill(s, need, load, keep) {
       const { results: _results, page: _page, totalPages: _tp, totalResults: _tr, ...head } = up;
       s.head = head;
     }
-    s.kept.push(...await keep(up.results));
+    s.kept.push(...await keep2(up.results));
     const last = Math.min(Number(up.totalPages) || 1, MAX_UPSTREAM_PAGES);
     s.next++;
     if (s.next > last || up.results.length === 0 || s.kept.length >= MAX_KEPT2) s.done = true;
   }
   return true;
 }
-async function densePage(key, page, load, keep) {
+async function densePage(key, page, load, keep2) {
   const s = streamFor(key, Date.now());
   const run = s.lock.then(async () => {
     const from = (page - 1) * DENSE_PAGE_SIZE;
     const need = from + DENSE_PAGE_SIZE;
-    const alive = await fill(s, need, load, keep);
+    const alive = await fill(s, need, load, keep2);
     const results = s.kept.slice(from, need);
     if (!alive && results.length < DENSE_PAGE_SIZE) return { ok: false };
     let totalResults;
@@ -11163,8 +11187,8 @@ function itemTitle2(i) {
 function providerTitle(i) {
   return { mediaType: i.kind === "movie" ? "movie" : "tv", tmdbId: i.tmdbId };
 }
-async function allowedKeys(r, titles) {
-  const kept = await r.filter(titles, (t) => t);
+async function allowedKeys(r, titles2) {
+  const kept = await r.filter(titles2, (t) => t);
   return new Set(kept.map(titleKey));
 }
 async function filterHubSearch(userId, res) {
@@ -11178,12 +11202,12 @@ async function filterHubSearch(userId, res) {
     ...res.top?.kind === "person" ? res.top.person.knownFor : []
   ];
   const ok = await allowedKeys(r, all.map(itemTitle2));
-  const keep = (list) => list.filter((i) => ok.has(titleKey(itemTitle2(i))));
-  const person = (p) => ({ ...p, knownFor: keep(p.knownFor) });
+  const keep2 = (list) => list.filter((i) => ok.has(titleKey(itemTitle2(i))));
+  const person = (p) => ({ ...p, knownFor: keep2(p.knownFor) });
   let top = res.top;
   if (top?.kind === "media" && !ok.has(titleKey(itemTitle2(top.item)))) top = null;
   else if (top?.kind === "person") top = { kind: "person", person: person(top.person) };
-  return { ...res, top, movies: keep(res.movies), series: keep(res.series), people: res.people.map(person) };
+  return { ...res, top, movies: keep2(res.movies), series: keep2(res.series), people: res.people.map(person) };
 }
 async function filterProviderSearch(userId, res) {
   const r = await restrictionFor(userId);
@@ -11856,8 +11880,8 @@ async function applyIndexChange(db, cfg, change) {
   if (change.deleted.length > 0) {
     const forgotten = await forgetLocalRequests(db, change.deleted.map((r) => r.id), "Demande supprim\xE9e c\xF4t\xE9 Jellyseerr");
     if (forgotten > 0) refreshLocalPending(db, true);
-    const titles = change.deleted.map((r) => `${r.mediaType}:${r.tmdbId}#${r.id}`).join(", ");
-    console.log(`[VigieLive] Demande(s) supprim\xE9e(s) dans Jellyseerr : ${titles} \u2014 ${forgotten} ligne(s) de la file close(s)`);
+    const titles2 = change.deleted.map((r) => `${r.mediaType}:${r.tmdbId}#${r.id}`).join(", ");
+    console.log(`[VigieLive] Demande(s) supprim\xE9e(s) dans Jellyseerr : ${titles2} \u2014 ${forgotten} ligne(s) de la file close(s)`);
   }
   invalidateRequestCaches();
   statusMapStale();
