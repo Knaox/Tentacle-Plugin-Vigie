@@ -17,13 +17,13 @@ import {
   getUser, type WorkerCfg, parseRequestId,
   fetchSeerrRequestById, fetchSeerrTmdbDetail, type SeerrSingleRequest,
 } from "./seerr-unified";
+import { refusedTitle } from "./policy/refusal";
 
 export function registerRequestActionRoutes(
   app: FastifyInstance,
   db: VigieDb,
   getWorkerConfig: () => Promise<WorkerCfg | null>,
 ): void {
-
   app.post("/requests/:id/retry", async (request, reply) => {
     const { id } = request.params as { id: string };
     const user = getUser(request);
@@ -39,7 +39,7 @@ export function registerRequestActionRoutes(
       if (req.jellyfinUserId !== user.userId && !user.isAdmin) {
         return reply.status(403).send({ message: "Not your request" });
       }
-
+      if (await refusedTitle(reply, user.userId, req)) return reply;
       const newProfileId = body.profileId !== undefined ? body.profileId : req.profileId;
 
       if (config) {
@@ -99,6 +99,7 @@ export function registerRequestActionRoutes(
     const mediaType = seerrReq.media?.mediaType ?? "movie";
     const tmdbId = seerrReq.media?.tmdbId ?? 0;
     if (!tmdbId) return reply.status(400).send({ message: "Cannot retry: missing TMDB id" });
+    if (await refusedTitle(reply, user.userId, { mediaType, tmdbId })) return reply;
 
     // Récupère métadonnées (titre, poster) pour affichage local
     const detail = await fetchSeerrTmdbDetail(config, mediaType, tmdbId);

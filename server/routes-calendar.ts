@@ -25,6 +25,7 @@ import { rowsCacheKey } from "./routes-requests-read";
 import { DEFAULT_REGION } from "./tmdb-resolver";
 import { sonarrSeriesAirTimes } from "./sonarr-schedule";
 import { attachItemStates, seriesEpisodeStates } from "./item-states";
+import { allowsTitle, filterTitles } from "./policy/content-gate";
 
 /** Le personnel bouge avec les demandes ; le store maître vit sa propre vie. */
 const PERSONAL_TTL_MS = 15 * 60_000;
@@ -126,8 +127,10 @@ export function registerCalendarRoutes(
         ttlFor: (value) => (value.partial ? PARTIAL_TTL_MS : PERSONAL_TTL_MS),
       },
     );
-    // L'état de chaque sortie se lit à la minute, hors du cache d'un quart d'heure.
-    return attachItemStates(config, res, todayString());
+    // L'état de chaque sortie se lit à la minute, hors du cache d'un quart d'heure ;
+    // le contrôle parental du compte aussi (policy/content-gate.ts).
+    const shown = { ...res, items: await filterTitles(user.userId, res.items, (i) => i) };
+    return attachItemStates(config, shown, todayString());
   });
 
   /* ── Tout ce qui sort — indépendant des demandes ──
@@ -156,7 +159,8 @@ export function registerCalendarRoutes(
     const res = await buildGlobalFromStore(db, config, {
       providerIds, mediaType, region: readRegion(q), from, to,
     }, warn);
-    return attachItemStates(config, res, todayString());
+    const shown = { ...res, items: await filterTitles(getUser(request).userId, res.items, (i) => i) };
+    return attachItemStates(config, shown, todayString());
   });
 
   /* ── Heures de diffusion d'une série, pour la fiche détaillée ──
@@ -168,6 +172,7 @@ export function registerCalendarRoutes(
     const q = request.query as { tmdbId?: string };
     const tmdbId = Number(q.tmdbId);
     if (!Number.isFinite(tmdbId) || tmdbId <= 0) return { times: {} };
+    if (!(await allowsTitle(getUser(request).userId, { mediaType: "tv", tmdbId }))) return { times: {} };
 
     const config = await getWorkerConfig();
     if (!config) return { times: {} };
@@ -191,6 +196,7 @@ export function registerCalendarRoutes(
     const tmdbId = Number((request.query as { tmdbId?: string }).tmdbId);
     const empty = { tracked: false, states: {}, percents: {}, dates: {}, seasons: [] };
     if (!Number.isFinite(tmdbId) || tmdbId <= 0) return empty;
+    if (!(await allowsTitle(getUser(request).userId, { mediaType: "tv", tmdbId }))) return empty;
     const config = await getWorkerConfig();
     if (!config) return empty;
     try {

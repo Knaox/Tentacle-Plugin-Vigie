@@ -14,6 +14,7 @@ const FR = {
   blocked: "Votre compte ne peut pas faire de demandes.",
   moviesDenied: "Votre compte ne peut pas demander de films.",
   masked: "Ce titre est masqué : sa demande n'est pas ouverte.",
+  restricted: "Ce titre n'est pas disponible pour ce profil.",
   quota: (limit: number) => `Limite atteinte : ${limit} demande${limit > 1 ? "s" : ""} par jour.`,
   already: "Ce titre est déjà demandé.",
   failed: "La demande n'a pas abouti.",
@@ -25,6 +26,7 @@ const EN = {
   blocked: "Your account can't make requests.",
   moviesDenied: "Your account can't request movies.",
   masked: "This title is hidden: it can't be requested.",
+  restricted: "This title isn't available for this profile.",
   quota: (limit: number) => `Limit reached: ${limit} request${limit > 1 ? "s" : ""} per day.`,
   already: "This title has already been requested.",
   failed: "The request didn't go through.",
@@ -39,6 +41,11 @@ export function requestedMessage(title: string, lang: string): string {
   return words(lang).requested(title);
 }
 
+/** Un titre au-dessus de l'âge du profil (contrôle parental du cœur). */
+export function restrictedMessage(lang: string): string {
+  return words(lang).restricted;
+}
+
 export function unreachableMessage(lang: string): string {
   return words(lang).unreachable;
 }
@@ -50,6 +57,7 @@ export function refusalMessage(status: number, body: Record<string, unknown>, la
   if (body.errorKey === "seer:errUserBlocked") return w.blocked;
   if (body.errorKey === "seer:errMoviesDenied") return w.moviesDenied;
   if (body.errorKey === "seer:errMaskedDenied") return w.masked;
+  if (body.errorKey === "seer:errRestrictedTitle") return w.restricted;
   if (body.errorKey === "seer:errQuotaReached" && typeof body.limit === "number") return w.quota(body.limit);
   return w.failed;
 }

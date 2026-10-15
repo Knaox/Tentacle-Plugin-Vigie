@@ -36,6 +36,7 @@ import { coreLibraryStore } from "./live/library-store";
 import { createAutoForget, forgetPolicyOf } from "./live/auto-forget";
 import { liveState } from "./live/live-state";
 import { registerLiveRoutes } from "./live/routes-live";
+import { setContentPolicy, type ContentPolicyBridge } from "./policy/content-gate";
 
 const __pluginDir = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -51,6 +52,8 @@ interface PluginBackendContext {
   recommendations?: {
     titleRequested?: (userId: string, title: { mediaType: "movie" | "tv"; tmdbId: number }) => Promise<void>;
   };
+  /** Le contrôle parental du cœur (Tentacle ≥ 1.30.0) ; absent d'un cœur d'avant (policy/content-gate.ts). */
+  contentPolicy?: ContentPolicyBridge;
 }
 
 function getPluginConfig(ctx: PluginBackendContext): Record<string, unknown> {
@@ -86,6 +89,8 @@ export default async function seerBackend(
 
   // Un titre demandé sort des recommandations du compte, côté Tentacle.
   onTitleRequested(ctx.recommendations?.titleRequested ?? null);
+  // Ce qu'un compte peut voir d'un titre hors bibliothèque : le cœur en décide.
+  setContentPolicy(ctx.contentPolicy ?? null);
 
   liveState.setPolicy(forgetPolicyOf(getPluginConfig(ctx)));
   startWorker(db, () => getWorkerConfig(ctx));

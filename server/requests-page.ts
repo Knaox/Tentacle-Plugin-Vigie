@@ -19,6 +19,10 @@ import {
 import { resolveTmdbMeta, scheduleTmdbBackfill, pendingBackfillCount } from "./tmdb-resolver";
 import { tmdbKey } from "./tmdb-cache";
 import { arrVerdicts, restat, withArrStatus, type ArrVerdict } from "./arr-truth";
+import type { UnifiedRequest } from "./types";
+
+/** Ce qui reste montrable de la liste (contrôle parental du compte qui regarde). */
+export type KeepRequests = (items: UnifiedRequest[]) => Promise<UnifiedRequest[]>;
 
 /** Fiches manquantes récupérées en direct : seulement celles de la page affichée. */
 const PAGE_META_BUDGET = 20;
@@ -30,6 +34,7 @@ export async function requestsPage(
   viewer: JellyfinUser,
   query: ListQuery,
   requesterOf?: RequesterOf,
+  keep?: KeepRequests,
 ) {
   const refs = collectTmdbRefs(rows);
 
@@ -40,6 +45,8 @@ export async function requestsPage(
    * en route, arrivées — sans attendre que Jellyseerr le constate. */
   const verdicts = await arrVerdicts(config, hydrated).catch(() => new Map<string, ArrVerdict>());
   let items = withArrStatus(hydrated, verdicts);
+  // AVANT la pagination : une page garde sa taille, sans trou.
+  if (keep) items = await keep(items);
   let result = filterAndPaginate(items, query);
 
   // 2) Seules les fiches VISIBLES sur cette page sont récupérées en direct.
@@ -50,6 +57,7 @@ export async function requestsPage(
       const filled = await resolveTmdbMeta(db, config, onPage, { maxFetch: PAGE_META_BUDGET });
       for (const [k, v] of filled.meta) meta.set(k, v);
       items = withArrStatus(hydrateRows(rows, meta, viewer, requesterOf), verdicts);
+      if (keep) items = await keep(items);
       result = filterAndPaginate(items, query);
     }
     scheduleTmdbBackfill(db, config, missing);

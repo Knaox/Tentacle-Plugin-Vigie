@@ -32,6 +32,8 @@ import { genreFacets, providerFacets } from "./search/facets";
 import { titleIndexBuilding } from "./search/title-crawl";
 import { personProvider, readRole } from "./search/person-credits";
 import { collectionProvider } from "./search/collection-parts";
+import { getUser } from "./seerr-unified";
+import { filterHubSearch, filterProviderSearch } from "./policy/search-filter";
 
 const MAX_QUERY = 120;
 const MAX_PAGE = 20;
@@ -91,7 +93,9 @@ export async function registerSearchRoutes(
     const facets = opts.page === 1 && q.trim().length >= 2
       ? [...genreFacets(q, opts.lang), ...(await providerFacets(ctx.cfg, q, opts.lang, !instant))]
       : [];
-    return presentHub(ranked, opts.page, facets, titleIndexBuilding(), startedAt, opts.showBlocked);
+    const res = presentHub(ranked, opts.page, facets, titleIndexBuilding(), startedAt, opts.showBlocked);
+    // Le contrôle parental du compte, sur la réponse (policy/search-filter.ts).
+    return filterHubSearch(getUser(request).userId, res);
   });
 
   app.get("/search/provider", async (request, reply) => {
@@ -104,7 +108,7 @@ export async function registerSearchRoutes(
     const limit = Math.min(Math.max(1, Number(query.limit) || 8), 20);
     const opts: SearchOptions = { lang, page: 1, showBlocked: false };
     const ranked = fullIfReady(ctx, q, opts) ?? instantSearch(ctx, q, opts);
-    return presentProvider(ranked, type, limit, lang, todayIso());
+    return filterProviderSearch(getUser(request).userId, presentProvider(ranked, type, limit, lang, todayIso()));
   });
 
   app.get("/search/person", async (request, reply) => {
@@ -117,14 +121,14 @@ export async function registerSearchRoutes(
     const empty = { query: name, correction: null, complete: true, items: [], moreHref: null };
     if (!name && tmdbId === null) return empty;
     try {
-      return await personProvider(ctx.cfg, {
+      return await filterProviderSearch(getUser(request).userId, await personProvider(ctx.cfg, {
         name,
         tmdbId,
         lang: readLang(query.lang),
         limit: Math.min(Math.max(1, Number(query.limit) || 20), 40),
         type: query.type === "movie" || query.type === "series" ? query.type : null,
         role: readRole(query.role),
-      });
+      }));
     } catch {
       // Jellyseerr injoignable : la filmographie de Tentacle s'affiche sans nous.
       return empty;
@@ -139,12 +143,12 @@ export async function registerSearchRoutes(
     const empty = { query: String(query.tmdb ?? ""), correction: null, complete: true, items: [], moreHref: null };
     if (!Number.isInteger(tmdb) || tmdb <= 0) return empty;
     try {
-      return await collectionProvider(ctx.cfg, {
+      return await filterProviderSearch(getUser(request).userId, await collectionProvider(ctx.cfg, {
         collectionId: tmdb,
         lang: readLang(query.lang),
         limit: Math.min(Math.max(1, Number(query.limit) || 20), 40),
         today: todayIso(),
-      });
+      }));
     } catch {
       // Jellyseerr injoignable : la saga de Tentacle s'affiche sans nous.
       return empty;

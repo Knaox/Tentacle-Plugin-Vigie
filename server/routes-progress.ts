@@ -25,6 +25,7 @@ import { getUser, type WorkerCfg } from "./seerr-unified";
 import { hydrateRows } from "./requests-list";
 import { loadMergedRows } from "./routes-requests-read";
 import { IN_FLIGHT, arrVerdicts } from "./arr-truth";
+import { filterTitles } from "./policy/content-gate";
 
 const PROGRESS_TTL_MS = 10_000;
 
@@ -69,10 +70,12 @@ export function registerProgressRoutes(
     const config = await getWorkerConfig();
     if (!config) return { updatedAt: new Date().toISOString(), items: [] as ProgressItem[] };
 
-    return cached(`seer-cache:${user.userId}:progress`, PROGRESS_TTL_MS, async () => {
+    const progress = await cached(`seer-cache:${user.userId}:progress`, PROGRESS_TTL_MS, async () => {
       const rows = await loadMergedRows(db, config, user, (err, msg) => app.log?.warn?.({ err }, msg));
       return progressOf(config, hydrateRows(rows, new Map(), user));
     });
+    // Hors du cache : le contrôle parental du compte s'applique à l'instant.
+    return { ...progress, items: await filterTitles(user.userId, progress.items, (i) => i) };
   });
 }
 

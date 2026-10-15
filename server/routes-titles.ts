@@ -47,7 +47,7 @@ import { readLang, rightsOf } from "./titles/title-rights";
 import { parseRequestedSeasons } from "./titles/title-seasons";
 import { ofOrigin, readOriginFilter, readRequestOrigin } from "./titles/request-origin";
 import { requestSeasons } from "./routes-titles-seasons";
-import { refusalMessage, requestedMessage, unreachableMessage } from "./titles/title-messages";
+import { refusalMessage, requestedMessage, restrictedMessage, unreachableMessage } from "./titles/title-messages";
 import { myTitles } from "./titles/my-titles";
 import { cached } from "./cache";
 import { loadMergedRows } from "./routes-requests-read";
@@ -56,6 +56,7 @@ import { resolveTmdbMeta } from "./tmdb-resolver";
 import { tmdbKey } from "./tmdb-cache";
 import { arrVerdicts, type ArrVerdict } from "./arr-truth";
 import { correctMediaInfo } from "./live/media-info";
+import { allowsTitle, filterTitles, titleFromKey } from "./policy/content-gate";
 
 /** Les titres attendus se relisent souvent (une TV les suit) : la liste et la file *arr ont leur cache. */
 const MINE_TTL_MS = 10_000;
@@ -86,9 +87,16 @@ export function registerTitleRoutes(
     refreshStatusMap(cfg);
     refreshLocalPending(db);
     const lang = readLang(query.lang);
-    const rights = await rightsOf(db, getUser(request).userId, cfg);
+    const userId = getUser(request).userId;
+    const rights = await rightsOf(db, userId, cfg);
+    // Un titre que le profil ne peut pas voir : ni pastille, ni geste, ni fiche (policy/content-gate.ts).
+    const allowed = new Set((await filterTitles(userId, keys, (k) => k)).map((k) => k.key));
     const items: Record<string, TitleStateOut> = {};
     for (const k of keys) {
+      if (!allowed.has(k.key)) {
+        items[k.key] = { badge: null, request: null };
+        continue;
+      }
       const status = statusFor({ key: k.key, mediaType: k.mediaType, tmdbId: k.tmdbId, remoteStatus: undefined });
       const state = titleStateFor(k.mediaType, k.tmdbId, status, rights, lang);
       const page = titlePage(k.mediaType, k.tmdbId, rights, lang);
@@ -105,6 +113,8 @@ export function registerTitleRoutes(
       return reply.status(400).send({ ok: false, message: "mediaType and tmdbId are required" });
     }
     const lang = readLang(body.lang);
+    // Contrôle parental du cœur : refusé avant tout, film comme saisons d'une série.
+    if (!(await allowsTitle(getUser(request).userId, { mediaType, tmdbId }))) return { ok: false, message: restrictedMessage(lang) };
     const origin = readRequestOrigin(body);
     if (mediaType === "tv") {
       // Une série : ce sont ses saisons qu'on demande. Choisies par le client
@@ -165,7 +175,7 @@ export function registerTitleRoutes(
     if (!cfg) return { items: [] };
     // Une clé par filtre, toutes sous celle du compte : une demande faite les invalide ensemble.
     const key = `seer-cache:${user.userId}:mine${origin === undefined ? "" : `:origin=${origin}`}`;
-    return cached(key, MINE_TTL_MS, async () => {
+    const mine = await cached(key, MINE_TTL_MS, async () => {
       const rows = await loadMergedRows(db, cfg, user, (err, msg) => app.log?.warn?.({ err }, msg));
       const { meta, missing } = await resolveTmdbMeta(db, cfg, collectTmdbRefs(rows), { maxFetch: 0 });
       // Les demandes AVANT les titres : un titre demandé de deux endroits ne garde que les saisons de la sienne.
@@ -182,5 +192,7 @@ export function registerTitleRoutes(
       }
       return { items };
     });
+    // Hors du cache : un contrôle parental posé à l'instant compte tout de suite.
+    return { items: await filterTitles(user.userId, mine.items, (i) => titleFromKey(i.key)) };
   });
 }

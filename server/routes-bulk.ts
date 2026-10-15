@@ -12,6 +12,7 @@ import { kickWorkerNow } from "./worker";
 import { originOf } from "./titles/request-origin";
 import { parseRequestId } from "./seerr-unified";
 import { deleteSeerrOnlyRequest } from "./request-delete-seerr";
+import { allowsRawTitle } from "./policy/content-gate";
 
 interface JellyfinUser { userId: string; username: string; isAdmin: boolean; }
 
@@ -90,6 +91,8 @@ export function registerBulkRoutes(
         if (!req) { errors++; continue; }
         if (req.jellyfinUserId !== user.userId && !user.isAdmin) { errors++; continue; }
         if (["deleting", "processing", "available"].includes(req.status)) { errors++; continue; }
+        // Le contrôle parental du cœur : un titre interdit au profil ne repart pas.
+        if (!(await allowsRawTitle(user.userId, req))) { errors++; continue; }
 
         // Supprimer request + media Seerr (PAS Sonarr/Radarr)
         if (config) {
