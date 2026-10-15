@@ -9,7 +9,9 @@ type Handler = (request: unknown, reply: FakeReply) => unknown;
 export interface FakeReply {
   statusCode: number;
   payload: unknown;
+  headers: Record<string, string>;
   status(code: number): FakeReply;
+  header(name: string, value: string): FakeReply;
   send(payload: unknown): FakeReply;
 }
 
@@ -17,7 +19,9 @@ function reply(): FakeReply {
   const r: FakeReply = {
     statusCode: 200,
     payload: undefined,
+    headers: {},
     status(code) { r.statusCode = code; return r; },
+    header(name, value) { r.headers[name.toLowerCase()] = value; return r; },
     send(payload) { r.payload = payload; return r; },
   };
   return r;
@@ -32,7 +36,7 @@ export function fakeApp() {
     get: add("GET"), post: add("POST"), put: add("PUT"), delete: add("DELETE"), patch: add("PATCH"),
     addHook: () => {},
   };
-  async function call(method: string, path: string, req: { params?: object; body?: unknown; user: object }) {
+  async function call(method: string, path: string, req: { params?: object; query?: object; body?: unknown; user: object }) {
     const handler = routes.get(`${method} ${path}`);
     if (!handler) throw new Error(`route absente : ${method} ${path}`);
     const r = reply();
