@@ -93,3 +93,33 @@ flux gardés en mémoire dix minutes, par compte, en nombre limité.
 comptes, file) servent à GÉRER les demandes de tous ; un administrateur qui se serait
 posé une note maximale les garde entières. Tout le reste de Vigie, administrateur
 compris, applique sa politique.
+
+## Le hub (iframe, WebView)
+
+- **Aucun trou** : la grille du parcours et les rangées de l'accueil reçoivent des pages
+  pleines ; la grille lit le total de la page la plus récente marquée `vigieDense`
+  (`src/browse/useSparseCatalog.ts`) — un compte libre garde le total de la page 1, comme avant.
+- **Aucune erreur** : une fiche ou une feuille de saisons refusée montre « Non disponible pour
+  ce profil » (`RestrictedNotice`), sans affiche ni résumé, et ne se redemande pas
+  (`utils/restricted.ts`). Une demande refusée dit la même chose (`seer:errRestrictedTitle`).
+- Hors de Vigie : les bandes-annonces de la fiche passent par le cœur (`/api/tmdb/trailers`),
+  qui les garde lui-même (chantier Filtrage).
+
+## La preuve
+
+- Tests : `server/policy/*.test.ts` (porte, pages pleines, relais, routes, recherche) et
+  `src/utils/restricted.test.ts` — `npm test`.
+- Banc de bout en bout (`scripts/banc-droits/`) : le VRAI cœur Tentacle d'une branche donnée,
+  un Jellyfin 10.11 JETABLE (`droits-vigie-jf`, 18141), un faux Jellyseerr déterministe (18142,
+  aucune sortie vers TMDB), Vigie installée depuis `server/index.mjs`. Lancement : voir l'en-tête
+  de `banc.mts` (`REPO`, `VIGIE`, `RUN`, depuis `apps/backend` du dépôt Tentacle, par `npx tsx`).
+  Relevé du 2026-10-15 :
+
+  | Cœur | Compte | Découverte p1 | Fiche | Saga | Demande hub | Demande carte |
+  |---|---|---|---|---|---|---|
+  | socle (pont, étape A) | adulte | 20 titres, total 100 | 200 | 2 volets | 201 | acceptée |
+  | socle (pont, étape A) | enfant (note max 10) | 0 titre, total 0 | 403 `restricted_title` | 0 volet | 403 `restricted_title` | « Ce titre n'est pas disponible pour ce profil. » |
+  | d'avant (sans pont) | enfant | 20 titres, total 100 | 200 | 2 volets | 201 | acceptée |
+
+  À l'étape A, le pont du cœur ne laisse AUCUN titre extérieur à un compte restreint : les
+  pages en partie permises (le flux qui remplit) ne se prouvent encore que par les tests.
