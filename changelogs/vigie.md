@@ -19,6 +19,20 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.28.0]
+### FR
+- **Le contrôle parental de Jellyfin s'applique à Vigie** : un profil limité par une note maximale ne voit, dans la découverte, la recherche, les fiches, les sagas, les filmographies, le calendrier et « Mes demandes », aucun titre au-dessus de son âge — et ne peut pas en demander un. Les rangées et la grille se remplissent de titres permis, sans trou ; une fiche interdite dit simplement « Non disponible pour ce profil ». Un invité de la Famille suit son propre contrôle parental
+- **Une notification mène à sa demande** : un titre arrivé ouvre sa fiche ; « en route », bloqué, refusé ou en échec ouvre « Mes demandes », cherchée sur le titre, la demande mise en évidence
+- **Des états de demande justes** : « en route » n'est annoncé qu'une fois la récupération réellement partie, et l'état le plus avancé l'emporte quand un titre a plusieurs copies ou plusieurs demandes
+- **Pourquoi c'est bloqué, dit en clair** : un import refusé ou un blocage (fichier non reconnu, qualité, espace disque, source morte…) est expliqué dans « Mes demandes » et par UNE notification par cause et par titre — avec ce qu'il faut en attendre
+- Le contrôle parental et les notifications qui mènent à la demande demandent le serveur Tentacle 1.30.0 ; avec un serveur plus ancien, rien ne change
+### EN
+- **Jellyfin's parental controls apply to Vigie**: a profile limited by a maximum rating sees no title above its age in discovery, search, title pages, collections, filmographies, the calendar and "My requests" — and can't request one. Rows and the grid fill up with allowed titles, with no gaps; a forbidden title page simply says "Not available for this profile". A Family guest follows their own parental controls
+- **A notification leads to its request**: an arrived title opens its page; "on its way", blocked, declined or failed opens "My requests", searched on the title, with the request highlighted
+- **Accurate request states**: "on its way" is only announced once the transfer has really started, and the most advanced state wins when a title has several copies or several requests
+- **Why it's blocked, in plain words**: a refused import or a block (unrecognised file, quality, disk space, dead source…) is explained in "My requests" and by ONE notification per cause and per title — with what to expect
+- Parental controls and notifications that lead to the request require Tentacle server 1.30.0; with an older server, nothing changes
+
 ## [1.27.1]
 ### FR
 - **Des aperçus presque instantanés** : la mini-carte paraît plus tôt et sa vidéo joue dès qu'elle paraît ; avec Tentacle 1.30.0, les affiches à l'écran font préparer leur aperçu d'avance par le serveur — le survol d'un titre à demander n'attend plus
