@@ -22,13 +22,15 @@ import { rowToRequest } from "./db-helpers";
 import { updateRequestStatus, setNotifiedSeasons, upsertContentClaim } from "./db";
 import { invalidateRequestCaches } from "./cache";
 import { queueSnapshot } from "./arr-queue";
-import { deletedFromJellyfin, matchQueue } from "./arr-truth";
+import { deletedFromJellyfin, matchQueue, summarizeQueue } from "./arr-truth";
+import { arrivalAnnounced, observationOf, pruneArrivalWatch, watchArrival } from "./arrival/arrival-notices";
 import { goneFromJellyfin, goneSeasonsOf } from "./live/live-state";
 import { radarrHasFile } from "./radarr-movies";
 import { sonarrSeriesFacts } from "./sonarr-episodes";
 import { mapLimit } from "./concurrency";
 import { decideAdvance, seasonFacts, type AdvanceDecision } from "./arr-advance-plan";
 import { releasedSuffix, seasonNotification } from "./season-availability";
+import { requestNotificationData, type CoreNotificationState } from "./notify/core-notification";
 
 const CANDIDATES = ["sent_to_seer", "approved", "unavailable", "downloading", "partially_available"];
 const CONCURRENCY = 4;
@@ -84,11 +86,18 @@ export async function advanceFromArr(db: VigieDb, cfg: WorkerCfg): Promise<void>
   const requests = rows.map(rowToRequest);
   const alive = new Set(requests.map((r) => r.id));
   for (const id of leftQueue.keys()) if (!alive.has(id)) leftQueue.delete(id);
+  pruneArrivalWatch(alive);
   const idleTurn = passCount % IDLE_EVERY_PASSES === 1;
+  const now = Date.now();
 
   await mapLimit(requests, CONCURRENCY, async (req) => {
     if (!arrKnows(req.mediaType)) return;
-    const inQueue = matchQueue(req, queue.items).length > 0;
+    const arriving = summarizeQueue(matchQueue(req, queue.items));
+    const inQueue = arriving !== null;
+    // Les fenêtres d'annonce voient chaque passe, même celles qui ne relisent pas les fichiers.
+    await watchArrival(db, req, observationOf(arriving), now)
+      .then((said) => { if (said.length > 0) console.log(`[SeerArr] "${req.title}" annoncé : ${said.join(", ")}`); })
+      .catch((err) => console.warn(`[SeerArr] "${req.title}" (annonce) :`, err));
     const recent = justLeft(req.id, inQueue);
     if (!inQueue && !recent && !idleTurn && req.status !== "downloading") return;
     try {
@@ -132,19 +141,19 @@ function withoutDeletedSeasons<T extends { hasFile: boolean }>(facts: ReadonlyMa
 /**
  * Les notifications gardent MOT POUR MOT le format de la synchro Jellyseerr :
  * le serveur Tentacle reconnaît une annonce de disponibilité à « sur Tentacle
- * TV » et en lit les saisons (seerAvailabilityGuard.ts). Le départ se dit
- * « en route » — jamais « téléchargement », que l'application mobile
- * n'affiche nulle part.
+ * TV » et en lit les saisons (seerAvailabilityGuard.ts). Le départ, lui,
+ * attend sa confirmation (arrival/arrival-notices.ts).
  */
-export function arrivalNotifications(req: SeerRequest, d: AdvanceDecision): Array<{ title: string; body: string }> {
-  const out: Array<{ title: string; body: string }> = [];
-  if (d.notifyDownloading) out.push({ title: req.title, body: `« ${req.title} » est en route` });
-  if (d.notifyMovie) out.push({ title: req.title, body: `« ${req.title} » ${releasedSuffix("m", false)}` });
+export function arrivalNotifications(
+  req: SeerRequest, d: AdvanceDecision,
+): Array<{ title: string; body: string; state: CoreNotificationState }> {
+  const out: Array<{ title: string; body: string; state: CoreNotificationState }> = [];
+  if (d.notifyMovie) out.push({ title: req.title, body: `« ${req.title} » ${releasedSuffix("m", false)}`, state: "available" });
   if (d.notifySeasons.length > 0) {
     const requested = req.seasons ?? [];
     const arrived = (d.notified ?? req.notifiedSeasons ?? []).filter((s) => requested.includes(s)).length;
     const n = seasonNotification(req, d.notifySeasons, arrived);
-    out.push({ title: n.title, body: n.message });
+    out.push({ title: n.title, body: n.message, state: "available" });
   }
   return out;
 }
@@ -160,11 +169,11 @@ async function apply(db: VigieDb, req: SeerRequest, d: AdvanceDecision): Promise
   // Annonce d'abord, mémoire ensuite : un échec entre les deux réannoncerait
   // plutôt que de taire une arrivée.
   for (const n of notifications) {
-    await db.core.notification.create({
-      data: { jellyfinUserId: req.jellyfinUserId, type: "request_status", title: n.title, body: n.body, refId: req.id },
-    });
+    await db.core.notification.create({ data: requestNotificationData(req, n, n.state) });
   }
   if (d.notified) await setNotifiedSeasons(db, req.id, d.notified);
+  // Arrivé : la mémoire des avis du titre s'efface (une suite bloquée sera de nouveau dite).
+  if (notifications.length > 0) await arrivalAnnounced(db, req).catch(() => {});
   invalidateRequestCaches(req.jellyfinUserId);
   // Le notifier du serveur annonce l'arrivée dans Jellyfin au demandeur tant
   // que la revendication court : on la prolonge au moment où tout se joue.

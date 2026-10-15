@@ -30,9 +30,10 @@ import { localRequestedSeasons } from "./titles/local-seasons";
 import { readLang, rightsOf } from "./titles/title-rights";
 import { freeSeasons, titleSeasons, type SeasonOut } from "./titles/title-seasons";
 import { titleStateFor } from "./titles/title-state";
-import { refusalMessage, requestedMessage, unreachableMessage } from "./titles/title-messages";
+import { refusalMessage, requestedMessage, restrictedMessage, unreachableMessage } from "./titles/title-messages";
 import type { RequestOrigin } from "./titles/request-origin";
 import { withCorrectedInfo } from "./live/media-info";
+import { allowsTitle } from "./policy/content-gate";
 
 const TV_KEY = /^tv:([1-9]\d{0,9})$/;
 
@@ -71,6 +72,10 @@ export function registerTitleSeasonRoutes(
     const match = typeof query.key === "string" ? TV_KEY.exec(query.key) : null;
     const lang = readLang(query.lang);
     if (!match) return { seasons: [] };
+    // Une série que le profil ne peut pas voir n'a aucune saison à lui montrer.
+    if (!(await allowsTitle(getUser(request).userId, { mediaType: "tv", tmdbId: Number(match[1]) }))) {
+      return { ok: false, message: restrictedMessage(lang), seasons: [] };
+    }
     const cfg = await getWorkerConfig();
     const read = cfg ? await readSeasons(db, cfg, getUser(request), Number(match[1]), lang) : null;
     if (!read) return { ok: false, message: unreachableMessage(lang), seasons: [] };

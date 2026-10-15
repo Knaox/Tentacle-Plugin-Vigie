@@ -29,8 +29,8 @@ afterEach(() => raw.close());
 const tables = () => raw.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name LIKE 'seer_%' ORDER BY name").all();
 const indexes = () => raw.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_%' ORDER BY name").all().map((r) => r.name);
 
-test("base neuve : les six tables et leurs index", async () => {
-  assert.deepEqual(await storage.migrate(MIGRATIONS), [1]);
+test("base neuve : toutes les tables et leurs index", async () => {
+  assert.deepEqual(await storage.migrate(MIGRATIONS), [1, 2]);
   assert.deepEqual(tables().map((t) => t.name), TABLES.map((t) => t.name).sort());
   for (const name of ["idx_seer_req_user", "idx_seer_req_queue", "idx_cleanup_status", "idx_seer_user_seerrid", "idx_tmdbc_digital"]) {
     assert.ok(indexes().includes(name), name);
@@ -42,7 +42,7 @@ test("tables copiées depuis MariaDB : reconnues, complétées, rien de recréé
   copiedTables(raw);
   const columnsOf = (table: string) => raw.prepare(`SELECT name, type, "notnull", pk FROM pragma_table_info('${table}')`).all().map((c) => ({ ...c }));
   const before = columnsOf("seer_tmdb_cache");
-  assert.deepEqual(await storage.migrate(MIGRATIONS), [1]);
+  assert.deepEqual(await storage.migrate(MIGRATIONS), [1, 2]);
 
   // Rien de recréé : les colonnes de la copie restent telles quelles, à leur place ; les manquantes s'ajoutent après.
   assert.deepEqual(columnsOf("seer_tmdb_cache").slice(0, before.length), before);
@@ -85,4 +85,11 @@ test("sans base SQLite prêtée par Tentacle, Vigie ne démarre rien", async () 
   }
   assert.equal(errors.length, 2);
   assert.equal(tables().length, 0, "aucune requête, aucune table");
+});
+
+test("une base déjà passée par la migration 1 reçoit la table des avis par la 2", async () => {
+  await storage.migrate(MIGRATIONS.slice(0, 1));
+  raw.exec("DROP TABLE seer_notices");
+  assert.deepEqual(await storage.migrate(MIGRATIONS), [2]);
+  assert.ok(tables().some((t) => t.name === "seer_notices"));
 });

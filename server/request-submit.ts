@@ -34,6 +34,8 @@ import { getBlocklistedTags, isMaskedTitle, parseTagSet } from "./blocklist";
 import type { RequestOrigin } from "./titles/request-origin";
 import { announceTitleRequested } from "./titles/request-listener";
 import { forgetSpentNow } from "./live/auto-forget";
+import { allowsRawTitle } from "./policy/content-gate";
+import { RESTRICTED_REFUSAL } from "./policy/refusal";
 
 /** Ce que la route renvoie : un code HTTP et son corps, tels quels. */
 export interface SubmitResult {
@@ -58,6 +60,13 @@ export async function submitRequest(
   // 2) Blocage
   if (settings.blocked) {
     return { status: 403, body: { errorKey: "seer:errUserBlocked", message: "User is blocked" } };
+  }
+
+  // 2 bis) Le contrôle parental du cœur (policy/content-gate.ts) : un titre
+  //    au-dessus de l'âge du profil ne se demande pas — un invité de la Famille
+  //    est jugé sur SA politique, puisqu'il demande à son nom.
+  if (!(await allowsRawTitle(user.userId, body))) {
+    return { status: 403, body: { ...RESTRICTED_REFUSAL } };
   }
 
   // 3) La fiche Jellyseerr, lue une fois : le type réel (animé ?) et le masquage.

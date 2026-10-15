@@ -2,6 +2,8 @@
 /*  Seer Plugin — Server-side types                                    */
 /* ------------------------------------------------------------------ */
 
+import type { BlockedCause } from "./arrival/blocked-causes";
+
 export type RequestStatus =
   | "queued"
   | "processing"
@@ -95,6 +97,12 @@ export interface DownloadProgress {
   stalled?: boolean;
   /** Résumé d'une demande : combien de ses éléments sont bloqués. */
   stalledCount?: number;
+  /**
+   * Pourquoi c'est bloqué (arrival/blocked-causes.ts, liste fermée) — sur un
+   * élément bloqué, et sur le résumé d'une demande entièrement bloquée.
+   * Champ ajouté après coup : un client plus ancien l'ignore.
+   */
+  blockedCause?: BlockedCause;
   title: string | null;
   seasonNumber: number | null;
   episodeNumber: number | null;

@@ -65,6 +65,11 @@ export interface SeerrPagedResponse {
   blockedCount?: number;
   /** True si un blocage par tags est configuré côté Jellyseerr. */
   blockedActive?: boolean;
+  /**
+   * Page PLEINE d'un profil restreint (contrôle parental, server/policy/dense-pages.ts) :
+   * son total grandit à mesure que le serveur lit — le plus récent fait foi.
+   */
+  vigieDense?: boolean;
 }
 
 export interface SeerrMediaRequest {

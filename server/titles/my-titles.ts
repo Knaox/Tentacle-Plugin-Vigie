@@ -63,8 +63,13 @@ const WAITING: ReadonlySet<RequestStatus> = new Set([
   "queued", "processing", "sent_to_seer", "approved", "unavailable", "retry_pending",
 ]);
 
-/* Ce qui l'emporte quand deux demandes portent sur le même titre (deux saisons) : ce qui bouge. */
-const RANK: Record<MyTitleState, number> = { pending: 1, blocked: 2, importing: 3, arriving: 4 };
+/*
+ * Ce qui l'emporte quand deux demandes portent sur le même titre (deux
+ * saisons) : le plus avancé, dans l'ordre des titres d'arrival/arrival-state.ts
+ * — en route > importation > en attente > bloqué. Jamais « bloqué » tant
+ * qu'une autre demande du titre attend ou avance.
+ */
+const RANK: Record<MyTitleState, number> = { blocked: 1, pending: 2, importing: 3, arriving: 4 };
 
 interface Verdict {
   state: MyTitleState;

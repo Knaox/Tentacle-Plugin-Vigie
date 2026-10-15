@@ -34,10 +34,10 @@ test("le film rangé par Radarr est annoncé tout de suite, une seule fois", () 
   assert.equal(again.notified, null);
 });
 
-test("le film qui entre dans la file part « en route »", () => {
+test("le film qui entre dans la file part « en route » — l'annonce, elle, attend sa confirmation", () => {
   const d = decideAdvance(movie({ status: "sent_to_seer", inQueue: true }));
   assert.equal(d.status, "downloading");
-  assert.equal(d.notifyDownloading, true);
+  assert.equal(d.notifyMovie, false);
   // Déjà en route : rien à redire.
   assert.equal(decideAdvance(movie({ status: "downloading", inQueue: true })).status, null);
 });
@@ -45,7 +45,7 @@ test("le film qui entre dans la file part « en route »", () => {
 test("un téléchargement abandonné sans fichier redevient une attente, sans notification", () => {
   const d = decideAdvance(movie({ status: "downloading", movieHasFile: false }));
   assert.equal(d.status, "unavailable");
-  assert.equal(d.notifyDownloading || d.notifyMovie, false);
+  assert.equal(d.notifyMovie, false);
 });
 
 test("Radarr muet : rien ne bouge", () => {
@@ -105,17 +105,9 @@ test("jamais de recul : une demande disponible en partie ne redevient pas « en 
   const f = facts([["S1E1", ep(true)], ["S2E1", ep(false)]]);
   const d = decideAdvance(series({ status: "partially_available", notifiedSeasons: [1], inQueue: true, seasons: seasonFacts(f, [1, 2]) }));
   assert.equal(d.status, null);
-  assert.equal(d.notifyDownloading, false);
   assert.equal(isDowngrade("partially_available", "downloading"), true);
   assert.equal(isDowngrade("approved", "sent_to_seer"), false);
   assert.equal(isDowngrade("available", "deleted"), false);
-});
-
-test("« en route » n'est jamais annoncé après une saison arrivée", () => {
-  const f = facts([["S1E1", ep(false)]]);
-  const d = decideAdvance(series({ status: "approved", notifiedSeasons: [2], inQueue: true, seasons: seasonFacts(f, [1]) }));
-  assert.equal(d.status, "downloading");
-  assert.equal(d.notifyDownloading, false);
 });
 
 test("série que Sonarr ne suit pas : seule la file parle", () => {
@@ -136,16 +128,13 @@ test("les annonces gardent le format que le serveur Tentacle sait lire", async (
     origin: null, platform: null,
   };
   const [season] = arrivalNotifications(req, {
-    status: null, completed: false, notifyDownloading: false, notifyMovie: false, notifySeasons: [2], notified: [1, 2],
+    status: null, completed: false, notifyMovie: false, notifySeasons: [2], notified: [1, 2],
   });
   assert.equal(season.body, "Saison 2 est sortie sur Tentacle TV (2/3 saisons)");
   assert.match(season.body, /^Saisons?\s+2\b/);
 
-  const [film, departure] = arrivalNotifications({ ...req, mediaType: "movie", title: "Dune", seasons: null }, {
-    status: "available", completed: true, notifyDownloading: true, notifyMovie: true, notifySeasons: [], notified: [0],
-  }).reverse();
+  const [film] = arrivalNotifications({ ...req, mediaType: "movie", title: "Dune", seasons: null }, {
+    status: "available", completed: true, notifyMovie: true, notifySeasons: [], notified: [0],
+  });
   assert.equal(film.body, "« Dune » est sorti sur Tentacle TV");
-  // Le départ n'est pas une disponibilité, et ne dit jamais « téléchargement ».
-  assert.equal(departure.body.includes("sur Tentacle TV"), false);
-  assert.equal(/t[ée]l[ée]charg/i.test(departure.body), false);
 });

@@ -23,6 +23,10 @@ import { sonarrSeriesFacts, type EpisodeFact } from "./sonarr-episodes";
 import { radarrHasFile } from "./radarr-movies";
 import { mapLimit } from "./concurrency";
 import { goneFromJellyfin, goneSeasonsOf } from "./live/live-state";
+import {
+  arrivalItemKey, bestCopies, entryState, titleArrival, type ArrivalState, type TitleArrivalState,
+} from "./arrival/arrival-state";
+import { leadingCause } from "./arrival/blocked-causes";
 
 /** Ce qui attend encore quelque chose de Sonarr ou de Radarr. */
 export const IN_FLIGHT: ReadonlySet<RequestStatus> = new Set([
@@ -69,26 +73,44 @@ function entryProgress(e: QueueEntry): DownloadProgress {
     sizeLeft: e.sizeLeft,
     etaSeconds: e.validating ? null : e.etaSeconds,
     estimatedCompletionAt: null,
-    status: e.validating ? "completed" : e.paused ? "paused" : e.stalled ? "warning" : "downloading",
+    status: e.validating ? "completed" : e.paused ? "paused" : e.stalled ? "warning" : e.waiting ? "queued" : "downloading",
     validating: e.validating,
     stalled: e.stalled,
+    ...(e.stalled && e.cause ? { blockedCause: e.cause } : {}),
     title: e.episodeTitle,
     seasonNumber: e.seasonNumber,
     episodeNumber: e.episodeNumber,
   };
 }
 
-/**
- * Ce qui arrive pour une demande, en un résumé : la taille et le reste
- * comptés UNE fois par téléchargement (un pack de saison a une entrée par
- * épisode, toutes de la taille du pack), le plus long des délais, et
- * l'importation seulement quand plus rien ne descend.
- */
-export function summarizeQueue(entries: readonly QueueEntry[]): { summary: DownloadProgress; items: DownloadProgress[] } | null {
-  if (entries.length === 0) return null;
-  const downloads = new Map<string, QueueEntry>();
-  for (const e of entries) downloads.set(e.downloadId ?? e.id, e);
+/** L'état d'une entrée de la file (arrival/arrival-state.ts). */
+export function queueEntryState(e: QueueEntry): ArrivalState {
+  return entryState({ stalled: e.stalled, validating: e.validating, waiting: e.waiting });
+}
 
+const SUMMARY_STATUS: Record<TitleArrivalState, string> = {
+  downloading: "downloading", importing: "completed", pending: "queued", blocked: "warning",
+};
+
+/**
+ * Ce qui arrive pour une demande, en un résumé. L'état est celui de la règle
+ * (arrival/arrival-state.ts) : la meilleure copie de chaque élément, puis le
+ * plus parlant des éléments — jamais « bloqué » tant qu'un élément avance.
+ * Taille et reste se lisent sur ces meilleures copies, UNE fois par
+ * téléchargement (un pack de saison a une entrée par épisode, toutes de la
+ * taille du pack) : une copie refusée à l'import ne gonfle plus l'avancement
+ * de celle qui descend.
+ */
+export function summarizeQueue(
+  entries: readonly QueueEntry[],
+): { summary: DownloadProgress; items: DownloadProgress[]; state: TitleArrivalState } | null {
+  const tagged = entries.map((entry) => ({ item: arrivalItemKey(entry.seasonNumber, entry.episodeNumber), state: queueEntryState(entry), entry }));
+  const arrival = titleArrival(tagged);
+  if (!arrival) return null;
+  const chosen = bestCopies(tagged).map((t) => t.entry);
+
+  const downloads = new Map<string, QueueEntry>();
+  for (const e of chosen) downloads.set(e.downloadId ?? e.id, e);
   let size = 0;
   let left = 0;
   let sized = 0;
@@ -99,32 +121,31 @@ export function summarizeQueue(entries: readonly QueueEntry[]): { summary: Downl
       left += e.sizeLeft;
       sized++;
     }
-    if (!e.validating && e.etaSeconds != null && (eta === null || e.etaSeconds > eta)) eta = e.etaSeconds;
+    if (!e.validating && !e.stalled && e.etaSeconds != null && (eta === null || e.etaSeconds > eta)) eta = e.etaSeconds;
   }
 
-  const importing = entries.every((e) => e.validating);
-  const stalledCount = entries.filter((e) => e.stalled).length;
-  const moving = entries.some((e) => !e.validating && !e.stalled && !e.paused);
-  const single = entries.length === 1 ? entries[0] : null;
+  const importing = arrival.state === "importing";
+  const pending = arrival.state === "pending";
+  const single = chosen.length === 1 ? chosen[0] : null;
   const summary: DownloadProgress = {
     percent: importing ? 100 : sized > 0 && size > 0 ? Math.min(100, Math.max(0, ((size - left) / size) * 100)) : null,
     size: sized > 0 ? size : null,
     sizeLeft: sized > 0 ? left : null,
     etaSeconds: importing ? null : eta,
     estimatedCompletionAt: null,
-    status: importing ? "completed" : moving ? "downloading" : entries.some((e) => e.paused) ? "paused" : "warning",
+    status: pending && chosen.some((e) => e.paused) ? "paused" : SUMMARY_STATUS[arrival.state],
     validating: importing,
-    // Bloquée : tout ce qui n'est pas arrivé est bloqué (même règle que Jellyseerr).
-    stalled: stalledCount > 0 && entries.every((e) => e.stalled || e.validating),
-    stalledCount,
+    stalled: arrival.state === "blocked",
+    stalledCount: arrival.blockedItems,
+    ...(arrival.state === "blocked" ? { blockedCause: leadingCause(chosen.map((e) => e.cause ?? "unknown")) ?? "unknown" } : {}),
     title: single?.episodeTitle ?? null,
     seasonNumber: single?.seasonNumber ?? null,
     episodeNumber: single?.episodeNumber ?? null,
   };
-  const items = entries.map(entryProgress)
+  const items = chosen.map(entryProgress)
     .sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1))
     .slice(0, MAX_DETAIL);
-  return { summary, items };
+  return { summary, items, state: arrival.state };
 }
 
 /**

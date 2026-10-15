@@ -25,6 +25,7 @@ import {
   episodeKey, sonarrSeriesFacts, sonarrWindowFacts, type EpisodeFact, type WindowFacts,
 } from "./sonarr-episodes";
 import { statusOf } from "./search/status-map";
+import { entryState, moreAdvanced } from "./arrival/arrival-state";
 import { correctedStatus, goneFromJellyfin, goneSeasonsOf } from "./live/live-state";
 
 /** Le statut d'un titre pour l'agenda : celui de Jellyseerr, corrigé de ce que Jellyfin a perdu. */
@@ -57,10 +58,19 @@ export interface QueueIndex {
 const NO_FACTS: WindowFacts = { byEpisode: new Map(), byDay: new Map() };
 const NO_QUEUE: QueueIndex = { episodes: new Map(), movies: new Map() };
 
-/** Plusieurs entrées pour un même titre (un film réessayé) : bloqué seulement si toutes le sont. */
+/**
+ * Plusieurs copies d'un même élément (un film réessayé, un épisode refusé à
+ * l'import pendant qu'une autre copie descend) : la plus avancée l'emporte
+ * (arrival/arrival-state.ts) — bloqué seulement si toutes le sont.
+ */
 function merge(prev: Queued | undefined, next: QueueEntry): Queued {
-  if (!prev) return { stalled: next.stalled, percent: next.percent, validating: next.validating };
-  return { stalled: prev.stalled && next.stalled, percent: prev.percent ?? next.percent, validating: prev.validating && next.validating };
+  const candidate: Queued = { stalled: next.stalled, percent: next.percent, validating: next.validating };
+  if (!prev) return candidate;
+  const a = entryState(candidate);
+  const b = entryState(prev);
+  if (moreAdvanced(a, b)) return candidate;
+  if (moreAdvanced(b, a)) return prev;
+  return (candidate.percent ?? -1) > (prev.percent ?? -1) ? candidate : prev;
 }
 
 export function indexQueue(entries: readonly QueueEntry[]): QueueIndex {

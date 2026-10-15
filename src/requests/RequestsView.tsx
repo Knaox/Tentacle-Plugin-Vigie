@@ -36,13 +36,15 @@ import { useRequestActions } from "./useRequestActions";
 import { useMoreRequests } from "./useMoreRequests";
 import { useAllRequestsData } from "./useAllRequests";
 import { matchesRequestQuery } from "./requestSearch";
+import { useRequestFocus } from "./useRequestFocus";
+import type { RequestFocus } from "../hub/deepLink";
 
 const TITLE: Record<RequestGroup, string> = {
   active: "seer:groupActive", partial: "seer:groupPartial", available: "seer:groupAvailable",
   attention: "seer:groupAttention", archived: "seer:groupArchived",
 };
 
-export function RequestsView({ data, active }: { data: HubData; active: boolean }) {
+export function RequestsView({ data, active, focus }: { data: HubData; active: boolean; focus?: RequestFocus | null }) {
   const { t } = useTranslation("seer");
   const hub = useHub();
   const toast = useToast();
@@ -50,7 +52,8 @@ export function RequestsView({ data, active }: { data: HubData; active: boolean 
   const actions = useRequestActions();
   const [filter, setFilter] = useState<RequestsFilter>("all");
   const [type, setType] = useState<RequestsType>("all");
-  const [query, setQuery] = useState("");
+  // Une notification ouvre SA demande : la recherche part de son titre.
+  const [query, setQuery] = useState(focus?.find ?? "");
   const [showArchived, setShowArchived] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -84,6 +87,12 @@ export function RequestsView({ data, active }: { data: HubData; active: boolean 
   // Arrive encore : quelque chose descend ou s'importe — pas seulement un statut qui vient de changer.
   const isArriving = useCallback((id: string) => Boolean(source.progress.byId.get(id)?.download), [source.progress.byId]);
   const groups = useMemo(() => groupRequests(filtered, isArriving), [filtered, isArriving]);
+  const rendered = useMemo(() => ({
+    ids: new Set(filtered.map((r) => r.id)),
+    archived: new Set((groups.get("archived") ?? []).map((r) => r.id)),
+  }), [filtered, groups]);
+  const revealArchived = useCallback(() => setShowArchived(true), []);
+  const { highlightId } = useRequestFocus(focus, rendered, query, revealArchived);
 
   // Le prochain épisode de chaque série suivie, sur un mois.
   const from = today();
@@ -141,6 +150,7 @@ export function RequestsView({ data, active }: { data: HubData; active: boolean 
       selectable={selecting}
       selected={selected.has(request.id)}
       onToggleSelect={toggle}
+      highlighted={request.id === highlightId}
     />
     );
   };

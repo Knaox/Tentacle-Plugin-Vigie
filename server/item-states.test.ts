@@ -20,7 +20,7 @@ function queued(over: Partial<QueueEntry>): QueueEntry {
   return {
     id: "sonarr-1", source: "sonarr", mediaType: "tv", title: "Re:Zero", seasonNumber: 4, episodeNumber: 18,
     episodeTitle: null, tmdbId: 1, percent: 42, size: 100, sizeLeft: 58, etaSeconds: 60, validating: false,
-    paused: false, stalled: false, warning: null, downloadId: "X", ...over,
+    paused: false, waiting: false, stalled: false, cause: null, warning: null, downloadId: "X", ...over,
   };
 }
 
@@ -92,4 +92,12 @@ test("la fiche d'une série : l'état de chaque épisode, pas de sa saison", asy
   assert.equal(episodeState({ hasFile: false, monitored: true }, { stalled: false, percent: 100, validating: true }, null), "importing");
   assert.equal(episodeState({ hasFile: false, monitored: true }, undefined, null), "requested");
   assert.equal(episodeState({ hasFile: true, monitored: true }, { stalled: true, percent: 99, validating: false }, null), "available");
+});
+
+test("deux copies d'un même épisode : l'importation de l'une l'emporte sur la descente de l'autre", () => {
+  const copy = (over: Partial<Parameters<typeof queued>[0]>) => queued({ episodeNumber: 18, ...over });
+  const index = indexQueue([copy({ percent: 30 }), copy({ validating: true, percent: 100 }), copy({ stalled: true })]);
+  const [only] = [...index.episodes.values()];
+  assert.equal(only.validating, true);
+  assert.equal(only.stalled, false);
 });

@@ -85,6 +85,17 @@ test("un titre par clé : les saisons s'additionnent, ce qui bouge l'emporte", (
   ]);
 });
 
+test("deux demandes du même titre, l'une bloquée, l'autre en attente : le titre attend, il n'est pas bloqué", () => {
+  const verdicts = new Map<string, ArrVerdict>([["s3", { status: "downloading", download: download({ stalled: true }) }]]);
+  const [title] = myTitles([
+    request({ id: "s3", mediaType: "tv", tmdbId: 1399, seasons: [3], status: "downloading" }),
+    request({ id: "s4", mediaType: "tv", tmdbId: 1399, seasons: [4], status: "approved" }),
+  ], verdicts);
+  assert.equal(title.state, "pending");
+  // Seule, la demande bloquée dit « bloqué ».
+  assert.equal(myTitles([request({ id: "s3", mediaType: "tv", tmdbId: 1399, seasons: [3], status: "downloading" })], verdicts)[0].state, "blocked");
+});
+
 test("une série demandée en entier reste entière ; un film n'a pas de saisons", () => {
   const list = myTitles([
     request({ id: "a", mediaType: "tv", tmdbId: 1, seasons: [1] }),

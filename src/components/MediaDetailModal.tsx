@@ -22,6 +22,8 @@ import { useTranslation } from "react-i18next";
 import type { SeerrMovieDetail, SeerrSearchResult, SeerrTvDetail } from "../api/types";
 import { formatSeerError } from "../api/seer-client";
 import { useMediaDetail } from "../hooks/useMediaDetail";
+import { isRestrictedError } from "../utils/restricted";
+import { RestrictedNotice } from "./detail/RestrictedNotice";
 import { useLocalRequestedSeasons } from "../hooks/useLocalRequestedSeasons";
 import { useMediaSimilar } from "../hooks/useMediaSimilar";
 import { useWatchProviders } from "../hooks/useWatchProviders";
@@ -89,7 +91,7 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
 
   const mediaType = current.mediaType === "movie" ? "movie" as const : "tv" as const;
   const isTv = mediaType === "tv";
-  const { data: detail, isLoading } = useMediaDetail(mediaType, current.id);
+  const { data: detail, isLoading, error } = useMediaDetail(mediaType, current.id);
   const { data: localSeasons } = useLocalRequestedSeasons(mediaType, current.id);
   const { data: similar } = useMediaSimilar(mediaType, current.id);
   const { data: providers } = useWatchProviders(mediaType, current.id);
@@ -239,6 +241,8 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
           </div>
         </div>
 
+        {/* Le contrôle parental refuse ce titre au profil : ni affiche, ni résumé (utils/restricted.ts). */}
+        {isRestrictedError(error) ? <RestrictedNotice onClose={handleClose} /> : <>
         <DetailHero
           item={current}
           detail={detail as SeerrMovieDetail | SeerrTvDetail | undefined}
@@ -274,6 +278,7 @@ export function MediaDetailModal({ item, onClose, lockedSeasons, defaultProfileI
           similar={similar}
           onSelectSimilar={openOther}
         />
+        </>}
       </div>
 
       <TrailerModal open={trailer !== null} onClose={() => setTrailer(null)} trailers={trailers ?? []} initialIndex={trailer ?? 0} />

@@ -36,6 +36,7 @@ import { parseTitleKeys } from "./titles/title-state";
 import { hasGapsToTell, MAX_GAP_KEYS, MAX_GAP_LOOKUPS, seriesGaps } from "./titles/title-gaps";
 import type { SeasonOut } from "./titles/title-seasons";
 import { withCorrectedInfo } from "./live/media-info";
+import { filterTitles } from "./policy/content-gate";
 
 /** La fiche d'une série bouge peu : une page de résultats retapée ne la relit pas. */
 const DETAIL_TTL_MS = 60_000;
@@ -68,16 +69,19 @@ export function registerTitleGapRoutes(
       .filter((k) => hasGapsToTell(statusFor({ key: k.key, mediaType: k.mediaType, tmdbId: k.tmdbId, remoteStatus: undefined })))
       .slice(0, MAX_GAP_LOOKUPS);
     if (partial.length === 0) return { items: {} };
+    const user = getUser(request);
+    // Les saisons d'une série que le profil ne peut pas voir ne se proposent pas.
+    const shown = await filterTitles(user.userId, partial, (k) => k);
+    if (shown.length === 0) return { items: {} };
 
     const lang = readLang(query.lang);
-    const user = getUser(request);
     const [rights, specials] = await Promise.all([
       rightsOf(db, user.userId, cfg),
       specialSeasonsQuick(cfg.seerrUrl, cfg.seerrApiKey),
     ]);
     const items: Record<string, { seasons: SeasonOut[] }> = {};
     // Une fiche qui ne vient pas : cette série ne dit rien, les autres répondent.
-    await mapLimit(partial, LOOKUP_CONCURRENCY, async (k) => {
+    await mapLimit(shown, LOOKUP_CONCURRENCY, async (k) => {
       const [detail, local] = await Promise.all([
         tvDetail(cfg, k.tmdbId),
         localRequestedSeasons(db, user.userId, k.tmdbId).catch(() => [] as number[]),

@@ -15,6 +15,9 @@ import type { SeerRequest, SeerProfile } from "./types";
 import { factsWithRequest } from "./live/live-state";
 import { mapSeerrStatus } from "./seerr-status-map";
 import { correctMediaStatus, correctSeasonStatus, type RequestFact } from "./live/title-truth";
+import { requestNotificationData, type CoreNotificationState } from "./notify/core-notification";
+import { aggregateDownloads, type SeerrDownloadItem } from "./download-progress";
+import { observationOf, watchArrival } from "./arrival/arrival-notices";
 
 const CLAIM_TTL_SECONDS = 1800; // 30 min — anti-doublon notif biblio (TTL glissant)
 
@@ -75,7 +78,7 @@ export async function syncStatuses(db: VigieDb, config: WorkerConfig): Promise<v
         seasons?: Array<{ seasonNumber: number }>;
         media?: {
           id: number; status: number;
-          downloadStatus?: Array<{ externalId: number; status: string }>;
+          downloadStatus?: SeerrDownloadItem[];
         };
       };
 
@@ -87,6 +90,10 @@ export async function syncStatuses(db: VigieDb, config: WorkerConfig): Promise<v
         seasons: (data.seasons ?? []).map((s) => s.seasonNumber),
         createdAt: data.createdAt ?? null,
       };
+      // Sonarr ou Radarr injoignables d'ici : le relais de Jellyseerr nourrit les fenêtres d'annonce.
+      if (!arrKnows(request.mediaType)) {
+        await watchArrival(db, request, observationOf(aggregateDownloads(data.media?.downloadStatus)), Date.now()).catch(() => {});
+      }
       const facts = factsWithRequest(request.mediaType, request.tmdbId, own, (data.media?.downloadStatus?.length ?? 0) > 0);
       const mediaStatus = correctMediaStatus(request.mediaType, data.media?.status, facts);
       const globalStatus = mapSeerrStatus(data.status, mediaStatus, data.media?.downloadStatus);
@@ -136,10 +143,7 @@ async function syncGlobal(
   const notif = statusNotification(request, newStatus);
   if (notif) {
     await db.core.notification.create({
-      data: {
-        jellyfinUserId: request.jellyfinUserId, type: "request_status",
-        title: notif.title, body: notif.message, refId: request.id,
-      },
+      data: requestNotificationData(request, { title: notif.title, body: notif.message }, notif.state),
     });
   }
   console.log(`[SeerWorker] "${request.title}" status: ${request.status} → ${newStatus}`);
@@ -216,12 +220,10 @@ async function handleFailedSync(
       seerrMediaStatus: data.media?.status, retryCount: retryN,
     } as any);
     await db.core.notification.create({
-      data: {
-        jellyfinUserId: request.jellyfinUserId, type: "request_status",
+      data: requestNotificationData(request, {
         title: request.title,
         body: `Échec définitif pour « ${request.title} » après ${request.maxRetries} tentatives`,
-        refId: request.id,
-      },
+      }, "failed"),
     });
     console.log(`[SeerWorker] "${request.title}" PERMANENTLY FAILED after ${request.maxRetries} retries`);
   }
@@ -255,18 +257,16 @@ export { mapSeerrStatus };
 
 function statusNotification(
   request: SeerRequest, newStatus: string,
-): { type: string; title: string; message: string } | null {
+): { type: string; title: string; message: string; state: CoreNotificationState } | null {
   switch (newStatus) {
-    // « En route », jamais « téléchargement » : l'application mobile affiche
-    // ces notifications et n'écrit ce mot nulle part (cf. CLAUDE.md du core).
-    case "downloading":
-      return { type: "request_downloading", title: request.title, message: `« ${request.title} » est en route` };
+    // Le départ (« en route ») n'est plus annoncé au passage du statut : il
+    // attend sa confirmation (arrival/arrival-notices.ts, nourri ci-dessus).
     case "available": {
       const suffix = releasedSuffix(request.mediaType === "movie" ? "m" : "f", false);
-      return { type: "request_available", title: request.title, message: `« ${request.title} » ${suffix}` };
+      return { type: "request_available", title: request.title, message: `« ${request.title} » ${suffix}`, state: "available" };
     }
     case "failed":
-      return { type: "request_declined", title: request.title, message: `Votre demande pour « ${request.title} » a été refusée` };
+      return { type: "request_declined", title: request.title, message: `Votre demande pour « ${request.title} » a été refusée`, state: "declined" };
     default:
       return null;
   }

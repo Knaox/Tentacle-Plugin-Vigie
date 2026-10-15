@@ -11,7 +11,7 @@
     "desktop",
     "mobile"
   ],
-  "minTentacleVersion": "1.28.0",
+  "minTentacleVersion": "1.30.0",
   "storage": {
     "sqlite": true
   },

@@ -4,7 +4,7 @@ import { readHubEntry } from "./deepLink";
 
 test("une recommandation ouvre la fiche du titre", () => {
   assert.deepEqual(readHubEntry("/discover", "?media=movie:603"), {
-    tab: "discover", media: { mediaType: "movie", id: 603 }, person: null, request: null, query: "",
+    tab: "discover", media: { mediaType: "movie", id: 603 }, person: null, request: null, query: "", requestFocus: null,
   });
 });
 
@@ -37,4 +37,14 @@ test("une carte de Tentacle demande une série : ses saisons s'ouvrent à l'arri
   assert.equal(readHubEntry("/discover", "?request=tv:abc").request, null);
   assert.equal(readHubEntry("/discover", "?request=person:3").request, null);
   assert.equal(readHubEntry("/discover", "?request=tv:0").request, null);
+});
+
+test("une notification de Tentacle ouvre SA demande : Mes demandes cherchée, la demande en évidence", () => {
+  const entry = readHubEntry("/discover", "?tab=requests&find=La+Chasse&focus=5f0c2b1e-aa11-4c1b-9d0e-1234567890ab");
+  assert.equal(entry.tab, "requests");
+  assert.equal(entry.query, "");
+  assert.deepEqual(entry.requestFocus, { id: "5f0c2b1e-aa11-4c1b-9d0e-1234567890ab", find: "La Chasse" });
+  assert.deepEqual(readHubEntry("/discover", "?tab=requests&find=Dune").requestFocus, { id: null, find: "Dune" });
+  assert.deepEqual(readHubEntry("/discover", "?focus=../x&find=Dune").requestFocus, { id: null, find: "Dune" });
+  assert.equal(readHubEntry("/discover", "?tab=requests").requestFocus, null);
 });

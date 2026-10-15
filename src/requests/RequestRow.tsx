@@ -41,10 +41,12 @@ interface Props {
   onToggleSelect?: (id: string) => void;
   /** Vue de tous les comptes : qui l'a demandée (toujours affiché, la date avec). */
   requester?: string | null;
+  /** La demande qu'une notification désigne : mise en évidence (`useRequestFocus`). */
+  highlighted?: boolean;
 }
 
 export const RequestRow = memo(function RequestRow(props: Props) {
-  const { request, progress, receivedAt, nextRelease, onAction, onMenu, onNextRelease, selectable, selected, onToggleSelect, requester } = props;
+  const { request, progress, receivedAt, nextRelease, onAction, onMenu, onNextRelease, selectable, selected, onToggleSelect, requester, highlighted } = props;
   const { t } = useTranslation("seer");
   const { status, detail } = requestView(request, progress);
   const gaps = useTitleGaps({ id: request.tmdbId, mediaType: request.mediaType });
@@ -63,7 +65,11 @@ export const RequestRow = memo(function RequestRow(props: Props) {
       : null;
 
   return (
-    <li className={`rounded-2xl p-2.5 transition-colors sm:p-3 ${selected ? "bg-[var(--brand-soft)] ring-1 ring-[rgba(var(--brand-rgb),0.5)]" : "hover:bg-tentacle-fill-subtle"}`}>
+    <li
+      data-request-id={request.id}
+      aria-current={highlighted ? "true" : undefined}
+      className={`scroll-my-24 rounded-2xl p-2.5 transition-colors sm:p-3 ${selected ? "bg-[var(--brand-soft)] ring-1 ring-[rgba(var(--brand-rgb),0.5)]" : highlighted ? "bg-[rgba(var(--brand-rgb),0.1)] ring-2 ring-[rgba(var(--brand-rgb),0.7)]" : "hover:bg-tentacle-fill-subtle"}`}
+    >
       <div className="flex items-center gap-3 sm:gap-4">
       {selectable && (
         <button

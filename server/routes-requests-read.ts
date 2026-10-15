@@ -10,6 +10,8 @@ import { getUser, type WorkerCfg, localToUnified } from "./seerr-unified";
 import { type MergedRows, buildMergedRows, metaToDetail } from "./requests-list";
 import { requestsPage } from "./requests-page";
 import { localRequestedSeasons } from "./titles/local-seasons";
+import { filterTitles } from "./policy/content-gate";
+import type { UnifiedRequest } from "./types";
 
 /** Liste brute fraîche 1 min, servable 10 min pendant le rafraîchissement. */
 const ROWS_TTL_MS = 60_000;
@@ -50,11 +52,13 @@ export function registerRequestReadRoutes(
     const config = await getWorkerConfig();
     if (!config) {
       const local = await getUserRequests(db, user.userId, { page, limit, mediaType: query.type });
-      return { ...local, results: local.results.map(localToUnified) };
+      return { ...local, results: await filterTitles(user.userId, local.results.map(localToUnified), (r) => r) };
     }
 
     const rows = await loadRows(config, user);
-    return requestsPage(db, config, rows, user, { page, limit, status: query.status, type: query.type, q: query.q });
+    // Un titre que le profil ne peut plus voir sort de sa liste (contrôle parental du cœur).
+    const keep = (items: UnifiedRequest[]) => filterTitles(user.userId, items, (r) => r);
+    return requestsPage(db, config, rows, user, { page, limit, status: query.status, type: query.type, q: query.q }, undefined, keep);
   });
 
   /* ── GET /requests/stats ──
