@@ -19,6 +19,14 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.29.0]
+### FR
+- **L'aperçu au survol suit le délai choisi dans Tentacle** : la mini-carte d'un titre à demander paraît au même moment que l'aperçu des cartes de la bibliothèque — 800 ms par défaut, à régler dans les réglages de Tentacle
+- Le délai réglable arrive avec Tentacle 1.30.0 ; avec une version plus ancienne, l'aperçu garde son rythme d'avant
+### EN
+- **The hover preview follows the delay chosen in Tentacle**: the mini card of a title to request shows up at the same moment as the preview of library cards — 800 ms by default, adjustable in Tentacle's settings
+- The adjustable delay comes with Tentacle 1.30.0; with an older version, the preview keeps its previous timing
+
 ## [1.28.0]
 ### FR
 - **Le contrôle parental de Jellyfin s'applique à Vigie** : un profil limité par une note maximale ne voit, dans la découverte, la recherche, les fiches, les sagas, les filmographies, le calendrier et « Mes demandes », aucun titre au-dessus de son âge — et ne peut pas en demander un. Les rangées et la grille se remplissent de titres permis, sans trou ; une fiche interdite dit simplement « Non disponible pour ce profil ». Un invité de la Famille suit son propre contrôle parental
