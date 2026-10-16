@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { getCurrentLanguage } from "../utils/media-helpers";
 import { attachArbiter } from "./arbiter";
-import { backendAbsolute, requestPreview } from "./host";
+import { backendAbsolute, hostPreviewDelayMs, requestPreview } from "./host";
 import { IDLE, previewDeadline, reducePreview, type PreviewPhase } from "./machine";
 import { createPreviewSource, HLS_MIME, streamPathFor, type PreviewTitle } from "./source";
 import { PREVIEW_TIMING } from "./timing";
@@ -70,7 +70,8 @@ export function usePreviewEngine(title: PreviewTitle | null, hovered: boolean): 
       setStream(null);
       setCrop(1);
       setCycle((c) => c + 1);
-      dispatch({ type: "start", at: now() });
+      // Le délai choisi dans Tentacle, le même que pour ses cartes (`timing.ts`).
+      dispatch({ type: "start", at: now(), delayMs: hostPreviewDelayMs() });
       return;
     }
     if (phaseRef.current === "buffering" || phaseRef.current === "shown") {

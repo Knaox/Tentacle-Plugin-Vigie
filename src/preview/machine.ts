@@ -19,7 +19,7 @@
  * réseau) attend l'échéance dite, deux fois au plus.
  */
 
-import { PREVIEW_TIMING } from "./timing";
+import { PREVIEW_TIMING, previewPaceFor } from "./timing";
 
 export type PreviewPhase = "idle" | "intent" | "fetching" | "buffering" | "shown" | "over";
 
@@ -29,6 +29,9 @@ export interface PreviewState {
   since: number;
   /** Le pointeur est arrêté depuis… (un mouvement, un coup de molette la repoussent). */
   stillSince: number;
+  /** Le rythme du cycle, figé à son départ (le délai choisi dans Tentacle, `timing.ts`). */
+  intentMs: number;
+  revealMs: number;
   /** La première image doit être là avant cette échéance. */
   readyBy: number | null;
   videoReady: boolean;
@@ -44,7 +47,8 @@ export interface PreviewState {
 }
 
 export type PreviewEvent =
-  | { type: "start"; at: number }
+  /** `delayMs` : le délai que l'hôte dit (`host.ts`) ; absent : le rendez-vous d'avant (`PREVIEW_TIMING`). */
+  | { type: "start"; at: number; delayMs?: number }
   | { type: "move"; at: number }
   | { type: "tick"; at: number }
   | { type: "found"; at: number }
@@ -58,14 +62,15 @@ export type PreviewEvent =
   | { type: "stop"; at: number };
 
 export const IDLE: PreviewState = {
-  phase: "idle", since: 0, stillSince: 0, readyBy: null, videoReady: false, fragment: false,
+  phase: "idle", since: 0, stillSince: 0, intentMs: PREVIEW_TIMING.intentMs, revealMs: PREVIEW_TIMING.revealMs,
+  readyBy: null, videoReady: false, fragment: false,
   stillReady: false, retryAt: null, retries: 0, attempt: 0, failed: false,
 };
 
 const T = PREVIEW_TIMING;
 
-const intentAt = (s: PreviewState) => Math.max(s.since + T.intentMs, s.stillSince + T.intentStillMs);
-const revealAt = (s: PreviewState) => s.since + T.revealMs;
+const intentAt = (s: PreviewState) => Math.max(s.since + s.intentMs, s.stillSince + T.intentStillMs);
+const revealAt = (s: PreviewState) => s.since + s.revealMs;
 const hasPicture = (s: PreviewState) => s.videoReady || (s.fragment && s.stillReady);
 const withVideo = (s: PreviewState) => s.phase === "buffering" || s.phase === "shown";
 
@@ -87,8 +92,10 @@ export function reducePreview(state: PreviewState, event: PreviewEvent): Preview
   const at = event.at;
   const s = event.type === "start" || event.type === "stop" ? state : elapse(state, at);
   switch (event.type) {
-    case "start":
-      return { ...IDLE, phase: "intent", since: at, stillSince: at, attempt: state.attempt };
+    case "start": {
+      const pace = event.delayMs === undefined ? { intentMs: T.intentMs, revealMs: T.revealMs } : previewPaceFor(event.delayMs);
+      return { ...IDLE, ...pace, phase: "intent", since: at, stillSince: at, attempt: state.attempt };
+    }
     case "stop":
       return { ...IDLE, attempt: state.attempt };
     case "tick":

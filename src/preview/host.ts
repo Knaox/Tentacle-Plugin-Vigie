@@ -17,13 +17,20 @@ import { useSyncExternalStore } from "react";
 import { isMobileWebView } from "../utils/tentacle-fetch";
 import { useServerCapabilities } from "../utils/server-capabilities";
 import type { PreviewResponse, PreviewTitle } from "./source";
-import { PREVIEW_TIMING } from "./timing";
+import { PREVIEW_TIMING, previewDelayOf } from "./timing";
 
 export interface HostPreviewEnv {
   enabled: boolean;
   muted: boolean;
   /** Le volume des aperçus (0 à 1), réglé dans la mini-carte et retenu par l'hôte (Tentacle 1.30.0). */
   volume: number;
+  /**
+   * Le délai choisi dans Tentacle entre le début du survol et la première
+   * image (additif ; un hôte d'avant ne le dit pas : 600 ms, son ancien
+   * rendez-vous). Les titres de Vigie paraissent ainsi au même délai que les
+   * cartes de la bibliothèque.
+   */
+  delayMs: number;
 }
 
 const ENV_EVENT = "tentacle:trailerpreview";
@@ -45,8 +52,10 @@ function read(): HostPreviewEnv {
     enabled: tp?.enabled !== false,
     muted: localMuted ?? tp?.muted === true,
     volume: localVolume ?? (validVolume(tp?.volume) ? tp.volume : PREVIEW_TIMING.volume),
+    delayMs: previewDelayOf(tp?.delayMs),
   };
-  if (!snapshot || snapshot.enabled !== next.enabled || snapshot.muted !== next.muted || snapshot.volume !== next.volume) snapshot = next;
+  if (!snapshot || snapshot.enabled !== next.enabled || snapshot.muted !== next.muted || snapshot.volume !== next.volume
+    || snapshot.delayMs !== next.delayMs) snapshot = next;
   return snapshot;
 }
 
@@ -67,6 +76,11 @@ function onHostEnv() {
   localMuted = null;
   localVolume = null;
   notify();
+}
+
+/** Le délai que l'hôte dit, lu au départ d'un cycle (sans abonnement : le cycle suivant relit). */
+export function hostPreviewDelayMs(): number {
+  return read().delayMs;
 }
 
 export function useHostPreviewEnv(): HostPreviewEnv {

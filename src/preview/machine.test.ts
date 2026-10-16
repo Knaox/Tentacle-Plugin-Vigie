@@ -1,11 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { IDLE, previewDeadline, reducePreview, type PreviewEvent, type PreviewState } from "./machine";
+import { previewDelayOf } from "./timing";
 
 /*
  * Les règles de Damien, tenues par la machine : rien ne se demande pendant un
  * balayage ou un défilement, rien ne s'agrandit sans de quoi montrer, jamais
- * avant 600 ms, et un flux bloqué ne montre jamais rien.
+ * avant le délai (600 ms face à un hôte d'avant, celui choisi dans Tentacle
+ * sinon), et un flux bloqué ne montre jamais rien.
  */
 
 const run = (events: PreviewEvent[], from: PreviewState = IDLE) => events.reduce(reducePreview, from);
@@ -80,4 +82,26 @@ test("l'arrêt du survol remet tout au repos, et un nouveau survol repart de zé
   const again = run([{ type: "start", at: 1000 }], s);
   assert.equal(again.phase, "intent");
   assert.equal(again.since, 1000);
+});
+
+test("le délai que l'hôte dit fixe l'intention et la révélation du cycle (800 ms : demande à 400)", () => {
+  let s = run([{ type: "start", at: 0, delayMs: 800 }]);
+  assert.equal(previewDeadline(s), 400);
+  s = run([{ type: "tick", at: 399 }], s);
+  assert.equal(s.phase, "intent");
+  s = run([{ type: "tick", at: 400 }, { type: "found", at: 450 }, { type: "videoReady", at: 600 }], s);
+  assert.equal(s.phase, "buffering");
+  assert.equal(previewDeadline(s), 800);
+  assert.equal(run([{ type: "tick", at: 800 }], s).phase, "shown");
+});
+
+test("un délai court garde le plancher de 200 ms ; un hôte d'avant, l'ancien rendez-vous", () => {
+  assert.equal(previewDeadline(run([{ type: "start", at: 0, delayMs: 500 }])), 200);
+  assert.equal(previewDeadline(run([{ type: "start", at: 0, delayMs: 2000 }])), 1600);
+  assert.equal(previewDeadline(run([{ type: "start", at: 0 }])), 200);
+});
+
+test("le délai de l'hôte : un choix connu, sinon celui d'un hôte d'avant", () => {
+  assert.equal(previewDelayOf(1200), 1200);
+  for (const raw of [undefined, null, "800", 700, Number.NaN]) assert.equal(previewDelayOf(raw), 600);
 });
