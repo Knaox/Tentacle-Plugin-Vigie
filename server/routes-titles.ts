@@ -52,8 +52,9 @@ import { myTitles } from "./titles/my-titles";
 import { cached } from "./cache";
 import { loadMergedRows } from "./routes-requests-read";
 import { collectTmdbRefs, hydrateRows } from "./requests-list";
-import { resolveTmdbMeta } from "./tmdb-resolver";
-import { tmdbKey } from "./tmdb-cache";
+import { resolveTmdbMeta, scheduleTmdbBackfill } from "./tmdb-resolver";
+import { tmdbKey, type TmdbMeta, type TmdbRef } from "./tmdb-cache";
+import { overviewFetchBudget, refOf, withOverview } from "./titles/title-overview";
 import { arrVerdicts, type ArrVerdict } from "./arr-truth";
 import { correctMediaInfo } from "./live/media-info";
 import { allowsTitle, filterTitles, titleFromKey } from "./policy/content-gate";
@@ -91,6 +92,11 @@ export function registerTitleRoutes(
     const rights = await rightsOf(db, userId, cfg);
     // Un titre que le profil ne peut pas voir : ni pastille, ni geste, ni fiche (policy/content-gate.ts).
     const allowed = new Set((await filterTitles(userId, keys, (k) => k)).map((k) => k.key));
+    // Le résumé : ce que la mémoire des fiches sait déjà ; le reste se remplit en fond (title-overview.ts).
+    const refs = keys.filter((k) => allowed.has(k.key)).map(refOf);
+    const { meta, missing } = await resolveTmdbMeta(db, cfg, refs, { maxFetch: overviewFetchBudget(refs.length) })
+      .catch(() => ({ meta: new Map<string, TmdbMeta>(), missing: [] as TmdbRef[] }));
+    if (missing.length > 0) scheduleTmdbBackfill(db, cfg, missing);
     const items: Record<string, TitleStateOut> = {};
     for (const k of keys) {
       if (!allowed.has(k.key)) {
@@ -100,7 +106,7 @@ export function registerTitleRoutes(
       const status = statusFor({ key: k.key, mediaType: k.mediaType, tmdbId: k.tmdbId, remoteStatus: undefined });
       const state = titleStateFor(k.mediaType, k.tmdbId, status, rights, lang);
       const page = titlePage(k.mediaType, k.tmdbId, rights, lang);
-      items[k.key] = page ? { ...state, page } : state;
+      items[k.key] = withOverview(page ? { ...state, page } : state, meta.get(tmdbKey(refOf(k))));
     }
     return { items };
   });

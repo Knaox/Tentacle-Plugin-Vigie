@@ -34,6 +34,8 @@ export interface TitleStateOut {
   request: { mode: "direct" | "open"; label: string; href?: string } | null;
   /** La fiche du titre dans le hub (facultatif au contrat, venu après) : Tentacle l'ouvre d'« Affiner ». */
   page?: { label: string; href: string };
+  /** Son résumé (facultatif, venu après) : la carte ouverte d'un titre absent le montre (title-overview.ts). */
+  overview?: string;
 }
 
 /** Ce que le compte a le droit de demander (réglages Vigie). */
