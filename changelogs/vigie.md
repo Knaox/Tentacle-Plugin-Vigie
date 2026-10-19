@@ -19,6 +19,14 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.30.0]
+### FR
+- **Le résumé des titres à demander sur les téléviseurs** : la carte ouverte d'un film ou d'une série absent de la bibliothèque montre son résumé, en phrases entières, au lieu d'une zone vide
+- Les listes ne l'attendent jamais : les résumés déjà connus arrivent aussitôt, les autres se remplissent en arrière-plan
+### EN
+- **Summaries of titles to request on TVs**: the open card of a movie or show missing from the library shows its summary, in full sentences, instead of an empty area
+- Lists never wait for it: known summaries show up right away, the others fill in in the background
+
 ## [1.29.0]
 ### FR
 - **L'aperçu au survol suit le délai choisi dans Tentacle** : la mini-carte d'un titre à demander paraît au même moment que l'aperçu des cartes de la bibliothèque — 800 ms par défaut, à régler dans les réglages de Tentacle
