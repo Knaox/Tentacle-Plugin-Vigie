@@ -56,28 +56,33 @@ test("Sonarr bloque juste après la prise : pas de « en route », puis le bloca
   assert.deepEqual(said, ["sample"]);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].data.state, "blocked");
-  assert.equal(sent[0].data.title, "Dark");
-  assert.equal(sent[0].data.body, "Le fichier reçu n'est qu'un extrait, pas le titre complet. Un administrateur doit intervenir.");
+  assert.equal(sent[0].data.title, "Votre demande est en attente");
+  assert.equal(sent[0].data.body, "« Dark » — Le fichier reçu n'est qu'un extrait, pas le titre complet. Un administrateur doit intervenir.");
   const target = JSON.parse(String(sent[0].data.target));
   assert.deepEqual(target.params, { tab: "requests", find: "Dark", focus: "r1" });
 });
 
-test("pas de rafale : la même cause, même après un redémarrage de Vigie, ne se redit pas ; une autre se dit", async () => {
+test("pas de rafale : la même cause, même après un redémarrage de Vigie, ne se redit pas ; une autre pendant le MÊME blocage non plus", async () => {
   await passes([stuck("sample"), stuck("sample"), stuck("sample")]);
   resetArrivalWatch(); // Vigie redémarre : la base se souvient.
   await passes([stuck("sample"), stuck("sample"), stuck("sample")], req, 10);
   assert.equal(sent.length, 1);
+  // Sans reprise entre les deux, une autre cause n'est pas un nouvel avis.
   await passes([stuck("diskSpace"), stuck("diskSpace"), stuck("diskSpace")], req, 20);
+  assert.equal(sent.length, 1);
+  // Le titre repart, puis bloque pour une autre raison : là, c'est un nouvel état.
+  await passes([moving(900), stuck("diskSpace"), stuck("diskSpace"), stuck("diskSpace")], req, 30);
   assert.equal(sent.length, 2);
   // Une autre demande du même titre, même compte : toujours une seule annonce par cause.
-  await passes([stuck("diskSpace"), stuck("diskSpace"), stuck("diskSpace")], { ...req, id: "r2" }, 30);
+  await passes([stuck("diskSpace"), stuck("diskSpace"), stuck("diskSpace")], { ...req, id: "r2" }, 40);
   assert.equal(sent.length, 2);
 });
 
 test("le compte réglé en anglais lit l'avis en anglais", async () => {
   raw.prepare("INSERT INTO server_config (key, value) VALUES (?, ?)").run("user_lang_u1", "en");
   await passes([stuck("diskSpace"), stuck("diskSpace"), stuck("diskSpace")]);
-  assert.equal(sent[0].data.body, "The server is out of disk space to store this title. An administrator needs to step in.");
+  assert.equal(sent[0].data.title, "Your request is on hold");
+  assert.equal(sent[0].data.body, "\"Dark\" — The server is out of disk space to store this title. An administrator needs to step in.");
 });
 
 test("arrivé : la mémoire du titre s'efface, une suite bloquée sera de nouveau dite", async () => {

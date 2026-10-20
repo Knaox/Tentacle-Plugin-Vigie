@@ -21,8 +21,13 @@ export type BlockedCause =
   | "qualityRejected" | "diskSpace" | "fileAccess" | "busyFile" | "awaitingTitle" | "importRefused"
   | "noSource" | "transferFailed" | "clientUnreachable" | "paused" | "notFound" | "unknown";
 
-/** Se résout seule (patienter), exige un administrateur, ou on ne sait pas. */
-export type Resolution = "self" | "admin" | "unsure";
+/**
+ * Ce qu'il faut en attendre : le fichier sera RECHERCHÉ de nouveau tout seul
+ * (Sonarr ou Radarr écartent la source et en cherchent une autre — ou Vigie
+ * les y pousse, cf. stalled-research.ts), le serveur réessaie de lui-même,
+ * un administrateur doit intervenir, ou on ne sait pas.
+ */
+export type Resolution = "research" | "self" | "admin" | "unsure";
 
 export interface CauseSpec {
   /** `import` : le fichier est là, le rangement est refusé — l'avis « import refusé ». */
@@ -57,13 +62,15 @@ export const CAUSES: Readonly<Record<BlockedCause, CauseSpec>> = {
   // Sonarr attend jusqu'à 24 h le titre d'un épisode tout juste diffusé, puis range seul.
   awaitingTitle: { phase: "import", resolution: "self", confirmMs: TRANSFER },
   importRefused: { phase: "import", resolution: "unsure", confirmMs: IMPORT },
-  // Une source morte peut revenir… ou pas : on ne promet rien.
-  noSource: { phase: "transfer", resolution: "unsure", confirmMs: 20 * MIN },
+  // Plus personne ne partage le fichier : Vigie écarte la source et relance la
+  // recherche s'il ne repart pas (arrival/stalled-research.ts).
+  noSource: { phase: "transfer", resolution: "research", confirmMs: 20 * MIN },
   // Échec du transfert : la source est écartée, Sonarr ou Radarr en cherchent une autre.
-  transferFailed: { phase: "transfer", resolution: "self", confirmMs: TRANSFER },
+  transferFailed: { phase: "transfer", resolution: "research", confirmMs: TRANSFER },
   clientUnreachable: { phase: "transfer", resolution: "unsure", confirmMs: 15 * MIN },
   paused: { phase: "transfer", resolution: "admin", confirmMs: TRANSFER },
-  notFound: { phase: "search", resolution: "self", confirmMs: TRANSFER },
+  // Sonarr et Radarr relisent les nouvelles sorties de leurs indexeurs en continu.
+  notFound: { phase: "search", resolution: "research", confirmMs: TRANSFER },
   unknown: { phase: "transfer", resolution: "unsure", confirmMs: TRANSFER },
 };
 

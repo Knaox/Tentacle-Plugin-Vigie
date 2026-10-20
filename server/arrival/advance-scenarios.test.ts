@@ -7,6 +7,8 @@ import type { TestDatabase } from "../test-support/sqlite";
 import type { VigieDb } from "../storage/vigie-db";
 import { advanceFromArr } from "../arr-advance";
 import { resetArrivalWatch } from "./arrival-notices";
+import { resetStalledResearch } from "./stalled-research";
+import type { FetchCall } from "../test-support/fake-http";
 import { invalidate } from "../cache";
 
 /*
@@ -29,6 +31,7 @@ const realNow = Date.now;
 let queue: unknown[] = [];
 let hasFile = false;
 let restoreFetch: () => void;
+let calls: FetchCall[] = [];
 
 beforeEach(async () => {
   const t = testDb();
@@ -37,17 +40,20 @@ beforeEach(async () => {
   raw.exec("CREATE TABLE server_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
   raw.exec("CREATE TABLE content_claims (tmdbId INTEGER, jellyfinUserId TEXT, mediaType TEXT, title TEXT, expiresAt INTEGER, createdAt INTEGER, PRIMARY KEY (tmdbId, jellyfinUserId))");
   resetArrivalWatch();
+  resetStalledResearch();
   invalidate("seer");
   clock = Date.UTC(2026, 9, 15, 20, 0, 0);
   Date.now = () => clock;
   queue = [];
   hasFile = false;
-  restoreFetch = stubFetch([
+  const stub = stubFetch([
     (c) => (c.url === `${SEERR}/api/v1/settings/radarr` ? json([{ isDefault: true, hostname: "radarr.test", port: 7878, apiKey: "r", useSsl: false, baseUrl: "" }]) : null),
     (c) => (c.url === `${SEERR}/api/v1/settings/sonarr` ? json([]) : null),
     (c) => (c.url.startsWith(`${RADARR}/api/v3/queue`) ? json({ records: queue, totalRecords: queue.length }) : null),
     (c) => (c.url.startsWith(`${RADARR}/api/v3/movie?tmdbId=`) ? json([{ hasFile }]) : null),
-  ]).restore;
+  ]);
+  restoreFetch = stub.restore;
+  calls = stub.calls;
   raw.prepare(
     `INSERT INTO seer_requests (id, jellyfin_user_id, username, media_type, tmdb_id, title, status, created_at, updated_at)
      VALUES ('r1', 'u1', 'alice', 'movie', 7, 'Dune', 'approved', ?, ?)`,
@@ -82,8 +88,21 @@ test("Radarr prend le film puis bloque aussitôt (source morte) : jamais « en r
     statusMessages: [{ title: "Dune.2026.1080p", messages: ["The download is stalled with no connections"] }] });
   await minutes(30, (m) => { queue = m === 0 ? [record({})] : [stalled]; });
   assert.deepEqual(bodies(), [
-    "blocked: Plus personne ne partage ce titre pour l'instant : le transfert est à l'arrêt. Si rien ne bouge, un administrateur devra intervenir.",
+    "blocked: « Dune » — Pas assez de personnes partagent ce fichier pour l'instant : le transfert est à l'arrêt. Ça se réglera tout seul : le fichier sera recherché à nouveau automatiquement, rien à faire de votre part.",
   ]);
+  assert.equal(sent[0].data.title, "Votre demande est en attente");
+});
+
+test("la promesse tenue : une source morte six heures durant est écartée, la recherche relancée — une seule fois", async () => {
+  const stalled = record({ id: 31, status: "warning", trackedDownloadStatus: "warning",
+    statusMessages: [{ title: "Dune.2026.1080p", messages: ["The download is stalled with no connections"] }] });
+  const deletes = () => calls.filter((c) => c.method === "DELETE").map((c) => c.url);
+  await minutes(5 * 60, () => { queue = [stalled]; });
+  assert.deepEqual(deletes(), []);
+  await minutes(70, () => { queue = [stalled]; });
+  assert.deepEqual(deletes(), [`${RADARR}/api/v3/queue/31?removeFromClient=true&blocklist=true&skipRedownload=false`]);
+  // Un seul avis pour tout ce temps : la demande attend, elle ne crie pas.
+  assert.equal(sent.length, 1);
 });
 
 test("une copie refusée à l'import (échantillon), une autre qui descend : « en route » confirmé, aucune alerte, puis l'arrivée", async () => {
@@ -109,7 +128,7 @@ test("import refusé pour de bon : expliqué en deux minutes, une seule fois, pu
   await minutes(40, () => { queue = [unknownRelease]; });
   assert.deepEqual(bodies(), [
     "progress: « Dune » est en route",
-    "blocked: Le serveur ne reconnaît pas le fichier reçu et ne peut pas le ranger seul. Un administrateur doit intervenir.",
+    "blocked: « Dune » — Le serveur ne reconnaît pas le fichier reçu et ne peut pas le ranger seul. Un administrateur doit intervenir.",
   ]);
   const target = JSON.parse(String(sent[1].data.target));
   assert.equal(target.path, "/discover");

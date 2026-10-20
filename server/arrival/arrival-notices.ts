@@ -11,7 +11,10 @@
  *   - départ   → « « Titre » est en route », état `progress` — le texte
  *                exact que le cœur reconnaît pour le pousser
  *                (seerDeparturePush.ts) ; jamais après une arrivée annoncée ;
- *   - blocage  → ce qui se passe et s'il faut patienter, état `blocked`.
+ *   - blocage  → « Votre demande est en attente » : le titre, ce qui se
+ *                passe et ce qu'il faut en attendre, état `blocked` — UNE
+ *                fois par blocage : une autre cause pendant le MÊME blocage
+ *                ne fait pas un second avis.
  *
  * Les fenêtres vivent en mémoire : un redémarrage reprend leur compte à zéro
  * (au pire une annonce un peu plus tard), jamais une annonce de plus — la
@@ -22,7 +25,7 @@ import type { VigieDb } from "../storage/vigie-db";
 import type { BlockedCause } from "./blocked-causes";
 import type { TitleArrivalState } from "./arrival-state";
 import type { DownloadProgress } from "../types";
-import { blockedSentence } from "./blocked-texts";
+import { blockedNotice } from "./blocked-texts";
 import { accountLang } from "./account-lang";
 import { claimNotice, forgetTitleNotices, releaseNotice, type NoticeKey } from "./notice-store";
 import { stepBlocked, stepDeparture, type ArrivalObservation, type BlockedTrack, type DepartureTrack } from "./notice-watch";
@@ -105,8 +108,11 @@ export async function watchArrival(
   if (blocked.due) {
     const cause = blocked.due;
     const blockedKey = `blk:${req.id}:${cause}`;
-    if (!settled.has(blockedKey)) {
-      const text = async () => ({ title: req.title, body: blockedSentence(cause, await accountLang(db, req.jellyfinUserId)) });
+    // Un blocage déjà dit (quelle qu'en soit la cause) se tait jusqu'à ce que
+    // le titre reparte : une cause qui en remplace une autre n'est pas une rafale.
+    const alreadySaid = [...settled].some((key) => key.startsWith(`blk:${req.id}:`));
+    if (!alreadySaid) {
+      const text = async () => blockedNotice(cause, await accountLang(db, req.jellyfinUserId), req.title);
       if (await announce(db, req, keyOf(req, "blocked", cause), text, "blocked", post)) out.push(cause);
       settled.add(blockedKey);
     }
