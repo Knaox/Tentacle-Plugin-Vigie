@@ -1536,6 +1536,17 @@ async function triggerSeerrJob(seerrUrl2, apiKey, jobId) {
     console.warn(`[ArrService] triggerSeerrJob ${jobId} failed:`, err);
   }
 }
+async function blocklistAndResearch(server, recordId) {
+  try {
+    const res = await arrFetch(server, `/api/v3/queue/${recordId}?removeFromClient=true&blocklist=true&skipRedownload=false`, {
+      method: "DELETE"
+    });
+    return res.ok || res.status === 404;
+  } catch (err) {
+    console.warn(`[ArrService] blocklistAndResearch #${recordId} failed:`, err);
+    return false;
+  }
+}
 
 // server/arrival/arrival-state.ts
 var ITEM_ORDER = ["blocked", "pending", "downloading", "importing", "imported"];
@@ -1608,13 +1619,15 @@ var CAUSES = {
   // Sonarr attend jusqu'à 24 h le titre d'un épisode tout juste diffusé, puis range seul.
   awaitingTitle: { phase: "import", resolution: "self", confirmMs: TRANSFER },
   importRefused: { phase: "import", resolution: "unsure", confirmMs: IMPORT },
-  // Une source morte peut revenir… ou pas : on ne promet rien.
-  noSource: { phase: "transfer", resolution: "unsure", confirmMs: 20 * MIN },
+  // Plus personne ne partage le fichier : Vigie écarte la source et relance la
+  // recherche s'il ne repart pas (arrival/stalled-research.ts).
+  noSource: { phase: "transfer", resolution: "research", confirmMs: 20 * MIN },
   // Échec du transfert : la source est écartée, Sonarr ou Radarr en cherchent une autre.
-  transferFailed: { phase: "transfer", resolution: "self", confirmMs: TRANSFER },
+  transferFailed: { phase: "transfer", resolution: "research", confirmMs: TRANSFER },
   clientUnreachable: { phase: "transfer", resolution: "unsure", confirmMs: 15 * MIN },
   paused: { phase: "transfer", resolution: "admin", confirmMs: TRANSFER },
-  notFound: { phase: "search", resolution: "self", confirmMs: TRANSFER },
+  // Sonarr et Radarr relisent les nouvelles sorties de leurs indexeurs en continu.
+  notFound: { phase: "search", resolution: "research", confirmMs: TRANSFER },
   unknown: { phase: "transfer", resolution: "unsure", confirmMs: TRANSFER }
 };
 var PATTERNS = [
@@ -2106,6 +2119,42 @@ function queueSnapshot(cfg) {
 async function fetchServerQueue(cfg) {
   const snapshot = await queueSnapshot(cfg);
   return { ...snapshot, items: snapshot.items.slice(0, MAX_ITEMS) };
+}
+
+// server/arrival/stalled-research.ts
+var STALLED_RESEARCH_MS = 6 * 60 * 6e4;
+function stepStalled(prev, entry, now) {
+  if (!entry.stalled || entry.cause !== "noSource") return { track: null, due: false };
+  if (!prev) return { track: { since: now, sizeLeft: entry.sizeLeft }, due: false };
+  if (prev.sizeLeft != null && entry.sizeLeft != null && entry.sizeLeft < prev.sizeLeft) {
+    return { track: { since: now, sizeLeft: entry.sizeLeft }, due: false };
+  }
+  return { track: prev, due: now - prev.since >= STALLED_RESEARCH_MS };
+}
+function queueRecordId(entry) {
+  const n = Number(/^(?:sonarr|radarr)-(\d+)$/.exec(entry.id)?.[1]);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+var tracks = /* @__PURE__ */ new Map();
+var relaunched = /* @__PURE__ */ new Set();
+async function researchStalledEntries(entries, now, research2) {
+  const out = [];
+  for (const entry of entries) {
+    const step = stepStalled(tracks.get(entry.id) ?? null, entry, now);
+    if (step.track) tracks.set(entry.id, step.track);
+    else tracks.delete(entry.id);
+    const download = entry.downloadId ?? entry.id;
+    const recordId = queueRecordId(entry);
+    if (!step.due || recordId === null || relaunched.has(download)) continue;
+    relaunched.add(download);
+    if (await research2(entry, recordId).catch(() => false)) out.push(entry);
+    else relaunched.delete(download);
+  }
+  return out;
+}
+function pruneStalledResearch(alive, aliveDownloads) {
+  for (const id of tracks.keys()) if (!alive.has(id)) tracks.delete(id);
+  for (const key of relaunched) if (!alive.has(key) && !aliveDownloads.has(key)) relaunched.delete(key);
 }
 
 // server/concurrency.ts
@@ -2954,7 +3003,7 @@ var CAUSE_TEXT = {
     busyFile: "Le fichier re\xE7u est encore en cours de pr\xE9paration.",
     awaitingTitle: "L'\xE9pisode vient de sortir : le serveur attend son titre officiel pour le ranger.",
     importRefused: "Le fichier est arriv\xE9, mais le serveur refuse de le ranger.",
-    noSource: "Plus personne ne partage ce titre pour l'instant : le transfert est \xE0 l'arr\xEAt.",
+    noSource: "Pas assez de personnes partagent ce fichier pour l'instant : le transfert est \xE0 l'arr\xEAt.",
     transferFailed: "Le transfert a \xE9chou\xE9 ; le serveur cherche une autre source.",
     clientUnreachable: "Le serveur n'arrive plus \xE0 joindre son logiciel de transfert.",
     paused: "Le transfert a \xE9t\xE9 mis en pause sur le serveur.",
@@ -2974,7 +3023,7 @@ var CAUSE_TEXT = {
     busyFile: "The file received is still being prepared.",
     awaitingTitle: "The episode just aired: the server is waiting for its official title before filing it.",
     importRefused: "The file arrived, but the server won't add it to the library.",
-    noSource: "Nobody is sharing this title right now, so the transfer has stalled.",
+    noSource: "Not enough people are sharing this file right now, so the transfer has stalled.",
     transferFailed: "The transfer failed; the server is looking for another source.",
     clientUnreachable: "The server can't reach its transfer software.",
     paused: "The transfer was paused on the server.",
@@ -2984,12 +3033,14 @@ var CAUSE_TEXT = {
 };
 var RESOLUTION_TEXT = {
   fr: {
-    self: "Patientez : le serveur r\xE9essaie tout seul, Vigie vous pr\xE9viendra.",
+    research: "\xC7a se r\xE9glera tout seul : le fichier sera recherch\xE9 \xE0 nouveau automatiquement, rien \xE0 faire de votre part.",
+    self: "\xC7a se r\xE9glera tout seul : le serveur r\xE9essaie de lui-m\xEAme, rien \xE0 faire de votre part.",
     admin: "Un administrateur doit intervenir.",
     unsure: "Si rien ne bouge, un administrateur devra intervenir."
   },
   en: {
-    self: "Hang tight: the server keeps trying on its own, and Vigie will let you know.",
+    research: "This will sort itself out: the file will be searched for again automatically, nothing for you to do.",
+    self: "This will sort itself out: the server keeps retrying on its own, nothing for you to do.",
     admin: "An administrator needs to step in.",
     unsure: "If nothing changes, an administrator will need to step in."
   }
@@ -2999,6 +3050,14 @@ function noticeLang(raw) {
 }
 function blockedSentence(cause, lang) {
   return `${CAUSE_TEXT[lang][cause]} ${RESOLUTION_TEXT[lang][CAUSES[cause].resolution]}`;
+}
+var BLOCKED_NOTICE_TITLE = {
+  fr: "Votre demande est en attente",
+  en: "Your request is on hold"
+};
+function blockedNotice(cause, lang, title) {
+  const quoted = lang === "en" ? `"${title}"` : `\xAB ${title} \xBB`;
+  return { title: BLOCKED_NOTICE_TITLE[lang], body: `${quoted} \u2014 ${blockedSentence(cause, lang)}` };
 }
 
 // server/arrival/account-lang.ts
@@ -3118,8 +3177,9 @@ async function watchArrival(db, req, seen, now, post = postToCore) {
   if (blocked.due) {
     const cause = blocked.due;
     const blockedKey = `blk:${req.id}:${cause}`;
-    if (!settled.has(blockedKey)) {
-      const text2 = async () => ({ title: req.title, body: blockedSentence(cause, await accountLang(db, req.jellyfinUserId)) });
+    const alreadySaid = [...settled].some((key) => key.startsWith(`blk:${req.id}:`));
+    if (!alreadySaid) {
+      const text2 = async () => blockedNotice(cause, await accountLang(db, req.jellyfinUserId), req.title);
       if (await announce(db, req, keyOf(req, "blocked", cause), text2, "blocked", post)) out.push(cause);
       settled.add(blockedKey);
     }
@@ -3261,11 +3321,16 @@ async function advanceFromArr(db, cfg) {
   const alive = new Set(requests.map((r) => r.id));
   for (const id of leftQueue.keys()) if (!alive.has(id)) leftQueue.delete(id);
   pruneArrivalWatch(alive);
+  pruneStalledResearch(new Set(queue.items.map((e) => e.id)), new Set(queue.items.flatMap((e) => e.downloadId ? [e.downloadId] : [])));
   const idleTurn = passCount % IDLE_EVERY_PASSES === 1;
   const now = Date.now();
   await mapLimit(requests, CONCURRENCY3, async (req) => {
     if (!arrKnows(req.mediaType)) return;
-    const arriving3 = summarizeQueue(matchQueue(req, queue.items));
+    const matched = matchQueue(req, queue.items);
+    const arriving3 = summarizeQueue(matched);
+    await researchStalledEntries(matched, now, (entry, recordId) => research(cfg, entry, recordId)).then((done) => {
+      for (const e of done) console.log(`[SeerArr] "${req.title}" : source \xE0 l'arr\xEAt \xE9cart\xE9e, recherche relanc\xE9e (${e.id})`);
+    }).catch((err) => console.warn(`[SeerArr] "${req.title}" (relance) :`, err));
     const inQueue = arriving3 !== null;
     await watchArrival(db, req, observationOf(arriving3), now).then((said) => {
       if (said.length > 0) console.log(`[SeerArr] "${req.title}" annonc\xE9 : ${said.join(", ")}`);
@@ -3278,6 +3343,10 @@ async function advanceFromArr(db, cfg) {
       console.warn(`[SeerArr] "${req.title}" :`, err);
     }
   });
+}
+async function research(cfg, entry, recordId) {
+  const server = await getArrServerConfig(cfg.seerrUrl, cfg.seerrApiKey, entry.source);
+  return server ? blocklistAndResearch(server, recordId) : false;
 }
 async function decide(cfg, req, inQueue) {
   const base = { status: req.status, notifiedSeasons: req.notifiedSeasons, inQueue };
@@ -11567,6 +11636,28 @@ function myTitles(requests, verdicts) {
   return [...byKey.values()];
 }
 
+// server/titles/title-overview.ts
+var OVERVIEW_FETCH_NOW = 2;
+var OVERVIEW_MAX = 600;
+function overviewFetchBudget(keyCount) {
+  return keyCount <= OVERVIEW_FETCH_NOW ? keyCount : 0;
+}
+function clipOverview(raw) {
+  const text2 = (raw ?? "").replace(/\s+/g, " ").trim();
+  if (!text2) return null;
+  if (text2.length <= OVERVIEW_MAX) return text2;
+  const cut = text2.slice(0, OVERVIEW_MAX);
+  const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  if (end > OVERVIEW_MAX / 3) return cut.slice(0, end + 1);
+  const space = cut.lastIndexOf(" ");
+  return `${cut.slice(0, space > 0 ? space : OVERVIEW_MAX)}\u2026`;
+}
+var refOf = (k) => ({ mediaType: k.mediaType, tmdbId: k.tmdbId });
+function withOverview(state2, meta) {
+  const overview = clipOverview(meta?.overview);
+  return overview ? { ...state2, overview } : state2;
+}
+
 // server/routes-titles.ts
 var MINE_TTL_MS = 1e4;
 var MINE_META_BUDGET = 10;
@@ -11582,6 +11673,9 @@ function registerTitleRoutes(app, db, getWorkerConfig2) {
     const userId = getUser(request).userId;
     const rights = await rightsOf(db, userId, cfg);
     const allowed = new Set((await filterTitles(userId, keys2, (k) => k)).map((k) => k.key));
+    const refs = keys2.filter((k) => allowed.has(k.key)).map(refOf);
+    const { meta, missing } = await resolveTmdbMeta(db, cfg, refs, { maxFetch: overviewFetchBudget(refs.length) }).catch(() => ({ meta: /* @__PURE__ */ new Map(), missing: [] }));
+    if (missing.length > 0) scheduleTmdbBackfill(db, cfg, missing);
     const items = {};
     for (const k of keys2) {
       if (!allowed.has(k.key)) {
@@ -11591,7 +11685,7 @@ function registerTitleRoutes(app, db, getWorkerConfig2) {
       const status = statusFor({ key: k.key, mediaType: k.mediaType, tmdbId: k.tmdbId, remoteStatus: void 0 });
       const state2 = titleStateFor(k.mediaType, k.tmdbId, status, rights, lang);
       const page = titlePage(k.mediaType, k.tmdbId, rights, lang);
-      items[k.key] = page ? { ...state2, page } : state2;
+      items[k.key] = withOverview(page ? { ...state2, page } : state2, meta.get(tmdbKey(refOf(k))));
     }
     return { items };
   });
