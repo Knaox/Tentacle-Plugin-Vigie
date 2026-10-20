@@ -19,6 +19,16 @@ auto-bumpé par le message du commit (`feat`→mineure, `fix`→patch, `!`→maj
 
 ---
 
+## [1.31.0]
+### FR
+- **« Votre demande est en attente »** : quand une demande se bloque, un seul avis dit le titre, ce qui se passe et ce qu'il faut en attendre — « ça se réglera tout seul » seulement là où c'est vrai
+- **Une source morte ne bloque plus une demande** : un téléchargement sans un octet reçu pendant six heures voit sa source écartée (ce fichier-là seulement, jamais le titre) et la recherche relancée
+- Avec le serveur Tentacle 1.31.1 ou plus récent, l'avis arrive aussi en notification push ; avant, il reste dans la cloche
+### EN
+- **"Your request is on hold"**: when a request gets stuck, a single notice gives the title, what is happening and what to expect — "this will sort itself out" only where it is true
+- **A dead source no longer stalls a request**: a download with not a single byte received for six hours has its source dropped (that file only, never the title) and the search restarted
+- With Tentacle server 1.31.1 or later, the notice also arrives as a push notification; before that, it stays in the bell
+
 ## [1.30.0]
 ### FR
 - **Le résumé des titres à demander sur les téléviseurs** : la carte ouverte d'un film ou d'une série absent de la bibliothèque montre son résumé, en phrases entières, au lieu d'une zone vide
