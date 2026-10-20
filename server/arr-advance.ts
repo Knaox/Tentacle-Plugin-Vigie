@@ -21,7 +21,9 @@ import type { WorkerCfg } from "./seerr-unified";
 import { rowToRequest } from "./db-helpers";
 import { updateRequestStatus, setNotifiedSeasons, upsertContentClaim } from "./db";
 import { invalidateRequestCaches } from "./cache";
-import { queueSnapshot } from "./arr-queue";
+import { queueSnapshot, type QueueEntry } from "./arr-queue";
+import { blocklistAndResearch, getArrServerConfig } from "./arr-service";
+import { pruneStalledResearch, researchStalledEntries } from "./arrival/stalled-research";
 import { deletedFromJellyfin, matchQueue, summarizeQueue } from "./arr-truth";
 import { arrivalAnnounced, observationOf, pruneArrivalWatch, watchArrival } from "./arrival/arrival-notices";
 import { goneFromJellyfin, goneSeasonsOf } from "./live/live-state";
@@ -87,12 +89,18 @@ export async function advanceFromArr(db: VigieDb, cfg: WorkerCfg): Promise<void>
   const alive = new Set(requests.map((r) => r.id));
   for (const id of leftQueue.keys()) if (!alive.has(id)) leftQueue.delete(id);
   pruneArrivalWatch(alive);
+  pruneStalledResearch(new Set(queue.items.map((e) => e.id)), new Set(queue.items.flatMap((e) => (e.downloadId ? [e.downloadId] : []))));
   const idleTurn = passCount % IDLE_EVERY_PASSES === 1;
   const now = Date.now();
 
   await mapLimit(requests, CONCURRENCY, async (req) => {
     if (!arrKnows(req.mediaType)) return;
-    const arriving = summarizeQueue(matchQueue(req, queue.items));
+    const matched = matchQueue(req, queue.items);
+    const arriving = summarizeQueue(matched);
+    // Une source morte depuis des heures : écartée, la recherche relancée (la promesse de l'avis).
+    await researchStalledEntries(matched, now, (entry, recordId) => research(cfg, entry, recordId))
+      .then((done) => { for (const e of done) console.log(`[SeerArr] "${req.title}" : source à l'arrêt écartée, recherche relancée (${e.id})`); })
+      .catch((err) => console.warn(`[SeerArr] "${req.title}" (relance) :`, err));
     const inQueue = arriving !== null;
     // Les fenêtres d'annonce voient chaque passe, même celles qui ne relisent pas les fichiers.
     await watchArrival(db, req, observationOf(arriving), now)
@@ -106,6 +114,11 @@ export async function advanceFromArr(db: VigieDb, cfg: WorkerCfg): Promise<void>
       console.warn(`[SeerArr] "${req.title}" :`, err);
     }
   });
+}
+
+async function research(cfg: WorkerCfg, entry: QueueEntry, recordId: number): Promise<boolean> {
+  const server = await getArrServerConfig(cfg.seerrUrl, cfg.seerrApiKey, entry.source);
+  return server ? blocklistAndResearch(server, recordId) : false;
 }
 
 async function decide(cfg: WorkerCfg, req: SeerRequest, inQueue: boolean): Promise<AdvanceDecision> {

@@ -244,3 +244,21 @@ export async function triggerSeerrJob(
     console.warn(`[ArrService] triggerSeerrJob ${jobId} failed:`, err);
   }
 }
+
+/**
+ * « Retirer, mettre sur liste noire et chercher » une entrée de la file de
+ * Sonarr ou Radarr : le client oublie le transfert, la version est écartée,
+ * et `skipRedownload=false` fait chercher une autre version aussitôt
+ * (cf. arrival/stalled-research.ts). `false` si le service a refusé.
+ */
+export async function blocklistAndResearch(server: ArrServerConfig, recordId: number): Promise<boolean> {
+  try {
+    const res = await arrFetch(server, `/api/v3/queue/${recordId}?removeFromClient=true&blocklist=true&skipRedownload=false`, {
+      method: "DELETE",
+    });
+    return res.ok || res.status === 404;
+  } catch (err) {
+    console.warn(`[ArrService] blocklistAndResearch #${recordId} failed:`, err);
+    return false;
+  }
+}
